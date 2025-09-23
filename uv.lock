@@ -112,11 +112,17 @@ name = "dav"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "scipy" },
+    { name = "statsmodels" },
     { name = "wa-analyzer" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "wa-analyzer", specifier = ">=0.4.1" }]
+requires-dist = [
+    { name = "scipy", specifier = ">=1.16.2" },
+    { name = "statsmodels", specifier = ">=0.14.5" },
+    { name = "wa-analyzer", specifier = ">=0.4.1" },
+]
 
 [[package]]
 name = "fonttools"
