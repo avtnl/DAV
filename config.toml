@@ -1,6 +1,8 @@
 raw = "data/raw"
 processed = "data/processed"
+image = "img"
 input = "_chat.txt"
+preprocess = False
 current_dac = "whatsapp-20250910-005041-dac-cleaned.parq"
 current = "whatsapp-20250910-002822-maap-cleaned.parq"
 current_1 = "whatsapp-20250910-002822-maap-cleaned.parq"
