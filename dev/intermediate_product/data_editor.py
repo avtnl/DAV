@@ -1,212 +1,225 @@
-import tomllib
-import re
-import pytz
-import shutil
-from pathlib import Path
-from loguru import logger
-from datetime import datetime
-import wa_analyzer.preprocess as preprocessor
 import pandas as pd
+import re
+from loguru import logger
 
-class FileManager:
-    def find_name_csv(self, path, timestamp):
+class DataEditor:
+    def __init__(self):
+        self.emoji_pattern = re.compile(
+            "["
+            "\U0001f600-\U0001f64f"  # emoticons
+            "\U0001f300-\U0001f5ff"  # symbols & pictographs
+            "\U0001f680-\U0001f6ff"  # transport & map symbols
+            "\U0001f1e0-\U0001f1ff"  # flags (iOS)
+            "\U00002702-\U000027b0"  # Dingbats
+            "\U000024c2-\U0001f251"
+            "]+",
+            flags=re.UNICODE,
+        )
+
+    def convert_timestamp(self, datafile):
         """
-        Find a CSV file in path with name 'whatsapp-YYYYMMDD-HHMMSS.csv' where
-        the timestamp is later than the provided timestamp.
-        
+        Convert the 'timestamp' column from a string to a datetime object.
+
         Args:
-            path (Path): Directory to search (e.g., Path("data/processed"))
-            timestamp (str): Timestamp in format 'YYYYMMDD-HHMMSS' (e.g., '20250924-221905')
-        
+            datafile (Path): Path to the CSV file to read.
+
         Returns:
-            Path or None: Path to the matching file, or None if no file is found
+            pandas.DataFrame: DataFrame with converted timestamp column.
         """
-        pattern = r"whatsapp-(\d{8}-\d{6})\.csv"
-        try:
-            input_dt = datetime.strptime(timestamp, "%Y%m%d-%H%M%S")
-            input_dt = pytz.timezone('Europe/Amsterdam').localize(input_dt)
-        except ValueError:
-            logger.error(f"Invalid timestamp format: {timestamp}")
+        df = pd.read_csv(datafile, parse_dates=["timestamp"])
+        logger.info(f"DataFrame head:\n{df.head()}")
+        return df
+
+    def clean_author(self, df):
+        """
+        Clean author names by removing leading tilde characters.
+        Sometimes, author names have a tilde in front due to formatting issues.
+
+        Args:
+            df (pandas.DataFrame): DataFrame with an 'author' column.
+
+        Returns:
+            pandas.DataFrame: DataFrame with cleaned 'author' column.
+        """
+        clean_tilde = r"^~\u202f"
+        df["author"] = df["author"].apply(lambda x: re.sub(clean_tilde, "", str(x)))
+        return df
+
+    def has_emoji(self, text):
+        """
+        Check if the input text contains any emojis and add that as a feature.
+
+        Args:
+            text (str): Text to check for emojis.
+
+        Returns:
+            bool: True if the text contains emojis, False otherwise.
+        """
+        return bool(self.emoji_pattern.search(str(text)))
+
+    def concatenate_df(self, dataframes):
+        """
+        Concatenate multiple DataFrames into a single DataFrame and log verification details.
+
+        Args:
+            dataframes (dict): Dictionary of DataFrames to concatenate.
+
+        Returns:
+            pandas.DataFrame or None: Concatenated DataFrame, or None if concatenation fails.
+        """
+        if not dataframes:
+            logger.error("No DataFrames provided for concatenation")
             return None
         
-        for file in path.glob("*.csv"):
-            match = re.match(pattern, file.name)
-            if match:
-                file_timestamp = match.group(1)
-                try:
-                    file_dt = datetime.strptime(file_timestamp, "%Y%m%d-%H%M%S")
-                    file_dt = pytz.timezone('Europe/Amsterdam').localize(file_dt)
-                    if file_dt > input_dt:
-                        logger.info(f"Found matching file: {file}")
-                        return file
-                except ValueError:
-                    logger.warning(f"Invalid timestamp in filename: {file.name}")
-                    continue
-        
-        logger.warning(f"No CSV file found in {path} with timestamp later than {timestamp}")
-        return None
-    
-    def read_csv(self):
-        """
-        Read configuration and determine the CSV file(s) to process.
-        If preprocess is True, rename raw files, preprocess, and keep Parquet filenames in memory.
-        If preprocess is False, use current_* keys from config.
-        
-        Returns:
-            tuple: (list of Path or None, Path or None, dict, dict or None) - 
-                   List of CSV files, processed directory, group mapping, Parquet files mapping
-        """
-        configfile = Path("config.toml").resolve()
+        logger.debug("Concatenating DataFrames")
         try:
-            with configfile.open("rb") as f:
-                config = tomllib.load(f)
-        except FileNotFoundError:
-            logger.error("config.toml not found")
-            return None, None, None, None
-        
-        processed = Path(config["processed"])
-        raw_dir = Path(config["raw"])
-        preprocess = config["preprocess"]
-        
-        # Define raw file to group mapping
-        raw_files = {
-            "raw_1": ("current_1", "maap"),
-            "raw_2a": ("current_2a", "golfmaten"),
-            "raw_2b": ("current_2b", "golfmaten"),
-            "raw_3": ("current_3", "dac"),
-            "raw_4": ("current_4", "tillies")
-        }
-        group_map = {current_key: group for _, (current_key, group) in raw_files.items()}
-        
-        if preprocess:
-            datafiles = []
-            parq_files = {}
+            df = pd.concat(dataframes.values(), ignore_index=True)
+            logger.info(f"Concatenated DataFrame with {len(df)} rows and columns: {df.columns.tolist()}")
             
-            for raw_key, (current_key, group) in raw_files.items():
-                if raw_key not in config:
-                    logger.warning(f"Key {raw_key} not found in config.toml")
-                    continue
-                raw_file = raw_dir / config[raw_key]
-                if not raw_file.exists():
-                    logger.warning(f"Raw file {raw_file} does not exist")
-                    continue
-                
-                # Rename raw file to _chat.txt
-                chat_file = raw_dir / "_chat.txt"
-                try:
-                    shutil.copy(raw_file, chat_file)
-                    logger.info(f"Copied {raw_file} to {chat_file}")
-                except Exception as e:
-                    logger.error(f"Failed to copy {raw_file} to {chat_file}: {e}")
-                    continue
-                
-                # Run preprocessor
-                now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
-                logger.info(f"Preprocessing with timestamp: {now}")
-                try:
-                    preprocessor.main(["--device", "ios"])
-                except Exception as e:
-                    logger.error(f"Preprocessing failed for {raw_file}: {e}")
-                    continue
-                
-                # Find the generated CSV file
-                datafile = self.find_name_csv(processed, now)
-                if datafile is None:
-                    logger.error(f"No CSV file found after preprocessing {raw_file}")
-                    continue
-                
-                # Find the corresponding Parquet file
-                parq_file = datafile.with_suffix(".parq")
-                if not parq_file.exists():
-                    logger.warning(f"Parquet file {parq_file} not found")
-                    continue
-                
-                datafiles.append(datafile)
-                parq_files[current_key] = parq_file.name
-                logger.info(f"Processed {raw_file} -> CSV: {datafile}, Parquet: {parq_file}")
-                
-                # Clean up _chat.txt
-                try:
-                    chat_file.unlink()
-                    logger.info(f"Removed temporary {chat_file}")
-                except Exception as e:
-                    logger.warning(f"Failed to remove {chat_file}: {e}")
-            
-            if not datafiles:
-                logger.error("No valid CSV files found after preprocessing")
-                return None, None, None, None
-            return datafiles, processed, group_map, parq_files
-        else:
-            datafiles = []
-            for current_key in group_map:
-                if current_key not in config:
-                    logger.warning(f"Key {current_key} not found in config.toml")
-                    continue
-                datafile = processed / config[current_key]
-                datafile = datafile.with_suffix(".csv")  # Convert .parq to .csv
-                if not datafile.exists():
-                    logger.warning(f"CSV file {datafile} does not exist")
-                    continue
-                datafiles.append(datafile)
-            if not datafiles:
-                logger.error("No valid CSV files found in config")
-                return None, None, None, None
-            return datafiles, processed, group_map, None
-    
-    def save_csv(self, df, processed_dir, prefix="whatsapp"):
-        """
-        Save the DataFrame to a CSV file with a unique timestamped filename.
-
-        Args:
-            df (pandas.DataFrame): DataFrame to save.
-            processed_dir (Path): Directory to save the file (e.g., Path("data/processed")).
-            prefix (str): Filename prefix (default: "whatsapp").
-
-        Returns:
-            Path: Path to the saved CSV file.
-        """
-        now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
-        logger.info(f"Generated timestamp: {now}")
-        output = processed_dir / f"{prefix}-{now}.csv"
-        logger.info(f"Saving CSV to: {output}")
-        df.to_csv(output, index=False)
-        return output
-
-    def save_parq(self, df, processed_dir, prefix="whatsapp"):
-        """
-        Save the DataFrame to a Parquet file with a unique timestamped filename.
-
-        Args:
-            df (pandas.DataFrame): DataFrame to save.
-            processed_dir (Path): Directory to save the file (e.g., Path("data/processed")).
-            prefix (str): Filename prefix (default: "whatsapp").
-
-        Returns:
-            Path: Path to the saved Parquet file.
-        """
-        now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
-        logger.info(f"Generated timestamp: {now}")
-        output = processed_dir / f"{prefix}-{now}.parq"
-        logger.info(f"Saving Parquet to: {output}")
-        df.to_parquet(output, index=False)
-        return output
-
-    def save_combined_files(self, df, processed_dir):
-        """
-        Save the concatenated DataFrame to CSV and Parquet files with 'whatsapp_all-' prefix.
-
-        Args:
-            df (pandas.DataFrame): DataFrame to save.
-            processed_dir (Path): Directory to save the files.
-
-        Returns:
-            tuple: (Path, Path) - Paths to the saved CSV and Parquet files, or (None, None) if saving fails.
-        """
-        try:
-            csv_file = self.save_csv(df, processed_dir, prefix="whatsapp_all")
-            parq_file = self.save_parq(df, processed_dir, prefix="whatsapp_all")
-            logger.info(f"DataFrame saved as: {csv_file} and {parq_file}")
-            return csv_file, parq_file
+            # Verify the result
+            logger.info(f"Unique WhatsApp groups: {df['whatsapp_group'].unique().tolist()}")
+            logger.debug(f"DataFrame head:\n{df.head().to_string()}")
+            logger.debug(f"DataFrame dtypes:\n{df.dtypes}")
+            return df
         except Exception as e:
-            logger.exception(f"Failed to save DataFrame: {e}")
-            return None, None
+            logger.exception(f"Failed to concatenate DataFrames: {e}")
+            return None
+
+    def filter_group_names(self, df):
+        """
+        Filter out specific group names from the 'author' column and reset the index.
+
+        Args:
+            df (pandas.DataFrame): DataFrame to filter.
+
+        Returns:
+            pandas.DataFrame or None: Filtered DataFrame, or None if filtering fails.
+        """
+        if df is None or df.empty:
+            logger.error("No valid DataFrame provided for filtering")
+            return None
+        
+        try:
+            # Debug: Check author counts per group
+            logger.info("Author counts per WhatsApp group:")
+            logger.info(df.groupby(["whatsapp_group", "author"]).size().to_string())
+            
+            # Filter out group names
+            rows_before = len(df)
+            df = df.loc[df["author"] != "MAAP"]
+            df = df.loc[df["author"] != "Golfmaten"]
+            df = df.loc[df["author"] != "What's up with golf"]
+            df = df.loc[df["author"] != "DAC cie"]
+            df = df.loc[df["author"] != "Tillies & co"]
+            df = df.reset_index(drop=True)
+            rows_after = len(df)
+            logger.info(f"DataFrame filtered: {rows_before} rows reduced to {rows_after} rows")
+            return df
+        except Exception as e:
+            logger.exception(f"Failed to filter DataFrame: {e}")
+            return None
+
+    def clean_for_deleted_media_patterns(self, df, whatsapp_group="all"):
+        """
+        Clean messages in the DataFrame by removing deleted messages and media patterns,
+        and add a 'changes' column to track modifications.
+
+        Args:
+            df (pandas.DataFrame): Input DataFrame with 'message' and 'whatsapp_group' columns.
+            whatsapp_group (str): WhatsApp group to process, or "all" to process all groups (default: "all").
+
+        Returns:
+            pandas.DataFrame or None: Modified DataFrame with 'message_cleaned' and 'changes' columns,
+                                     or None if processing fails.
+        """
+        if df is None or df.empty:
+            logger.error("No valid DataFrame provided for cleaning deleted media patterns")
+            return None
+
+        try:
+            # Filter by whatsapp_group if not "all"
+            if whatsapp_group != "all":
+                df = df[df["whatsapp_group"] == whatsapp_group].copy()
+                if df.empty:
+                    logger.error(f"No data found for WhatsApp group '{whatsapp_group}'")
+                    return None
+
+            # Add changes column
+            df["changes"] = ""
+
+            # Define regex patterns for cleaning
+            non_media_patterns = [
+                (r'Dit bericht is verwijderd\.', "message deleted", re.IGNORECASE),
+                (r'(?:Anthony van Tilburg|Anja Berkemeijer|Phons Berkemeijer|Madeleine) heeft de groepsafbeelding gewijzigd', "grouppicture", re.IGNORECASE)
+            ]
+            media_patterns = [
+                (r'afbeelding\s*weggelaten', "picture deleted", re.IGNORECASE),
+                (r'video\s*weggelaten', "video deleted", re.IGNORECASE),
+                (r'audio\s*weggelaten', "audio deleted", re.IGNORECASE),
+                (r'GIF\s*weggelaten', "GIF deleted", re.IGNORECASE),
+                (r'sticker\s*weggelaten', "sticker deleted", re.IGNORECASE),
+                (r'document\s*weggelaten', "document deleted", re.IGNORECASE),
+                (r'videonotitie\s*weggelaten', "video note deleted", re.IGNORECASE)
+            ]
+            fallback_pattern = r'\s*[\u200e\u200f]*\[\d{2}-\d{2}-\d{4},\s*\d{2}:\d{2}:\d{2}\]\s*(?:Anthony van Tilburg|Anja Berkemeijer|Phons Berkemeijer|Madeleine)[\s\u200e\u200f]*:.*'
+
+            # Clean messages and update changes column
+            def clean_message(row):
+                message = row["message"]
+                changes = []
+                # Apply non-media patterns first
+                for pattern, change, flags in non_media_patterns:
+                    if re.search(pattern, message, flags=flags):
+                        logger.debug(f"Matched non-media pattern '{pattern}' in message: {message}")
+                        if change not in changes:
+                            changes.append(change)
+                        message = re.sub(pattern, '', message, flags=flags).strip()
+                # Loop over media patterns until no more matches
+                while True:
+                    matched = False
+                    for pattern, change, flags in media_patterns:
+                        match = re.search(pattern, message, flags=flags)
+                        if match:
+                            logger.debug(f"Matched media pattern '{pattern}' in message: {message}")
+                            if change not in changes:
+                                changes.append(change)
+                            # Find the preceding '['
+                            start_idx = match.start()
+                            bracket_idx = message.rfind('[', 0, start_idx)
+                            if bracket_idx != -1:
+                                # Check for space before '['
+                                if bracket_idx > 0 and message[bracket_idx - 1] == ' ':
+                                    remove_start = bracket_idx - 1  # Include space
+                                else:
+                                    remove_start = bracket_idx
+                                # Remove from bracket_idx (or bracket_idx - 1) to end of match
+                                message = message[:remove_start] + message[match.end():]
+                            else:
+                                # If no '[', just remove the matched media phrase
+                                message = re.sub(pattern, '', message, flags=flags)
+                            message = message.strip()
+                            matched = True
+                            break  # Restart loop to check for more media patterns
+                    if not matched:
+                        break  # Exit loop if no media patterns matched
+                # Fallback: Remove any trailing timestamp and author/media info
+                if re.search(fallback_pattern, message, flags=re.IGNORECASE):
+                    logger.debug(f"Matched fallback pattern '{fallback_pattern}' in message: {message}")
+                    if "generic deleted" not in changes:
+                        changes.append("generic deleted")
+                    message = re.sub(fallback_pattern, '', message, flags=re.IGNORECASE).strip()
+                # If message is empty, contains only spaces, or is None, set to "completely removed"
+                if message is None or message == "" or message.strip() == "":
+                    message = "completely removed"
+                # Update changes column
+                row["changes"] = ", ".join(changes) if changes else row["changes"]
+                row["message_cleaned"] = message
+                return row
+
+            df = df.apply(clean_message, axis=1)
+            logger.info(f"Cleaned messages: {df[['message', 'message_cleaned', 'changes']].head(10).to_string()}")
+
+            return df
+        except Exception as e:
+            logger.exception(f"Failed to clean messages for deleted media patterns: {e}")
+            return None

@@ -8,15 +8,23 @@ from loguru import logger
 from datetime import datetime
 
 def main():
-    # Call preprocessor
-    # preprocessor.main(["--device", "ios"])
+    def find_name_csv(timestamp):
+        pass
 
     # Read in the file
     configfile = Path("config.toml").resolve()
     with configfile.open("rb") as f:
         config = tomllib.load(f)
-    processed = Path("data/processed")
-    datafile = processed / config["inputpath"]
+    processed = Path(config["processed"])
+    # preprocess = config.get("preprocess", False)
+    preprocess = config["preprocess"]
+    if preprocess ==  True:
+        now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
+        logger.info(now)
+        preprocessor.main(["--device", "ios"])
+        find_name_csv(now)
+    else:
+        datafile = processed / config["inputpath"]
     if not datafile.exists():
         logger.warning(
             f"{datafile} does not exist. Maybe first run src/preprocess.py, or check the timestamp!"
