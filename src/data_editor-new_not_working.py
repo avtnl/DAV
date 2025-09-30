@@ -1,22 +1,11 @@
 import pandas as pd
 import re
 from loguru import logger
-import emoji  # Existing import for emoji-related methods
+import emoji
 
 class DataEditor:
     def __init__(self):
         self.emoji_pattern = re.compile(
-            "["
-            "\U0001f600-\U0001f64f"  # emoticons
-            "\U0001f300-\U0001f5ff"  # symbols & pictographs
-            "\U0001f680-\U0001f6ff"  # transport & map symbols
-            "\U0001f1e0-\U0001f1ff"  # flags (iOS)
-            "\U00002702-\U000027b0"  # Dingbats
-            "\U000024c2-\U0001f251"
-            "]+",
-            flags=re.UNICODE,
-        )
-        self.single_emoji_pattern = re.compile(
             "["
             "\U0001f600-\U0001f64f"  # emoticons
             "\U0001f300-\U0001f5ff"  # symbols & pictographs
@@ -72,30 +61,29 @@ class DataEditor:
 
     def count_emojis(self, text):
         """
-        Count the total number of emojis in the input text, excluding specified skin tone modifiers.
-        Counts each emoji occurrence, even if the same emoji is used multiple times.
+        Check for the presence of emojis and count the total number of emojis in the input text,
+        excluding specified skin tone modifiers.
         Args:
-            text (str): Text to count emojis in.
+            text (str): Text to check and count emojis in.
         Returns:
-            int: Total number of emojis, excluding ignored ones.
+            tuple: (bool, int) - (True if emojis are present, number of emojis excluding ignored ones).
         """
         if not isinstance(text, str):
-            return 0
-        # Use emoji library to extract emojis
+            return False, 0
         emojis = [char for char in text if char in emoji.EMOJI_DATA and char not in self.ignore_emojis]
-        return len(emojis)
+        return bool(emojis), len(emojis)
 
     def has_link(self, text):
-        """
-        Check if the input text contains any URLs.
-        Args:
-            text (str): Text to check for URLs.
-        Returns:
-            bool: True if the text contains URLs, False otherwise.
-        """
-        if not isinstance(text, str):
-            return False
-        return bool(self.url_pattern.search(text))
+            """
+            Check if the input text contains any URLs.
+            Args:
+                text (str): Text to check for URLs.
+            Returns:
+                bool: True if the text contains URLs, False otherwise.
+            """
+            if not isinstance(text, str):
+                return False
+            return bool(self.url_pattern.search(text))
 
     def was_deleted(self, message):
         """
@@ -185,7 +173,7 @@ class DataEditor:
     def clean_for_deleted_media_patterns(self, df):
         """
         Clean messages in the DataFrame by removing deleted messages and media patterns,
-        and add columns to track the count of each type of deleted media, group picture changes, and links.
+        and add columns to track the count of each type of deleted media and group picture changes.
         Args:
             df (pandas.DataFrame): Input DataFrame with 'message' column.
         Returns:
@@ -198,7 +186,6 @@ class DataEditor:
             # Initialize new columns
             df["has_emoji"] = False
             df["number_of_emojis"] = 0
-            df["has_link"] = False  # New column for links
             df["was_deleted"] = False
             df["number_of_changes_to_group"] = 0
             df["pictures_deleted"] = 0
@@ -229,11 +216,6 @@ class DataEditor:
             # Clean messages and update columns
             def clean_message(row):
                 message = row["message"]
-                # Update emoji columns
-                row["has_emoji"] = self.has_emoji(message)
-                row["number_of_emojis"] = self.count_emojis(message)
-                # Update link column
-                row["has_link"] = self.has_link(message)
                 # Update deletion status
                 row["was_deleted"] = self.was_deleted(message)
                 # Update group picture changes
@@ -279,12 +261,7 @@ class DataEditor:
                 return row
 
             df = df.apply(clean_message, axis=1)
-            # Log if no links are found
-            if df["has_link"].sum() == 0:
-                logger.info("No links found in the messages")
-            else:
-                logger.info(f"Found {df['has_link'].sum()} messages with links")
-            logger.info(f"Cleaned messages: {df[['message', 'message_cleaned', 'has_emoji', 'number_of_emojis', 'has_link', 'was_deleted', 'number_of_changes_to_group', 'pictures_deleted', 'videos_deleted', 'audios_deleted', 'gifs_deleted', 'stickers_deleted', 'documents_deleted', 'videonotes_deleted']].head(10).to_string()}")
+            logger.info(f"Cleaned messages: {df[['message', 'message_cleaned', 'has_emoji', 'number_of_emojis', 'was_deleted', 'number_of_changes_to_group', 'pictures_deleted', 'videos_deleted', 'audios_deleted', 'gifs_deleted', 'stickers_deleted', 'documents_deleted', 'videonotes_deleted']].head(10).to_string()}")
             return df
         except Exception as e:
             logger.exception(f"Failed to clean messages for deleted media patterns: {e}")

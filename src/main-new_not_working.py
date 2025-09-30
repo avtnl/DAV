@@ -93,12 +93,25 @@ def main():
     df = data_editor.filter_group_names(df)
     if df is None:
         return
+    
+    # Check if messages have a hyperlink
+    df["has_link"] = df["message"].apply(data_editor.has_link)
 
     # Clean messages for deleted media patterns
     df = data_editor.clean_for_deleted_media_patterns(df)
     if df is None:
         logger.error("Failed to clean messages for all groups.")
         return
+
+    # Test emoji counting
+    test_message = "Hello 😊🚀"
+    has_emoji, num_emojis = data_editor.count_emojis(test_message)
+    logger.info(f"Test message: '{test_message}', has_emoji: {has_emoji}, number_of_emojis: {num_emojis}")
+
+    # Count emojis for concatenated DataFrame
+    df[["has_emoji", "number_of_emojis"]] = df["message"].apply(
+        data_editor.count_emojis
+    ).apply(pd.Series)
 
     # Save combined DataFrame
     csv_file, parq_file = file_manager.save_combined_files(df, processed)
@@ -147,35 +160,21 @@ def main():
     # STEP 3: Distribution visualization for 'maap' group
     # Filter DataFrame for whatsapp_group='maap'
     df_maap = df[df['whatsapp_group'] == 'maap'].copy()
+    logger.info(f"Size of df_maap: {len(df_maap)} rows")
     if df_maap.empty:
         logger.error("No data found for WhatsApp group 'maap'. Skipping distribution visualization.")
-        return
-    
-    # Clean messages for deleted media patterns
-    df_maap = data_editor.clean_for_deleted_media_patterns(df_maap)
-    if df_maap is None:
-        logger.error("Failed to clean messages for distribution visualization.")
-        return
-    
-    # Prepare data for distribution visualization
-    df_maap, emoji_counts_df = data_preparation.build_visual_distribution(df_maap)
-    if df_maap is None or emoji_counts_df is None:
-        logger.error("Failed to prepare data for distribution visualization.")
-        return
-    
-    # Log number of unique emojis
-    logger.info(f"Number of unique emojis in emoji_counts_df: {len(emoji_counts_df)}")
-    
-    # Create distribution plot
-    fig_dist = plot_manager.build_visual_distribution(emoji_counts_df)
-    if fig_dist is None:
-        logger.error("Failed to create distribution plot.")
-        return
-    
-    # Save distribution plot
-    png_file_dist = file_manager.save_png(fig_dist, image_dir, filename="emoji_counts_once")
-    if png_file_dist is None:
-        logger.error("Failed to save distribution plot.")
+    else:
+        logger.debug(f"Sample messages from df_maap (first 10):\n{df_maap[['message', 'has_emoji', 'number_of_emojis']].head(10).to_string()}")
+        logger.info(f"Number of messages with has_emoji=True: {len(df_maap[df_maap['has_emoji'] == True])}")
+        # Create distribution plot directly from df_maap
+        fig_dist = plot_manager.build_visual_distribution(df_maap)
+        if fig_dist is None:
+            logger.error("Failed to create distribution plot or no emojis found. Skipping plot.")
+        else:
+            # Save distribution plot
+            png_file_dist = file_manager.save_png(fig_dist, image_dir, filename="emoji_counts_once")
+            if png_file_dist is None:
+                logger.error("Failed to save distribution plot.")
 
 if __name__ == "__main__":
     main()
