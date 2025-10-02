@@ -2,6 +2,7 @@ import pandas as pd
 import re
 from loguru import logger
 import emoji
+import itertools
 
 class DataPreparation:
     """A class for preparing WhatsApp message data for visualization, including category,
@@ -376,6 +377,9 @@ class DataPreparation:
             percentages = pivot[authors].div(pivot['total'], axis=0) * 100
             percentages['highest'] = percentages.max(axis=1)
 
+            # Count number of authors with non-zero percentages
+            non_zero_authors = (percentages[authors] > 0).sum(axis=1)
+
             # Combine into full numerical table: total + percentages (authors + highest)
             full_table_num = pd.concat([pivot[['total']], percentages], axis=1)
 
@@ -392,16 +396,367 @@ class DataPreparation:
             else:
                 logger.info(f"No emoji sequences with total >= {MIN_TOTAL} for group {df_group['whatsapp_group'].iloc[0]}.")
 
-            # Table 2: highest >= MIN_HIGHEST and total >= MIN_TOTAL, sorted by highest descending
-            table2_num = full_table_num[(full_table_num['highest'] >= MIN_HIGHEST) & (full_table_num['total'] >= MIN_TOTAL)].sort_values('highest', ascending=False)
+            # Table 2: highest >= MIN_HIGHEST, total >= MIN_TOTAL, and max 2 authors with >0%, sorted by highest descending
+            table2_num = full_table_num[
+                (full_table_num['highest'] >= MIN_HIGHEST) & 
+                (full_table_num['total'] >= MIN_TOTAL) & 
+                (non_zero_authors <= 2)
+            ].sort_values('highest', ascending=False)
             if not table2_num.empty:
                 table2_str = full_table_str.loc[table2_num.index]
-                logger.info(f"Table 2 (highest >= {MIN_HIGHEST}% and total >= {MIN_TOTAL}, sorted by highest desc) for group {df_group['whatsapp_group'].iloc[0]}:\n{table2_str.to_string()}")
+                logger.info(f"Table 2 (highest >= {MIN_HIGHEST}%, total >= {MIN_TOTAL}, max 2 authors with >0%, sorted by highest desc) for group {df_group['whatsapp_group'].iloc[0]}:\n{table2_str.to_string()}")
             else:
-                logger.info(f"No emoji sequences with highest >= {MIN_HIGHEST}% and total >= {MIN_TOTAL} for group {df_group['whatsapp_group'].iloc[0]}.")
+                logger.info(f"No emoji sequences with highest >= {MIN_HIGHEST}%, total >= {MIN_TOTAL}, and max 2 authors with >0% for group {df_group['whatsapp_group'].iloc[0]}.")
                 return table1_num, None
 
             return table1_num, table2_num
         except Exception as e:
             logger.exception(f"Failed to build visual relationships_2: {e}")
-            return None, None        
+            return None, None
+
+    def build_visual_relationships_2(self, df_group, authors):
+        """
+        Build tables showing relationships between emoji sequences and authors in a WhatsApp group.
+
+        Args:
+            df_group (pandas.DataFrame): Filtered DataFrame for a specific group with 'message_cleaned' and 'author' columns.
+            authors (list): List of unique authors in the group.
+
+        Returns:
+            tuple: (pandas.DataFrame or None, pandas.DataFrame or None) - Numerical DataFrames for table1 and table2.
+        """
+        MIN_TOTAL = 10
+        MIN_HIGHEST = 60  # in percent
+
+        if df_group.empty:
+            logger.error("Empty DataFrame provided for building visual relationships_2.")
+            return None, None
+
+        try:
+            # Extract emoji sequences from message_cleaned
+            sequences = []
+            for _, row in df_group.iterrows():
+                message = row['message_cleaned']
+                author = row['author']
+                if isinstance(message, str):
+                    emoji_sequences = self.emoji_pattern.findall(message)
+                    for seq in emoji_sequences:
+                        sequences.append({'sequence': seq, 'author': author})
+
+            if not sequences:
+                logger.info("No emoji sequences found in the group.")
+                return None, None
+
+            seq_df = pd.DataFrame(sequences)
+            counts = seq_df.groupby(['sequence', 'author']).size().reset_index(name='count')
+            pivot = counts.pivot(index='sequence', columns='author', values='count').fillna(0)
+
+            # Calculate total
+            pivot['total'] = pivot.sum(axis=1)
+
+            # Filter out rows where total == 0 (though unlikely)
+            pivot = pivot[pivot['total'] > 0]
+
+            # Authors columns
+            authors = sorted([a for a in authors if a in pivot.columns])
+            if not authors:
+                logger.error("No matching authors found in pivot table.")
+                return None, None
+
+            # Convert counts to int
+            pivot[authors] = pivot[authors].astype(int)
+            pivot['total'] = pivot['total'].astype(int)
+
+            # Calculate percentages (numerical)
+            percentages = pivot[authors].div(pivot['total'], axis=0) * 100
+            percentages['highest'] = percentages.max(axis=1)
+
+            # Count number of authors with non-zero percentages
+            non_zero_authors = (percentages[authors] > 0).sum(axis=1)
+
+            # Combine into full numerical table: total + percentages (authors + highest)
+            full_table_num = pd.concat([pivot[['total']], percentages], axis=1)
+
+            # Create string version for logging
+            full_table_str = full_table_num.copy()
+            for col in authors + ['highest']:
+                full_table_str[col] = full_table_str[col].apply(lambda x: f"{int(x)}%")
+
+            # Table 1: total >= MIN_TOTAL, sorted by total descending
+            table1_num = full_table_num[full_table_num['total'] >= MIN_TOTAL].sort_values('total', ascending=False)
+            if not table1_num.empty:
+                table1_str = full_table_str.loc[table1_num.index]
+                logger.info(f"Table 1 (total >= {MIN_TOTAL}, sorted by total desc) for group {df_group['whatsapp_group'].iloc[0]}:\n{table1_str.to_string()}")
+            else:
+                logger.info(f"No emoji sequences with total >= {MIN_TOTAL} for group {df_group['whatsapp_group'].iloc[0]}.")
+
+            # Table 2: highest >= MIN_HIGHEST, total >= MIN_TOTAL, and max 2 authors with >0%, sorted by highest descending
+            table2_num = full_table_num[
+                (full_table_num['highest'] >= MIN_HIGHEST) & 
+                (full_table_num['total'] >= MIN_TOTAL) & 
+                (non_zero_authors <= 2)
+            ].sort_values('highest', ascending=False)
+            if not table2_num.empty:
+                table2_str = full_table_str.loc[table2_num.index]
+                logger.info(f"Table 2 (highest >= {MIN_HIGHEST}%, total >= {MIN_TOTAL}, max 2 authors with >0%, sorted by highest desc) for group {df_group['whatsapp_group'].iloc[0]}:\n{table2_str.to_string()}")
+            else:
+                logger.info(f"No emoji sequences with highest >= {MIN_HIGHEST}%, total >= {MIN_TOTAL}, and max 2 authors with >0% for group {df_group['whatsapp_group'].iloc[0]}.")
+                return table1_num, None
+
+            return table1_num, table2_num
+        except Exception as e:
+            logger.exception(f"Failed to build visual relationships_2: {e}")
+            return None, None
+
+    def build_visual_relationships_3(self, df_group, authors):
+        """
+        Analyze daily participation in a WhatsApp group and combine results into a single table.
+
+        Args:
+            df_group (pandas.DataFrame): Filtered DataFrame for the group with 'timestamp' and 'author' columns.
+            authors (list): List of unique authors in the group.
+
+        Returns:
+            pandas.DataFrame or None: Combined DataFrame with columns 'type', 'author', 'num_days', 'total_messages', '#participants', and author-specific columns.
+        """
+        if df_group is None or df_group.empty:
+            logger.error("No valid DataFrame provided for relationships_3 preparation")
+            return None
+
+        try:
+            # Ensure timestamp is datetime and extract date
+            df_group["timestamp"] = pd.to_datetime(df_group["timestamp"])
+            df_group["date"] = df_group["timestamp"].dt.date
+
+            # Get unique sorted authors
+            authors = sorted(authors)
+
+            # Calculate message counts, lengths, and percentages for the entire group
+            total_messages = len(df_group)
+            message_counts = df_group.groupby('author').size()
+            message_percentages = (message_counts / total_messages * 100).round(0).astype(int)
+            df_group['message_length'] = df_group['message_cleaned'].apply(lambda x: len(str(x)) if isinstance(x, str) else 0)
+            total_length = df_group['message_length'].sum()
+            length_counts = df_group.groupby('author')['message_length'].sum()
+            length_percentages = (length_counts / total_length * 100).round(0).astype(int)
+            # Calculate average message length per author for the entire group
+            avg_message_length = (length_counts / message_counts).round(0).astype(int).fillna(0)
+
+            # Daily message counts per author
+            daily_counts = df_group.groupby(["date", "author"]).size().unstack(fill_value=0).reindex(columns=authors, fill_value=0)
+
+            # Total messages per day
+            daily_total = daily_counts.sum(axis=1)
+
+            # Number of participants per day
+            daily_participants = (daily_counts > 0).sum(axis=1)
+
+            # Overall period
+            min_date = df_group["date"].min()
+            max_date = df_group["date"].max()
+            total_days = (max_date - min_date).days + 1
+            days_with_messages = len(daily_counts)
+            days_no_messages = total_days - days_with_messages
+
+            # Initialize list for combined table
+            combined_data = []
+
+            # Messages (%) block
+            msg_row = {
+                "type": "Messages (%)",
+                "author": None,
+                "num_days": 0,
+                "total_messages": 0,
+                "#participants": 0
+            }
+            for author in authors:
+                msg_pct = message_percentages.get(author, 0)
+                avg_len = avg_message_length.get(author, 0)
+                msg_row[author] = f"{msg_pct}%/{avg_len}"
+            combined_data.append(msg_row)
+
+            # Message Length (%) block
+            len_row = {
+                "type": "Message Length (%)",
+                "author": None,
+                "num_days": 0,
+                "total_messages": 0,
+                "#participants": 0
+            }
+            for author in authors:
+                len_pct = length_percentages.get(author, 0)
+                avg_len = avg_message_length.get(author, 0)
+                len_row[author] = f"{len_pct}%/{avg_len}"
+            combined_data.append(len_row)
+
+            # Period (overall)
+            combined_data.append({
+                "type": "Period",
+                "author": None,
+                "num_days": total_days,
+                "total_messages": 0,
+                "#participants": 0,
+                **{author: 0 for author in authors}
+            })
+            combined_data.append({
+                "type": "Period",
+                "author": "None",
+                "num_days": days_no_messages,
+                "total_messages": 0,
+                "#participants": 0,
+                **{author: 0 for author in authors}
+            })
+
+            # Days with only 1 participant, details per author
+            for author in authors:
+                other_authors = [a for a in authors if a != author]
+                mask = (daily_counts[author] > 0) & (daily_counts[other_authors] == 0).all(axis=1)
+                num_days = mask.sum()
+                total_msg = daily_total[mask].sum() if num_days > 0 else 0
+                if num_days > 0:
+                    # Filter df_group for these days
+                    active_dates = daily_counts[mask].index
+                    active_df = df_group[df_group['date'].isin(active_dates) & (df_group['author'] == author)]
+                    # Calculate average message length for this author
+                    active_df['message_length'] = active_df['message_cleaned'].apply(lambda x: len(str(x)) if isinstance(x, str) else 0)
+                    active_length = active_df['message_length'].sum()
+                    active_message_count = len(active_df)
+                    avg_len = int(round(active_length / active_message_count)) if active_message_count > 0 else 0
+                    author_values = {a: 0 for a in authors}
+                    author_values[author] = f"100%/100%({avg_len})"
+                else:
+                    author_values = {a: 0 for a in authors}
+                combined_data.append({
+                    "type": "Single",
+                    "author": author,
+                    "num_days": num_days,
+                    "total_messages": total_msg,
+                    "#participants": 1,
+                    **author_values
+                })
+
+            # Days with only 2 participants, details per combination
+            for comb in itertools.combinations(authors, 2):
+                pair_str = " & ".join(sorted(comb))
+                other_authors = [a for a in authors if a not in comb]
+                mask = (daily_counts[list(comb)] > 0).all(axis=1) & (daily_counts[other_authors] == 0).all(axis=1)
+                num_days = mask.sum()
+                total_msg = daily_total[mask].sum() if num_days > 0 else 0
+                if num_days > 0:
+                    # Filter df_group for these days
+                    active_dates = daily_counts[mask].index
+                    active_df = df_group[df_group['date'].isin(active_dates)]
+                    # Calculate message percentages for active authors
+                    active_message_counts = active_df[active_df['author'].isin(comb)].groupby('author').size()
+                    active_total_messages = active_message_counts.sum()
+                    message_pct = (active_message_counts / active_total_messages * 100).round(0).astype(int)
+                    # Calculate message length percentages for active authors
+                    active_df['message_length'] = active_df['message_cleaned'].apply(lambda x: len(str(x)) if isinstance(x, str) else 0)
+                    active_length_counts = active_df[active_df['author'].isin(comb)].groupby('author')['message_length'].sum()
+                    active_total_length = active_length_counts.sum()
+                    length_pct = (active_length_counts / active_total_length * 100).round(0).astype(int)
+                    # Calculate average message length for active authors
+                    active_avg_length = (active_length_counts / active_message_counts).round(0).astype(int).fillna(0)
+                    # Combine percentages into strings
+                    author_values = {author: 0 for author in authors}
+                    for p in comb:
+                        msg_pct = message_pct.get(p, 0)
+                        len_pct = length_pct.get(p, 0)
+                        avg_len = active_avg_length.get(p, 0)
+                        author_values[p] = f"{msg_pct}%/{len_pct}%({avg_len})"
+                else:
+                    author_values = {author: 0 for author in authors}
+                combined_data.append({
+                    "type": "Pairs",
+                    "author": pair_str,
+                    "num_days": num_days,
+                    "total_messages": total_msg,
+                    "#participants": 2,
+                    **author_values
+                })
+
+            # Days with only 3 participants, details per non-participant
+            for non_part in authors:
+                participants = [a for a in authors if a != non_part]
+                mask = (daily_counts[participants] > 0).all(axis=1) & (daily_counts[non_part] == 0)
+                num_days = mask.sum()
+                total_msg = daily_total[mask].sum() if num_days > 0 else 0
+                if num_days > 0:
+                    # Filter df_group for these days
+                    active_dates = daily_counts[mask].index
+                    active_df = df_group[df_group['date'].isin(active_dates)]
+                    # Calculate message percentages for active authors
+                    active_message_counts = active_df[active_df['author'].isin(participants)].groupby('author').size()
+                    active_total_messages = active_message_counts.sum()
+                    message_pct = (active_message_counts / active_total_messages * 100).round(0).astype(int)
+                    # Calculate message length percentages for active authors
+                    active_df['message_length'] = active_df['message_cleaned'].apply(lambda x: len(str(x)) if isinstance(x, str) else 0)
+                    active_length_counts = active_df[active_df['author'].isin(participants)].groupby('author')['message_length'].sum()
+                    active_total_length = active_length_counts.sum()
+                    length_pct = (active_length_counts / active_total_length * 100).round(0).astype(int)
+                    # Calculate average message length for active authors
+                    active_avg_length = (active_length_counts / active_message_counts).round(0).astype(int).fillna(0)
+                    # Combine percentages into strings
+                    author_values = {author: 0 for author in authors}
+                    for p in participants:
+                        msg_pct = message_pct.get(p, 0)
+                        len_pct = length_pct.get(p, 0)
+                        avg_len = active_avg_length.get(p, 0)
+                        author_values[p] = f"{msg_pct}%/{len_pct}%({avg_len})"
+                else:
+                    author_values = {author: 0 for author in authors}
+                combined_data.append({
+                    "type": "Non-participant",
+                    "author": non_part,
+                    "num_days": num_days,
+                    "total_messages": total_msg,
+                    "#participants": 3,
+                    **author_values
+                })
+
+            # Days with 4 participants
+            mask = (daily_counts > 0).all(axis=1)
+            num_days = mask.sum()
+            total_msg = daily_total[mask].sum() if num_days > 0 else 0
+            if num_days > 0:
+                # Filter df_group for these days
+                active_dates = daily_counts[mask].index
+                active_df = df_group[df_group['date'].isin(active_dates)]
+                # Calculate message percentages for all authors
+                active_message_counts = active_df.groupby('author').size()
+                active_total_messages = active_message_counts.sum()
+                message_pct = (active_message_counts / active_total_messages * 100).round(0).astype(int)
+                # Calculate message length percentages for all authors
+                active_df['message_length'] = active_df['message_cleaned'].apply(lambda x: len(str(x)) if isinstance(x, str) else 0)
+                active_length_counts = active_df.groupby('author')['message_length'].sum()
+                active_total_length = active_length_counts.sum()
+                length_pct = (active_length_counts / active_total_length * 100).round(0).astype(int)
+                # Calculate average message length for all authors
+                active_avg_length = (active_length_counts / active_message_counts).round(0).astype(int).fillna(0)
+                # Combine percentages into strings
+                author_values = {author: 0 for author in authors}
+                for p in authors:
+                    msg_pct = message_pct.get(p, 0)
+                    len_pct = length_pct.get(p, 0)
+                    avg_len = active_avg_length.get(p, 0)
+                    author_values[p] = f"{msg_pct}%/{len_pct}%({avg_len})"
+            else:
+                author_values = {author: 0 for author in authors}
+            combined_data.append({
+                "type": "All",
+                "author": "All",
+                "num_days": num_days,
+                "total_messages": total_msg,
+                "#participants": 4,
+                **author_values
+            })
+
+            # Create combined DataFrame
+            combined_df = pd.DataFrame(combined_data)
+            combined_df = combined_df.sort_values(by=["#participants", "num_days"], ascending=[True, False])
+            logger.info(f"Combined participation table for group {df_group['whatsapp_group'].iloc[0]}:\n{combined_df.to_string(index=False)}")
+
+            return combined_df
+        except Exception as e:
+            logger.exception(f"Failed to prepare relationships_3 data: {e}")
+            return None

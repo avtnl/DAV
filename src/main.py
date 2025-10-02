@@ -109,13 +109,17 @@ def main():
         return
   
     # Assign STEPs to run
-    Script = [5]
+    Script = [6]
 
-    # Initialize variables needed for STEPs 1, 4, and 5
-    if 1 in Script or 4 in Script or 5 in Script:
+    # Define tables directory
+    tables_dir = Path("tables")
+    tables_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initialize variables needed for STEPs 1, 4, 5, and 6
+    if 1 in Script or 4 in Script or 5 in Script or 6 in Script:
         df, group_authors, non_anthony_group, anthony_group, sorted_groups = data_preparation.build_visual_categories(df)
         if df is None or group_authors is None or sorted_groups is None:
-            logger.error("Failed to initialize required variables for STEPs 1, 4, or 5.")
+            logger.error("Failed to initialize required variables for STEPs 1, 4, 5, or 6.")
             return
 
     # STEP 1: Prepare data for visualization (categories)
@@ -200,8 +204,6 @@ def main():
 
     # STEP 5: Relationships visualization for emoji sequences per group
     if 5 in Script:
-        tables_dir = Path("tables")
-        tables_dir.mkdir(parents=True, exist_ok=True)
         for group in sorted_groups:
             df_group = df[df['whatsapp_group'] == group].copy()
             if df_group.empty:
@@ -218,6 +220,24 @@ def main():
                     png_file_rel = file_manager.save_png(fig_rel, image_dir, filename=f"relationships_emoji_{group}")
                     if png_file_rel is None:
                         logger.error("Failed to save relationships_2 plot.")
+
+    # STEP 6: Relationships visualization for daily participation in 'maap' group
+    if 6 in Script:
+        group = 'maap'
+        df_group = df[df['whatsapp_group'] == group].copy()
+        if df_group.empty:
+            logger.error(f"No data found for WhatsApp group '{group}'. Skipping relationships_3 visualization.")
+        else:
+            combined_df = data_preparation.build_visual_relationships_3(df_group, group_authors[group])
+            if combined_df is not None and not combined_df.empty:
+                file_manager.save_table(combined_df, tables_dir, f"participation_{group}")
+                fig_net = plot_manager.build_visual_relationships_4(combined_df, group)
+                if fig_net is not None:
+                    png_file_net = file_manager.save_png(fig_net, image_dir, filename=f"network_interactions_{group}")
+                    if png_file_net is None:
+                        logger.error("Failed to save network diagram.")
+            else:
+                logger.error("Failed to create combined participation table.")
 
 if __name__ == "__main__":
     main()

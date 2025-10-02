@@ -5,6 +5,7 @@ import numpy as np
 from loguru import logger
 import warnings
 import matplotlib.font_manager as fm
+import networkx as nx
 
 # Suppress FutureWarning from seaborn/pandas
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -335,4 +336,160 @@ class PlotManager:
             return fig
         except Exception as e:
             logger.exception(f"Failed to build visual relationships_2 plot: {e}")
-            return None            
+            return None
+
+    def build_visual_relationships_3(self, combined_df, group):
+        """
+        Create a network diagram showing interactions between authors in the 'maap' group.
+
+        Args:
+            combined_df (pandas.DataFrame): DataFrame from build_visual_relationships_3 with 'Pairs' rows containing interaction data.
+            group (str): WhatsApp group name ('maap').
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the network diagram, or None if creation fails.
+        """
+        if nx is None:
+            logger.error("Cannot create network diagram: NetworkX is not installed.")
+            return None
+        if combined_df is None or combined_df.empty:
+            logger.error("No valid DataFrame provided for building visual relationships_3 plot.")
+            return None
+        try:
+            # Extract Pairs data
+            pairs_df = combined_df[combined_df['type'] == 'Pairs'][['author', 'total_messages']]
+            if pairs_df.empty:
+                logger.error("No Pairs data found in combined_df for building network diagram.")
+                return None
+
+            # Create graph
+            G = nx.Graph()
+            authors = set()
+            for pair in pairs_df['author']:
+                a1, a2 = pair.split(' & ')
+                a1, a2 = a1.strip(), a2.strip()
+                authors.add(a1)
+                authors.add(a2)
+                G.add_edge(a1, a2, weight=pairs_df[pairs_df['author'] == pair]['total_messages'].iloc[0])
+
+            # Define married couples (assumption based on common naming conventions)
+            married_edges = [('Anja Berkemeijer', 'Phons Berkemeijer'), ('Madeleine', 'Anthony van Tilburg')]
+
+            # Create figure
+            fig, ax = plt.subplots(figsize=(10, 8))
+            pos = nx.spring_layout(G, k=0.5, iterations=50)
+
+            # Draw edges (non-married in blue, married in red)
+            max_weight = max(nx.get_edge_attributes(G, 'weight').values(), default=1)
+            for u, v in G.edges():
+                edge_data = G.get_edge_data(u, v)
+                if edge_data is None:
+                    logger.warning(f"Edge ({u}, {v}) not found in graph. Skipping.")
+                    continue
+                weight = edge_data['weight']
+                color = 'red' if (u, v) in married_edges or (v, u) in married_edges else 'blue'
+                width = 1 + 5 * (weight / max_weight)  # Scale width between 1 and 6
+                nx.draw_networkx_edges(G, pos, edgelist=[(u, v)], width=width, edge_color=color, ax=ax)
+
+            # Draw nodes
+            nx.draw_networkx_nodes(G, pos, node_color='lightblue', node_size=2000, ax=ax)
+            nx.draw_networkx_labels(G, pos, font_size=10, font_weight='bold')
+
+            # Add edge labels
+            edge_labels = nx.get_edge_attributes(G, 'weight')
+            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8)
+
+            ax.set_title(f"Messaging Interactions in {group} Group\n(Red: Married Couples, Blue: Others)")
+            plt.axis('off')
+            plt.tight_layout()
+
+            plt.show()
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build network diagram: {e}")
+            return None
+
+    def build_visual_relationships_4(self, combined_df, group):
+        """
+        Create an arc diagram showing interactions between authors in the 'maap' group.
+
+        Args:
+            combined_df (pandas.DataFrame): DataFrame from build_visual_relationships_3 with 'Pairs' rows containing interaction data.
+            group (str): WhatsApp group name ('maap').
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the arc diagram, or None if creation fails.
+        """
+        if combined_df is None or combined_df.empty:
+            logger.error("No valid DataFrame provided for building visual relationships_4 plot.")
+            return None
+        try:
+            # Extract Pairs data
+            pairs_df = combined_df[combined_df['type'] == 'Pairs'][['author', 'total_messages']]
+            if pairs_df.empty:
+                logger.error("No Pairs data found in combined_df for building arc diagram.")
+                return None
+
+            # Get unique authors
+            authors = set()
+            for pair in pairs_df['author']:
+                a1, a2 = pair.split(' & ')
+                authors.add(a1.strip())
+                authors.add(a2.strip())
+            authors = sorted(list(authors))
+
+            # Create figure
+            fig, ax = plt.subplots(figsize=(10, 8))
+            ax.set_aspect('equal')
+
+            # Position authors around a circle
+            n = len(authors)
+            angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
+            radius = 1.0
+            pos = {author: (radius * np.cos(angle), radius * np.sin(angle)) for author, angle in zip(authors, angles)}
+
+            # Define married couples
+            married_edges = [('Anja Berkemeijer', 'Phons Berkemeijer'), ('Madeleine', 'Anthony van Tilburg')]
+
+            # Draw arcs
+            max_weight = max(pairs_df['total_messages'], default=1)
+            for _, row in pairs_df.iterrows():
+                a1, a2 = row['author'].split(' & ')
+                a1, a2 = a1.strip(), a2.strip()
+                weight = row['total_messages']
+                x1, y1 = pos[a1]
+                x2, y2 = pos[a2]
+                # Calculate arc control point (midpoint raised above)
+                xm = (x1 + x2) / 2
+                ym = (y1 + y2) / 2
+                dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                height = dist * 0.5  # Adjust arc height
+                # Determine color
+                color = 'red' if (a1, a2) in married_edges or (a2, a1) in married_edges else 'blue'
+                # Scale line width
+                width = 1 + 5 * (weight / max_weight)  # Scale between 1 and 6
+                # Draw arc (quadratic Bezier curve approximation)
+                t = np.linspace(0, 1, 100)
+                x = (1 - t)**2 * x1 + 2 * (1 - t) * t * xm + t**2 * x2
+                y = (1 - t)**2 * y1 + 2 * (1 - t) * t * (ym + height) + t**2 * y2
+                ax.plot(x, y, color=color, linewidth=width)
+                # Add message count label at arc midpoint
+                label_x = (x1 + x2) / 2
+                label_y = (y1 + y2) / 2 + height * 0.5
+                ax.text(label_x, label_y, f"{weight}", ha='center', va='center', fontsize=8,
+                        bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
+
+            # Draw nodes
+            for author, (x, y) in pos.items():
+                ax.scatter([x], [y], s=2000, color='lightblue', edgecolors='black')
+                ax.text(x, y, author, ha='center', va='center', fontsize=10, fontweight='bold')
+
+            ax.set_title(f"Messaging Interactions in {group} Group\n(Red: Married Couples, Blue: Others)")
+            ax.axis('off')
+            plt.tight_layout()
+
+            plt.show()
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build arc diagram: {e}")
+            return None                  
