@@ -6,6 +6,7 @@ from loguru import logger
 import warnings
 import matplotlib.font_manager as fm
 import networkx as nx
+import itertools
 
 # Suppress FutureWarning from seaborn/pandas
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -408,88 +409,157 @@ class PlotManager:
         except Exception as e:
             logger.exception(f"Failed to build network diagram: {e}")
             return None
-
+        
     def build_visual_relationships_4(self, combined_df, group):
-        """
-        Create an arc diagram showing interactions between authors in the 'maap' group.
+            """
+            Create an arc diagram showing interactions between authors in the 'maap' group.
+            Includes pair interactions (gray), triple contributions (lightgray), and total messages (red for married, blue for others).
+            Only total message arcs are labeled, with Anthony & Phons label lowered to avoid overlap with Anja & Madeleine.
+            All line thicknesses are amplified by a constant APPLIFIER set to 3.
+            For Anthony & Phons, lightgray and gray lines are shifted left to ensure visibility.
 
-        Args:
-            combined_df (pandas.DataFrame): DataFrame from build_visual_relationships_3 with 'Pairs' rows containing interaction data.
-            group (str): WhatsApp group name ('maap').
+            Args:
+                combined_df (pandas.DataFrame): DataFrame from build_visual_relationships_3 with 'Pairs' and 'Non-participant' rows containing interaction data.
+                group (str): WhatsApp group name ('maap').
 
-        Returns:
-            matplotlib.figure.Figure or None: Figure object for the arc diagram, or None if creation fails.
-        """
-        if combined_df is None or combined_df.empty:
-            logger.error("No valid DataFrame provided for building visual relationships_4 plot.")
-            return None
-        try:
-            # Extract Pairs data
-            pairs_df = combined_df[combined_df['type'] == 'Pairs'][['author', 'total_messages']]
-            if pairs_df.empty:
-                logger.error("No Pairs data found in combined_df for building arc diagram.")
+            Returns:
+                matplotlib.figure.Figure or None: Figure object for the arc diagram, or None if creation fails.
+            """
+            APPLIFIER = 3  # Constant to amplify line thickness
+            if combined_df is None or combined_df.empty:
+                logger.error("No valid DataFrame provided for building visual relationships_4 plot.")
                 return None
+            try:
+                # Get unique authors
+                authors = set()
+                for _, row in combined_df.iterrows():
+                    if row['type'] == 'Pairs':
+                        a1, a2 = row['author'].split(' & ')
+                        authors.add(a1.strip())
+                        authors.add(a2.strip())
+                    elif row['type'] == 'Non-participant':
+                        participant_cols = [col for col in combined_df.columns if col not in ['type', 'author', 'num_days', 'total_messages', '#participants']]
+                        participants = [col for col in participant_cols if row[col] != 0]
+                        for p in participants:
+                            authors.add(p)
+                authors = sorted(list(authors))
 
-            # Get unique authors
-            authors = set()
-            for pair in pairs_df['author']:
-                a1, a2 = pair.split(' & ')
-                authors.add(a1.strip())
-                authors.add(a2.strip())
-            authors = sorted(list(authors))
+                # Create figure
+                fig, ax = plt.subplots(figsize=(10, 8))
+                ax.set_aspect('equal')
 
-            # Create figure
-            fig, ax = plt.subplots(figsize=(10, 8))
-            ax.set_aspect('equal')
+                # Position authors around a circle
+                n = len(authors)
+                angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
+                radius = 1.0
+                pos = {author: (radius * np.cos(angle), radius * np.sin(angle)) for author, angle in zip(authors, angles)}
 
-            # Position authors around a circle
-            n = len(authors)
-            angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
-            radius = 1.0
-            pos = {author: (radius * np.cos(angle), radius * np.sin(angle)) for author, angle in zip(authors, angles)}
+                # Initialize dictionaries for edge weights
+                pair_weights = {}  # For Pairs (gray)
+                triple_weights = {}  # For triple contributions (lightgray)
+                total_weights = {}  # For sum of Pairs + Triples (red/blue)
 
-            # Define married couples
-            married_edges = [('Anja Berkemeijer', 'Phons Berkemeijer'), ('Madeleine', 'Anthony van Tilburg')]
+                # Process Pairs rows
+                pairs_df = combined_df[combined_df['type'] == 'Pairs']
+                for _, row in pairs_df.iterrows():
+                    a1, a2 = row['author'].split(' & ')
+                    a1, a2 = a1.strip(), a2.strip()
+                    key = frozenset([a1, a2])
+                    weight = row['total_messages']
+                    pair_weights[key] = weight
+                    total_weights[key] = total_weights.get(key, 0) + weight
 
-            # Draw arcs
-            max_weight = max(pairs_df['total_messages'], default=1)
-            for _, row in pairs_df.iterrows():
-                a1, a2 = row['author'].split(' & ')
-                a1, a2 = a1.strip(), a2.strip()
-                weight = row['total_messages']
-                x1, y1 = pos[a1]
-                x2, y2 = pos[a2]
-                # Calculate arc control point (midpoint raised above)
-                xm = (x1 + x2) / 2
-                ym = (y1 + y2) / 2
-                dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-                height = dist * 0.5  # Adjust arc height
-                # Determine color
-                color = 'red' if (a1, a2) in married_edges or (a2, a1) in married_edges else 'blue'
-                # Scale line width
-                width = 1 + 5 * (weight / max_weight)  # Scale between 1 and 6
-                # Draw arc (quadratic Bezier curve approximation)
-                t = np.linspace(0, 1, 100)
-                x = (1 - t)**2 * x1 + 2 * (1 - t) * t * xm + t**2 * x2
-                y = (1 - t)**2 * y1 + 2 * (1 - t) * t * (ym + height) + t**2 * y2
-                ax.plot(x, y, color=color, linewidth=width)
-                # Add message count label at arc midpoint
-                label_x = (x1 + x2) / 2
-                label_y = (y1 + y2) / 2 + height * 0.5
-                ax.text(label_x, label_y, f"{weight}", ha='center', va='center', fontsize=8,
-                        bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
+                # Process Non-participant rows (triples)
+                triples_df = combined_df[combined_df['type'] == 'Non-participant']
+                for _, row in triples_df.iterrows():
+                    participant_cols = [col for col in combined_df.columns if col not in ['type', 'author', 'num_days', 'total_messages', '#participants']]
+                    participants = [col for col in participant_cols if row[col] != 0]
+                    if len(participants) != 3:
+                        logger.warning(f"Unexpected number of participants in triple row: {len(participants)}. Skipping.")
+                        continue
 
-            # Draw nodes
-            for author, (x, y) in pos.items():
-                ax.scatter([x], [y], s=2000, color='lightblue', edgecolors='black')
-                ax.text(x, y, author, ha='center', va='center', fontsize=10, fontweight='bold')
+                    total_msg = row['total_messages']
+                    pct_dict = {}
+                    for p in participants:
+                        val_str = row[p]
+                        if isinstance(val_str, str):
+                            try:
+                                msg_pct_str = val_str.split('%')[0]
+                                pct_dict[p] = int(msg_pct_str) / 100
+                            except (ValueError, IndexError):
+                                logger.warning(f"Invalid percentage format for {p}: {val_str}. Skipping.")
+                                continue
 
-            ax.set_title(f"Messaging Interactions in {group} Group\n(Red: Married Couples, Blue: Others)")
-            ax.axis('off')
-            plt.tight_layout()
+                    for i, j in itertools.combinations(participants, 2):
+                        if i in pct_dict and j in pct_dict:
+                            pair_weight = (pct_dict[i] + pct_dict[j]) * total_msg
+                            key = frozenset([i, j])
+                            triple_weights[key] = triple_weights.get(key, 0) + pair_weight
+                            total_weights[key] = total_weights.get(key, 0) + pair_weight
 
-            plt.show()
-            return fig
-        except Exception as e:
-            logger.exception(f"Failed to build arc diagram: {e}")
-            return None                  
+                if not total_weights:
+                    logger.error("No edges found after processing pairs and triples.")
+                    return None
+
+                # Define married couples
+                married_edges = [('Anja Berkemeijer', 'Phons Berkemeijer'), ('Madeleine', 'Anthony van Tilburg')]
+
+                # Get max weight for scaling linewidths
+                max_weight = max(total_weights.values(), default=1)
+
+                # Draw arcs in order: lightgray (triples), gray (pairs), red/blue (total)
+                for arc_type, weights, color, height_offset, zorder in [
+                    ('triple', triple_weights, 'lightgray', 0.4, 1),
+                    ('pair', pair_weights, 'gray', 0.55, 2),
+                    ('total', total_weights, None, 0.7, 3)  # Color set per edge
+                ]:
+                    for key, weight in weights.items():
+                        a1, a2 = list(key)
+                        x1, y1 = pos[a1]
+                        x2, y2 = pos[a2]
+                        # Calculate arc control point
+                        xm = (x1 + x2) / 2
+                        ym = (y1 + y2) / 2
+                        dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                        height = dist * height_offset
+                        # Set color
+                        if arc_type == 'total':
+                            color = 'red' if (a1, a2) in married_edges or (a2, a1) in married_edges else 'blue'
+                        # Apply horizontal shift for Anthony & Phons for lightgray and gray lines
+                        x_offset = 0
+                        if set([a1, a2]) == set(['Anthony van Tilburg', 'Phons Berkemeijer']):
+                            if arc_type == 'triple':
+                                x_offset = -0.1  # Shift lightgray line left
+                            elif arc_type == 'pair':
+                                x_offset = -0.2  # Shift gray line further left
+                        # Scale line width and amplify by APPLIFIER
+                        width = (1 + 5 * (weight / max_weight)) * APPLIFIER  # Scale between 1 and 6, then multiply by APPLIFIER
+                        # Draw arc with x-offset
+                        t = np.linspace(0, 1, 100)
+                        x = (1 - t)**2 * x1 + 2 * (1 - t) * t * (xm + x_offset) + t**2 * x2
+                        y = (1 - t)**2 * y1 + 2 * (1 - t) * t * (ym + height) + t**2 * y2
+                        ax.plot(x, y, color=color, linewidth=width, zorder=zorder)
+                        # Add label only for total arcs
+                        if arc_type == 'total':
+                            label_x = (x1 + x2) / 2
+                            label_y = (y1 + y2) / 2 + height * 0.5
+                            # Lower the label for Anthony & Phons
+                            if set([a1, a2]) == set(['Anthony van Tilburg', 'Phons Berkemeijer']):
+                                label_y -= 0.5  # Move label downward
+                            ax.text(label_x, label_y, f"{int(round(weight))}", ha='center', va='center', fontsize=8,
+                                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'), zorder=zorder + 1)
+
+                # Draw nodes
+                for author, (x, y) in pos.items():
+                    ax.scatter([x], [y], s=2000, color='lightblue', edgecolors='black', zorder=4)
+                    ax.text(x, y, author, ha='center', va='center', fontsize=10, fontweight='bold', zorder=5)
+
+                ax.set_title(f"Messaging Interactions in {group} Group\n(Red: Married Couples, Blue: Others, Gray: Pairs, Lightgray: Triples)")
+                ax.axis('off')
+                plt.tight_layout()
+
+                plt.show()
+                return fig
+            except Exception as e:
+                logger.exception(f"Failed to build arc diagram: {e}")
+                return None               
