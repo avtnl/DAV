@@ -11,7 +11,7 @@ def main():
     # Instantiate classes
     file_manager = FileManager()
     data_editor = DataEditor()
-    data_preparation = DataPreparation()
+    data_preparation = DataPreparation(data_editor=data_editor)  # Pass DataEditor instance
     plot_manager = PlotManager()
   
     # Get CSV file(s), processed directory, group mapping, and Parquet files
@@ -109,13 +109,13 @@ def main():
         return
   
     # Assign STEPs to run
-    Script = [4]
+    Script = [5]
 
-    # Initialize variables needed for STEPs 1 and 4
-    if 1 in Script or 4 in Script:
+    # Initialize variables needed for STEPs 1, 4, and 5
+    if 1 in Script or 4 in Script or 5 in Script:
         df, group_authors, non_anthony_group, anthony_group, sorted_groups = data_preparation.build_visual_categories(df)
         if df is None or group_authors is None or sorted_groups is None:
-            logger.error("Failed to initialize required variables for STEPs 1 or 4.")
+            logger.error("Failed to initialize required variables for STEPs 1, 4, or 5.")
             return
 
     # STEP 1: Prepare data for visualization (categories)
@@ -197,6 +197,27 @@ def main():
                     png_file_rel = file_manager.save_png(fig_rel, image_dir, filename=f"relationships_{group}")
                     if png_file_rel is None:
                         logger.error("Failed to save relationships plot.")
+
+    # STEP 5: Relationships visualization for emoji sequences per group
+    if 5 in Script:
+        tables_dir = Path("tables")
+        tables_dir.mkdir(parents=True, exist_ok=True)
+        for group in sorted_groups:
+            df_group = df[df['whatsapp_group'] == group].copy()
+            if df_group.empty:
+                logger.error(f"No data found for WhatsApp group '{group}'. Skipping relationships_2 visualization.")
+                continue
+            
+            table1, table2 = data_preparation.build_visual_relationships_2(df_group, group_authors[group])
+            if table1 is not None and not table1.empty:
+                file_manager.save_table(table1, tables_dir, f"emoji_seq_total_{group}")
+            if table2 is not None and not table2.empty:
+                file_manager.save_table(table2, tables_dir, f"emoji_seq_highest_{group}")
+                fig_rel = plot_manager.build_visual_relationships_2(table2, group)
+                if fig_rel is not None:
+                    png_file_rel = file_manager.save_png(fig_rel, image_dir, filename=f"relationships_emoji_{group}")
+                    if png_file_rel is None:
+                        logger.error("Failed to save relationships_2 plot.")
 
 if __name__ == "__main__":
     main()

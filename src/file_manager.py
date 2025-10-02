@@ -234,3 +234,22 @@ class FileManager:
         except Exception as e:
             logger.exception(f"Failed to save PNG to {output}: {e}")
             return None
+
+    def save_table(self, df, tables_dir, prefix="table"):
+        """
+        Save the DataFrame to a CSV file with a unique timestamped filename.
+
+        Args:
+            df (pandas.DataFrame): DataFrame to save.
+            tables_dir (Path): Directory to save the file (e.g., Path("tables")).
+            prefix (str): Filename prefix (default: "table").
+
+        Returns:
+            Path: Path to the saved CSV file.
+        """
+        now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
+        logger.info(f"Generated timestamp: {now}")
+        output = tables_dir / f"{prefix}-{now}.csv"
+        logger.info(f"Saving table to: {output}")
+        df.to_csv(output, index=True)
+        return output

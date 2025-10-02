@@ -4,7 +4,17 @@ from loguru import logger
 import emoji  # Existing import for emoji-related methods
 
 class DataEditor:
+    """A class for cleaning and processing WhatsApp message data, including timestamp conversion,
+    author cleaning, and emoji/URL detection."""
+
     def __init__(self):
+        """Initialize DataEditor with regular expression patterns and emoji sets.
+
+        Attributes:
+            emoji_pattern (re.Pattern): Regex pattern to match sequences of emojis (one or more).
+            ignore_emojis (set): Set of skin tone modifier emojis to exclude from emoji counts.
+            url_pattern (re.Pattern): Regex pattern to detect URLs in messages.
+        """
         self.emoji_pattern = re.compile(
             "["
             "\U0001f600-\U0001f64f"  # emoticons
@@ -13,19 +23,8 @@ class DataEditor:
             "\U0001f1e0-\U0001f1ff"  # flags (iOS)
             "\U00002702-\U000027b0"  # Dingbats
             "\U000024c2-\U0001f251"
-            "]+",
-            flags=re.UNICODE,
-        )
-        self.single_emoji_pattern = re.compile(
-            "["
-            "\U0001f600-\U0001f64f"  # emoticons
-            "\U0001f300-\U0001f5ff"  # symbols & pictographs
-            "\U0001f680-\U0001f6ff"  # transport & map symbols
-            "\U0001f1e0-\U0001f1ff"  # flags (iOS)
-            "\U00002702-\U000027b0"  # Dingbats
-            "\U000024c2-\U0001f251"
             "\U0001f900-\U0001f9ff"  # supplemental symbols & pictographs
-            "]",
+            "]+",
             flags=re.UNICODE,
         )
         # Define emojis to ignore (skin tone modifiers)

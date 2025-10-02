@@ -1,8 +1,36 @@
 import pandas as pd
+import re
 from loguru import logger
 import emoji
 
 class DataPreparation:
+    """A class for preparing WhatsApp message data for visualization, including category,
+    time-based, distribution, and relationship analyses."""
+
+    def __init__(self, data_editor=None):
+        """Initialize DataPreparation with a DataEditor instance and emoji pattern.
+
+        Args:
+            data_editor (DataEditor, optional): Instance of DataEditor for emoji handling.
+
+        Attributes:
+            data_editor (DataEditor): Stored DataEditor instance for accessing emoji-related methods.
+            emoji_pattern (re.Pattern): Regex pattern to match sequences of emojis (one or more).
+        """
+        self.data_editor = data_editor  # Store DataEditor instance for emoji handling
+        self.emoji_pattern = re.compile(
+            "["
+            "\U0001f600-\U0001f64f"  # emoticons
+            "\U0001f300-\U0001f5ff"  # symbols & pictographs
+            "\U0001f680-\U0001f6ff"  # transport & map symbols
+            "\U0001f1e0-\U0001f1ff"  # flags (iOS)
+            "\U00002702-\U000027b0"  # Dingbats
+            "\U000024c2-\U0001f251"
+            "\U0001f900-\U0001f9ff"  # supplemental symbols & pictographs
+            "]+",
+            flags=re.UNICODE,
+        )
+
     def build_visual_categories(self, df):
         """
         Prepare DataFrame for visualization by adding year column, computing active years,
@@ -150,7 +178,7 @@ class DataPreparation:
         Prepare DataFrame for emoji distribution visualization by counting emojis.
 
         Args:
-            df (pandas.DataFrame): Input DataFrame with 'message', 'author', and 'has_emoji' columns.
+            df (pandas.DataFrame): Input DataFrame with 'message_cleaned', 'author', and 'has_emoji' columns.
 
         Returns:
             tuple: (pandas.DataFrame, pandas.DataFrame) -
@@ -160,19 +188,20 @@ class DataPreparation:
             logger.error("No valid DataFrame provided for distribution visualization preparation")
             return None, None
 
+        if self.data_editor is None:
+            logger.error("No DataEditor instance provided for emoji handling")
+            return None, None
+
         try:
             # Filter messages with emojis
             emoji_msgs = df[df["has_emoji"] == True]
 
-            # Define emojis to ignore (skin tone modifiers)
-            ignore_emojis = {chr(int(code, 16)) for code in ['1F3FB', '1F3FC', '1F3FD', '1F3FE', '1F3FF']}
-
             # Initialize dictionary for counts
             count_once = {}
             # Process each message
-            for message in emoji_msgs["message"]:
-                # Extract all emojis in the message, excluding ignored ones
-                emojis = [char for char in message if char in emoji.EMOJI_DATA and char not in ignore_emojis]
+            for message in emoji_msgs["message_cleaned"]:
+                # Extract all emojis in the message, excluding ignored ones (using DataEditor logic)
+                emojis = [char for char in message if char in emoji.EMOJI_DATA and char not in self.data_editor.ignore_emojis]
                 # Count unique emojis once per message
                 unique_emojis = set(emojis)
                 for e in unique_emojis:
@@ -289,3 +318,90 @@ class DataPreparation:
         except Exception as e:
             logger.exception(f"Failed to build visual relationships: {e}")
             return None
+
+    def build_visual_relationships_2(self, df_group, authors):
+        """
+        Build tables showing relationships between emoji sequences and authors in a WhatsApp group.
+
+        Args:
+            df_group (pandas.DataFrame): Filtered DataFrame for a specific group with 'message_cleaned' and 'author' columns.
+            authors (list): List of unique authors in the group.
+
+        Returns:
+            tuple: (pandas.DataFrame or None, pandas.DataFrame or None) - Numerical DataFrames for table1 and table2.
+        """
+        MIN_TOTAL = 10
+        MIN_HIGHEST = 60  # in percent
+
+        if df_group.empty:
+            logger.error("Empty DataFrame provided for building visual relationships_2.")
+            return None, None
+
+        try:
+            # Extract emoji sequences from message_cleaned
+            sequences = []
+            for _, row in df_group.iterrows():
+                message = row['message_cleaned']
+                author = row['author']
+                if isinstance(message, str):
+                    emoji_sequences = self.emoji_pattern.findall(message)
+                    for seq in emoji_sequences:
+                        sequences.append({'sequence': seq, 'author': author})
+
+            if not sequences:
+                logger.info("No emoji sequences found in the group.")
+                return None, None
+
+            seq_df = pd.DataFrame(sequences)
+            counts = seq_df.groupby(['sequence', 'author']).size().reset_index(name='count')
+            pivot = counts.pivot(index='sequence', columns='author', values='count').fillna(0)
+
+            # Calculate total
+            pivot['total'] = pivot.sum(axis=1)
+
+            # Filter out rows where total == 0 (though unlikely)
+            pivot = pivot[pivot['total'] > 0]
+
+            # Authors columns
+            authors = sorted([a for a in authors if a in pivot.columns])
+            if not authors:
+                logger.error("No matching authors found in pivot table.")
+                return None, None
+
+            # Convert counts to int
+            pivot[authors] = pivot[authors].astype(int)
+            pivot['total'] = pivot['total'].astype(int)
+
+            # Calculate percentages (numerical)
+            percentages = pivot[authors].div(pivot['total'], axis=0) * 100
+            percentages['highest'] = percentages.max(axis=1)
+
+            # Combine into full numerical table: total + percentages (authors + highest)
+            full_table_num = pd.concat([pivot[['total']], percentages], axis=1)
+
+            # Create string version for logging
+            full_table_str = full_table_num.copy()
+            for col in authors + ['highest']:
+                full_table_str[col] = full_table_str[col].apply(lambda x: f"{int(x)}%")
+
+            # Table 1: total >= MIN_TOTAL, sorted by total descending
+            table1_num = full_table_num[full_table_num['total'] >= MIN_TOTAL].sort_values('total', ascending=False)
+            if not table1_num.empty:
+                table1_str = full_table_str.loc[table1_num.index]
+                logger.info(f"Table 1 (total >= {MIN_TOTAL}, sorted by total desc) for group {df_group['whatsapp_group'].iloc[0]}:\n{table1_str.to_string()}")
+            else:
+                logger.info(f"No emoji sequences with total >= {MIN_TOTAL} for group {df_group['whatsapp_group'].iloc[0]}.")
+
+            # Table 2: highest >= MIN_HIGHEST and total >= MIN_TOTAL, sorted by highest descending
+            table2_num = full_table_num[(full_table_num['highest'] >= MIN_HIGHEST) & (full_table_num['total'] >= MIN_TOTAL)].sort_values('highest', ascending=False)
+            if not table2_num.empty:
+                table2_str = full_table_str.loc[table2_num.index]
+                logger.info(f"Table 2 (highest >= {MIN_HIGHEST}% and total >= {MIN_TOTAL}, sorted by highest desc) for group {df_group['whatsapp_group'].iloc[0]}:\n{table2_str.to_string()}")
+            else:
+                logger.info(f"No emoji sequences with highest >= {MIN_HIGHEST}% and total >= {MIN_TOTAL} for group {df_group['whatsapp_group'].iloc[0]}.")
+                return table1_num, None
+
+            return table1_num, table2_num
+        except Exception as e:
+            logger.exception(f"Failed to build visual relationships_2: {e}")
+            return None, None        

@@ -286,3 +286,53 @@ class PlotManager:
             except Exception as e:
                 logger.exception(f"Failed to build visual relationships plot: {e}")
                 return None
+
+    def build_visual_relationships_2(self, table2, group):
+        """
+        Create a horizontal bar chart showing total counts and highest author counts for emoji sequences
+        with high association to one author, including the author with the highest percentage.
+
+        Args:
+            table2 (pandas.DataFrame): Numerical DataFrame from build_visual_relationships_2 (highest >= MIN_HIGHEST and total >= MIN_TOTAL, sorted desc).
+            group (str): WhatsApp group name for the title.
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the bar chart, or None if creation fails.
+        """
+        if table2 is None or table2.empty:
+            logger.error("No valid table provided for building visual relationships_2 plot.")
+            return None
+
+        try:
+            # Sort by highest descending, reverse for plotting (highest at top)
+            table2 = table2.sort_values('highest', ascending=True)  # Ascending for barh (bottom to top)
+            sequences = table2.index
+
+            # Identify the author with the highest percentage for each sequence
+            author_columns = [col for col in table2.columns if col not in ['total', 'highest']]
+            highest_authors = table2[author_columns].idxmax(axis=1)
+
+            # Combine sequence and highest author for y-axis labels
+            y_labels = [f"{seq} ({author})" for seq, author in zip(sequences, highest_authors)]
+
+            # Create figure
+            fig, ax = plt.subplots(figsize=(10, max(4, len(sequences) * 0.5)))
+
+            # Black bars for total
+            ax.barh(y_labels, table2['total'], color='black', label='Total Count')
+
+            # Orange bars for highest count (highest % * total / 100)
+            highest_counts = (table2['highest'] / 100) * table2['total']
+            ax.barh(y_labels, highest_counts, color='orange', label='Highest Author Count')
+
+            ax.set_xlabel('Count')
+            ax.set_ylabel('Emoji Sequence (Author with Highest %)')
+            ax.set_title(f"Emoji Sequences Strongly Associated with One Author in {group}")
+            ax.legend()
+            plt.tight_layout()
+
+            plt.show()
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build visual relationships_2 plot: {e}")
+            return None            
