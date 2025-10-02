@@ -237,107 +237,52 @@ class PlotManager:
             logger.exception(f"Failed to build time-based plot: {e}")
             return None
 
-    def build_visual_distribution(self, emoji_counts_df):
-        """
-        Create a bar plot showing the distribution of individual emoji usage in the 'maap' WhatsApp group.
+    def build_visual_relationships(self, table2, group):
+            """
+            Create a horizontal bar chart showing total counts and highest author counts for first words
+            with high association to one author, including the author with the highest percentage.
 
-        Args:
-            emoji_counts_df (pandas.DataFrame): DataFrame with columns 'emoji', 'count_once', 'percent_once', 'unicode_code', 'unicode_name'.
+            Args:
+                table2 (pandas.DataFrame): Numerical DataFrame from build_visual_relationships (highest >= MIN_HIGHEST and total >= MIN_TOTAL, sorted desc).
+                group (str): WhatsApp group name for the title.
 
-        Returns:
-            matplotlib.figure.Figure or None: Figure object for the bar plot, or None if creation fails.
-        """
-        try:
-            # Check if emoji_counts_df is empty or lacks required columns
-            required_columns = ['emoji', 'count_once', 'percent_once']
-            if emoji_counts_df is None or emoji_counts_df.empty or not all(col in emoji_counts_df.columns for col in required_columns):
-                logger.error("No valid emoji_counts_df or required columns missing. Skipping distribution plot.")
+            Returns:
+                matplotlib.figure.Figure or None: Figure object for the bar chart, or None if creation fails.
+            """
+            if table2 is None or table2.empty:
+                logger.error("No valid table provided for building visual relationships plot.")
                 return None
 
-            # Log emoji counts
-            logger.info(f"Emoji usage counts:\n{emoji_counts_df.to_string()}")
+            try:
+                # Sort by highest descending, reverse for plotting (highest at top)
+                table2 = table2.sort_values('highest', ascending=True)  # Ascending for barh (bottom to top)
+                first_words = table2.index
 
-            # If no emojis found, skip plotting
-            if emoji_counts_df.empty:
-                logger.error("No emojis found in 'maap' group. Skipping distribution plot.")
+                # Identify the author with the highest percentage for each first word
+                author_columns = [col for col in table2.columns if col not in ['total', 'highest']]
+                highest_authors = table2[author_columns].idxmax(axis=1)
+
+                # Combine first word and highest author for y-axis labels
+                y_labels = [f"{word} ({author})" for word, author in zip(first_words, highest_authors)]
+
+                # Create figure
+                fig, ax = plt.subplots(figsize=(10, max(4, len(first_words) * 0.5)))
+
+                # Black bars for total
+                ax.barh(y_labels, table2['total'], color='black', label='Total Count')
+
+                # Orange bars for highest count (highest % * total / 100)
+                highest_counts = (table2['highest'] / 100) * table2['total']
+                ax.barh(y_labels, highest_counts, color='orange', label='Highest Author Count')
+
+                ax.set_xlabel('Count')
+                ax.set_ylabel('First Word (Author with Highest %)')
+                ax.set_title(f"First Words Strongly Associated with One Author in {group}")
+                ax.legend()
+                plt.tight_layout()
+
+                plt.show()
+                return fig
+            except Exception as e:
+                logger.exception(f"Failed to build visual relationships plot: {e}")
                 return None
-
-            # Create bar plot with dynamic figsize for all emojis
-            num_emojis = len(emoji_counts_df)
-            fig, ax = plt.subplots(figsize=(max(num_emojis * 0.2, 8), 8))
-            ax2 = ax.twinx()  # Secondary y-axis for cumulative percentage
-            x_positions = np.arange(num_emojis)
-            bars = ax.bar(x_positions, emoji_counts_df['percent_once'], color='purple', align='edge', width=0.5)
-            ax.set_ylabel("Likelihood (%) of finding an Emoji in a random chosen message", fontsize=12, labelpad=20)
-            ax.set_title("The Long Tail of Emotion: Few Speak for Many", fontsize=20)
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.spines['left'].set_position(('outward', 20))
-            ax.tick_params(axis='y', labelsize=10)
-            ax.set_xlim(-0.5, num_emojis)
-            ylim_bottom, ylim_top = ax.get_ylim()
-            ax.set_ylim(ylim_bottom - 3, ylim_top)
-            ax.set_xticks([])  # No x-ticks
-
-            # Calculate cumulative percentages
-            cumulative_once = emoji_counts_df['percent_once'].cumsum()
-
-            # Find index where cumulative percentage reaches 75%
-            cum_once_np = np.array(cumulative_once)
-            idx_once = None
-            if len(cum_once_np) > 0 and np.any(cum_once_np >= 75):
-                idx_once = np.where(cum_once_np >= 75)[0][0]
-                x_once = idx_once + 1
-                y_once = len(emoji_counts_df)
-                # Add orange background from left edge to vertical dashed line
-                ax.axvspan(-0.5, idx_once + 0.5, facecolor="lightgreen", alpha=0.2)
-                # Add vertical dashed line
-                ax.axvline(x=idx_once + 0.5, color="orange", linestyle="--", linewidth=1)
-                # Add texts for x and y emojis
-                left_mid = idx_once / 2
-                right_mid = (idx_once + 0.5) + (y_once - idx_once - 1) / 2
-                y_text = ylim_bottom - 1.5
-                ax.text(left_mid, y_text, f"<-- {x_once} emojis -->", ha='center', fontsize=12)
-                ax.text(right_mid, y_text, f"<-- {y_once} emojis -->", ha='center', fontsize=12)
-
-            # Plot cumulative line and 75% dashed line (if applicable)
-            ax2.plot(x_positions + 0.25, cumulative_once, color="orange", label="Cumulative %")
-            if idx_once is not None:
-                ax2.axhline(y=75, color="orange", linestyle="--", linewidth=1, xmin=-0.5, xmax=num_emojis + 0.5)
-            ax2.set_ylabel("Cumulative Percentage (%)", fontsize=12, labelpad=20)
-            ax2.set_ylim(0, 100)
-            ax2.set_yticks(np.arange(0, 101, 10))
-            ax2.spines['right'].set_position(('outward', 20))
-            ax2.tick_params(axis='y', labelsize=10, colors='orange')
-            ax2.spines['right'].set_color('orange')
-
-            # Add table for top 25 emojis (count_once)
-            top_25_once = emoji_counts_df.head(25)
-            cum_once_top = top_25_once['percent_once'].cumsum()
-            table_data = [
-                [str(i+1) for i in range(len(top_25_once))],
-                [f"{row['emoji']}" for _, row in top_25_once.iterrows()],
-                [f"{count:.0f}" for count in top_25_once['count_once']],
-                [f"{cum:.1f}%" for cum in cum_once_top]
-            ]
-            col_width = 0.8 / len(top_25_once)  # Dynamic column width
-            table = ax.table(cellText=table_data,
-                            rowLabels=["Rank", "Emoji", "Count", "Cum"],
-                            colWidths=[col_width] * len(top_25_once),
-                            loc='bottom',
-                            bbox=[0.1, -0.45, 0.8, 0.3])
-            table.auto_set_font_size(False)
-            table.set_fontsize(10)
-            table.scale(1, 1.5)
-
-            # Add "Top 25:" label above the table
-            fig.text(0.5, 0.27, "Top 25:", ha='center', fontsize=12)
-            ax2.legend(loc='upper left', fontsize=8)
-            plt.tight_layout()
-            plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)
-
-            plt.show()
-            return fig
-        except Exception as e:
-            logger.exception(f"Failed to build distribution plot: {e}")
-            return None
