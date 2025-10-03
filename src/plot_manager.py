@@ -2,11 +2,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+from collections import Counter, defaultdict
 from loguru import logger
 import warnings
 import matplotlib.font_manager as fm
 import networkx as nx
 import itertools
+import emoji
 
 # Suppress FutureWarning from seaborn/pandas
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -23,7 +25,7 @@ class PlotManager:
     def build_visual_categories(self, group_authors, non_anthony_group, anthony_group, sorted_groups):
         """
         Create a bar chart comparing non-Anthony average messages and Anthony's messages
-        per WhatsApp group for July 2020 - July 2025.
+        per WhatsApp group for July 2020 - July 2025, with a horizontal line for overall average messages.
 
         Args:
             group_authors (dict): Dictionary of group names to lists of authors.
@@ -46,16 +48,25 @@ class PlotManager:
             # Plot Anthony's messages
             ax.bar(positions + bar_width / 2, anthony_group['anthony_messages'], width=bar_width, color='blue', label='Number of messages Anthony')
 
-            # Add red arrow for maap
+            # Calculate overall average messages across all groups
+            overall_avg = (non_anthony_group['non_anthony_avg'] * non_anthony_group['num_authors'] + anthony_group['anthony_messages']).sum() / (non_anthony_group['num_authors'].sum() + len(sorted_groups))
+            ax.axhline(y=overall_avg, color='black', linestyle='--', linewidth=1.5, label='Overall average messages per Author')
+            logger.info(f"Overall average messages across all groups: {overall_avg:.2f}")
+
+            # Add block arrows for maap
             maap_idx = sorted_groups.index('maap') if 'maap' in sorted_groups else None
             if maap_idx is not None:
-                x_pos = positions[maap_idx] + bar_width
+                x_pos = positions[maap_idx] + 0.75 * bar_width
                 y_start = non_anthony_group['non_anthony_avg'].iloc[maap_idx]
                 y_end = anthony_group['anthony_messages'].iloc[maap_idx]
+                # Draw block arrows (using two arrows for thicker effect)
                 ax.annotate('',
                             xy=(x_pos, y_end), xytext=(x_pos, y_start),
-                            arrowprops=dict(arrowstyle='<->', color='red', lw=2))
-                logger.info(f"Red arrow for maap: from (x={x_pos:.2f}, y={y_start:.2f}) to (x={x_pos:.2f}, y={y_end:.2f})")
+                            arrowprops=dict(arrowstyle='-|>', color='red', lw=5, mutation_scale=20))
+                ax.annotate('',
+                            xy=(x_pos, y_start), xytext=(x_pos, y_end),
+                            arrowprops=dict(arrowstyle='-|>', color='red', lw=5, mutation_scale=20))
+                logger.info(f"Block arrows for maap: from (x={x_pos:.2f}, y={y_start:.2f}) to (x={x_pos:.2f}, y={y_end:.2f})")
 
             # Customize x-axis labels
             xtick_labels = [f"{group} ({num_authors:.1f})" for group, num_authors in zip(sorted_groups, non_anthony_group['num_authors'])]
@@ -63,7 +74,13 @@ class PlotManager:
             ax.set_xticklabels(xtick_labels)
             ax.set_xlabel("WhatsApp Group (Number of Non-Anthony Authors)")
             ax.set_ylabel("Messages (July 2020 - July 2025)")
-            ax.set_title("Anthony's participation ratio in whatsapp_group 'maap' is significant lower than other groups")
+
+            # Add two-part title
+            ax.text(0.5, 1.08, "Too much to handle or too much crap?",
+                    fontsize=16, ha='center', va='bottom', transform=ax.transAxes)
+            ax.text(0.5, 1.02, "Anthony's participation is significant lower for 1st whatsapp group",
+                    fontsize=12, ha='center', va='bottom', transform=ax.transAxes)            
+
             ax.legend()
             plt.tight_layout()
             plt.show()
@@ -71,6 +88,56 @@ class PlotManager:
             return fig
         except Exception as e:
             logger.exception(f"Failed to build bar chart: {e}")
+            return None
+
+    def build_visual_categories_2(self, df):
+        """
+        Create a bar chart showing the number of messages by attachment type, including a 'No attachments' category.
+
+        Args:
+            df (pandas.DataFrame): The DataFrame containing message data with relevant columns.
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the bar chart, or None if creation fails.
+        """
+        try:
+            # Compute counts for each attachment type
+            counts = {}
+            counts['Links'] = df['has_link'].sum()
+            counts['Pictures'] = (df['pictures_deleted'] > 0).sum()
+            counts['Videos'] = (df['videos_deleted'] > 0).sum()
+            counts['Audios'] = (df['audios_deleted'] > 0).sum()
+            counts['Gifs'] = (df['gifs_deleted'] > 0).sum()
+            counts['Stickers'] = (df['stickers_deleted'] > 0).sum()
+            counts['Documents'] = (df['documents_deleted'] > 0).sum()
+            counts['Videonotes'] = (df['videonotes_deleted'] > 0).sum()
+
+            # Compute 'No attachments': messages where none of the above conditions are true
+            no_attach_mask = ~df['has_link'] & \
+                            (df['pictures_deleted'] == 0) & \
+                            (df['videos_deleted'] == 0) & \
+                            (df['audios_deleted'] == 0) & \
+                            (df['gifs_deleted'] == 0) & \
+                            (df['stickers_deleted'] == 0) & \
+                            (df['documents_deleted'] == 0) & \
+                            (df['videonotes_deleted'] == 0)
+            counts['No attachments'] = no_attach_mask.sum()
+
+            # Create bar chart
+            fig, ax = plt.subplots(figsize=(12, 6))
+            categories = list(counts.keys())
+            values = list(counts.values())
+            ax.bar(categories, values, color='skyblue')
+            ax.set_xlabel("Attachment Type")
+            ax.set_ylabel("Number of Messages")
+            ax.set_title("Messages by Attachment Type (July 2020 - July 2025)")
+            plt.xticks(rotation=45, ha='right')
+            plt.tight_layout()
+            plt.show()
+
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build attachment categories bar chart: {e}")
             return None
 
     def build_visual_time(self, p, average_all):
@@ -237,6 +304,190 @@ class PlotManager:
             return fig
         except Exception as e:
             logger.exception(f"Failed to build time-based plot: {e}")
+            return None
+
+    def build_visual_distribution(self, emoji_counts_df):
+        """
+        Create a bar plot showing the distribution of individual emoji usage in the 'maap' WhatsApp group.
+
+        Args:
+            emoji_counts_df (pandas.DataFrame): DataFrame with columns 'emoji', 'count_once', 'percent_once', 'unicode_code', 'unicode_name'.
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the bar plot, or None if creation fails.
+        """
+        try:
+            # Check if emoji_counts_df is empty or lacks required columns
+            required_columns = ['emoji', 'count_once', 'percent_once']
+            if emoji_counts_df is None or emoji_counts_df.empty or not all(col in emoji_counts_df.columns for col in required_columns):
+                logger.error("No valid emoji_counts_df or required columns missing. Skipping distribution plot.")
+                return None
+
+            # Log emoji counts
+            logger.info(f"Emoji usage counts:\n{emoji_counts_df.to_string()}")
+
+            # If no emojis found, skip plotting
+            if emoji_counts_df.empty:
+                logger.error("No emojis found in 'maap' group. Skipping distribution plot.")
+                return None
+
+            # Create bar plot with dynamic figsize for all emojis
+            num_emojis = len(emoji_counts_df)
+            fig, ax = plt.subplots(figsize=(max(num_emojis * 0.2, 8), 8))
+            ax2 = ax.twinx()  # Secondary y-axis for cumulative percentage
+            x_positions = np.arange(num_emojis)
+            bars = ax.bar(x_positions, emoji_counts_df['percent_once'], color='purple', align='edge', width=0.5)
+            ax.set_ylabel("Likelihood (%) of finding an Emoji in a random chosen message", fontsize=12, labelpad=20)
+            ax.set_title("The Long Tail of Emotion: Few Speak for Many", fontsize=20)
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['left'].set_position(('outward', 20))
+            ax.tick_params(axis='y', labelsize=10)
+            ax.set_xlim(-0.5, num_emojis)
+            ylim_bottom, ylim_top = ax.get_ylim()
+            ax.set_ylim(ylim_bottom - 3, ylim_top)
+            ax.set_xticks([])  # No x-ticks
+
+            # Calculate cumulative percentages
+            cumulative_once = emoji_counts_df['percent_once'].cumsum()
+
+            # Find index where cumulative percentage reaches 75%
+            cum_once_np = np.array(cumulative_once)
+            idx_once = None
+            if len(cum_once_np) > 0 and np.any(cum_once_np >= 75):
+                idx_once = np.where(cum_once_np >= 75)[0][0]
+                x_once = idx_once + 1
+                y_once = len(emoji_counts_df)
+                # Add orange background from left edge to vertical dashed line
+                ax.axvspan(-0.5, idx_once + 0.5, facecolor="lightgreen", alpha=0.2)
+                # Add vertical dashed line
+                ax.axvline(x=idx_once + 0.5, color="orange", linestyle="--", linewidth=1)
+                # Add texts for x and y emojis
+                left_mid = idx_once / 2
+                right_mid = (idx_once + 0.5) + (y_once - idx_once - 1) / 2
+                y_text = ylim_bottom - 1.5
+                ax.text(left_mid, y_text, f"<-- {x_once} emojis -->", ha='center', fontsize=12)
+                ax.text(right_mid, y_text, f"<-- {y_once} emojis -->", ha='center', fontsize=12)
+
+            # Plot cumulative line and 75% dashed line (if applicable)
+            ax2.plot(x_positions + 0.25, cumulative_once, color="orange", label="Cumulative %")
+            if idx_once is not None:
+                ax2.axhline(y=75, color="orange", linestyle="--", linewidth=1, xmin=-0.5, xmax=num_emojis + 0.5)
+            ax2.set_ylabel("Cumulative Percentage (%)", fontsize=12, labelpad=20)
+            ax2.set_ylim(0, 100)
+            ax2.set_yticks(np.arange(0, 101, 10))
+            ax2.spines['right'].set_position(('outward', 20))
+            ax2.tick_params(axis='y', labelsize=10, colors='orange')
+            ax2.spines['right'].set_color('orange')
+
+            # Add table for top 25 emojis (count_once)
+            top_25_once = emoji_counts_df.head(25)
+            cum_once_top = top_25_once['percent_once'].cumsum()
+            table_data = [
+                [str(i+1) for i in range(len(top_25_once))],
+                [f"{row['emoji']}" for _, row in top_25_once.iterrows()],
+                [f"{count:.0f}" for count in top_25_once['count_once']],
+                [f"{cum:.1f}%" for cum in cum_once_top]
+            ]
+            col_width = 0.8 / len(top_25_once)  # Dynamic column width
+            table = ax.table(cellText=table_data,
+                            rowLabels=["Rank", "Emoji", "Count", "Cum"],
+                            colWidths=[col_width] * len(top_25_once),
+                            loc='bottom',
+                            bbox=[0.1, -0.45, 0.8, 0.3])
+            table.auto_set_font_size(False)
+            table.set_fontsize(10)
+            table.scale(1, 1.5)
+
+            # Add "Top 25:" label above the table
+            fig.text(0.5, 0.27, "Top 25:", ha='center', fontsize=12)
+            ax2.legend(loc='upper left', fontsize=8)
+            plt.tight_layout()
+            plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)
+
+            plt.show()
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build distribution plot: {e}")
+            return None
+
+    def build_visual_distribution_2(self, df):
+        """
+        Create a scatterplot showing the number of messages containing each of the top 25 emojis
+        for each author in the 'maap' WhatsApp group. Each author is represented by a different color.
+
+        Args:
+            df (pandas.DataFrame): DataFrame filtered for 'maap' group, containing 'author' and 'message' columns.
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the scatterplot, or None if creation fails.
+        """
+        if df.empty:
+            logger.error("Empty DataFrame provided for build_visual_distribution_2.")
+            return None
+
+        try:
+            # Recreate ignore_emojis (skin tone modifiers) from DataEditor
+            ignore_emojis = {chr(int(code, 16)) for code in ['1F3FB', '1F3FC', '1F3FD', '1F3FE', '1F3FF']}
+
+            # Extract all emojis from messages, excluding ignored ones
+            all_emojis = []
+            for message in df['message']:
+                if isinstance(message, str):
+                    all_emojis.extend([c for c in message if c in emoji.EMOJI_DATA and c not in ignore_emojis])
+
+            if not all_emojis:
+                logger.warning("No emojis found in the messages for 'maap' group.")
+                return None
+
+            # Get top 25 emojis by occurrence frequency
+            emoji_freq = Counter(all_emojis)
+            top_25_emojis = [e for e, _ in emoji_freq.most_common(25)]
+
+            # Get sorted unique authors (assuming 4 authors)
+            authors = sorted(df['author'].unique())
+            if len(authors) != 4:
+                logger.warning(f"Expected 4 authors in 'maap' group, found {len(authors)}.")
+
+            # Define colors for each author
+            colors = ['blue', 'red', 'green', 'purple']  # Distinct colors for up to 4 authors
+            color_map = {author: color for author, color in zip(authors, colors)}
+
+            # Compute counts: number of messages containing each top emoji per author
+            counts = {author: [] for author in authors}
+            for emoji_char in top_25_emojis:
+                for author in authors:
+                    author_msgs = df[df['author'] == author]['message']
+                    count = sum(1 for msg in author_msgs if isinstance(msg, str) and emoji_char in msg)
+                    counts[author].append(count)
+
+            # Create figure
+            fig, ax = plt.subplots(figsize=(14, 8))
+            x_pos = np.arange(len(top_25_emojis))
+
+            # Plot scatter points for each author
+            max_y = 0
+            for author in authors:
+                y = counts[author]
+                ax.scatter(x_pos, y, color=color_map[author], label=author, s=50)
+                max_y = max(max_y, max(y) if y else 0)
+
+            # Customize plot
+            ax.set_xticks(x_pos)
+            ax.set_xticklabels(top_25_emojis, fontsize=14)
+            ax.set_xlabel('Top 25 Emojis (Ordered by Overall Frequency)')
+            ax.set_ylabel('Number of Messages')
+            ax.set_title('Number of Messages Containing Top 25 Emojis per Author in "maap" Group (July 2020 - July 2025)')
+            ax.set_ylim(0, max_y * 1.1 if max_y > 0 else 1)
+            ax.grid(True, linestyle='--', alpha=0.5)
+            ax.legend()
+
+            plt.tight_layout()
+            plt.show()
+
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build visual distribution 2: {e}")
             return None
 
     def build_visual_relationships(self, table2, group):
@@ -562,4 +813,154 @@ class PlotManager:
                 return fig
             except Exception as e:
                 logger.exception(f"Failed to build arc diagram: {e}")
-                return None               
+                return None
+
+    def build_visual_relationships_bubble(self, agg_df):
+        """
+        Create a bubble plot from prepared data: avg_words vs avg_punct,
+        bubble size = message_count, colored by group, alpha by has_emoji.
+        
+        Args:
+            agg_df (pandas.DataFrame): Aggregated data from DataPreparation with columns:
+                                      whatsapp_group, author, has_emoji, message_count, avg_words, avg_punct.
+        
+        Returns:
+            matplotlib.figure.Figure or None: The plot figure.
+        """
+        if agg_df is None or agg_df.empty:
+            logger.error("No data provided for bubble plot.")
+            return None
+        try:
+            fig, ax = plt.subplots(figsize=(12, 8))
+            groups = agg_df['whatsapp_group'].unique()
+            # Color mapping for groups (using hex codes)
+            colors = {
+                groups[0]: '#FFA500' if len(groups) > 0 else '#808080',  # Orange for first group (e.g., maap)
+                groups[1]: '#90EE90' if len(groups) > 1 else '#808080',   # Light green for second group (e.g., dac)
+                groups[2]: '#0000FF' if len(groups) > 2 else '#808080',   # Blue for third group (e.g., golfmaten)
+                groups[3]: '#800080' if len(groups) > 3 else '#808080'    # Purple for fourth group (e.g., tillies)
+            }
+            
+            # Create a set to track legend entries
+            legend_added = set()
+            
+            for _, row in agg_df.iterrows():
+                group = row['whatsapp_group']
+                has_emoji = row['has_emoji']
+                author = row['author']
+                # Create author initials for labeling
+                initials = ''.join(word[0].upper() for word in author.split() if word)
+                color = colors.get(group, '#808080')
+                alpha = 0.7 if has_emoji else 0.3
+                size = row['message_count'] * 10
+                
+                # Plot scatter point
+                ax.scatter(
+                    row['avg_words'],
+                    row['avg_punct'],
+                    s=size,
+                    color=color,
+                    alpha=alpha
+                )
+                
+                # Add author initials as label
+                ax.text(
+                    row['avg_words'],
+                    row['avg_punct'],
+                    initials,
+                    fontsize=8,
+                    ha='center',
+                    va='center',
+                    color='black',
+                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='none')
+                )
+                
+                # Add legend entry only once per group/emoji combination
+                legend_key = (group, has_emoji)
+                if legend_key not in legend_added:
+                    label = f"{group} ({'with' if has_emoji else 'without'} emojis)"
+                    ax.scatter([], [], s=100, color=color, alpha=alpha, label=label)
+                    legend_added.add(legend_key)
+            
+            # Add trendlines for averages across all groups for each has_emoji category
+            for has_emoji, trend_color in [(True, 'red'), (False, 'black')]:
+                subset = agg_df[agg_df['has_emoji'] == has_emoji]
+                if len(subset) > 1:  # Need at least 2 points for regression
+                    x = subset['avg_words']
+                    y = subset['avg_punct']
+                    slope, intercept = np.polyfit(x, y, 1)  # Linear fit
+                    line_x = np.linspace(x.min(), x.max(), 100)
+                    line_y = slope * line_x + intercept
+                    ax.plot(line_x, line_y, color=trend_color, linestyle='--', label=f"Trendline ({'with' if has_emoji else 'without'} emojis)")
+            
+            ax.set_xlabel('Average Number of Words per Message')
+            ax.set_ylabel('Average Number of Punctuations per Message')
+            ax.set_title('Bubble Plot: Words vs Punctuations by Group, Author, and Emoji Usage\n(Bubble Size: Number of Messages)')
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            plt.tight_layout()
+            plt.show()
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build bubble plot: {e}")
+            return None
+
+    def build_visual_sequence_comparison(self, sequence_df, group):
+        """
+        Create a line plot comparing sequence scores (alternating_MF, rhythm, married_alternation) over time.
+        
+        Args:
+            sequence_df (pandas.DataFrame): DataFrame with columns: date, score_alternating_MF, score_rhythm,
+                                            score_not_married, [score_married_alternation].
+            group (str): WhatsApp group name (e.g., 'maap').
+        
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the line plot, or None if creation fails.
+        """
+        if sequence_df.empty:
+            logger.error(f"No data provided for sequence comparison plot for group {group}.")
+            return None
+        
+        try:
+            # Ensure date is datetime
+            sequence_df['date'] = pd.to_datetime(sequence_df['date'])
+            
+            # Check for valid data in score columns
+            score_columns = ['score_alternating_MF', 'score_rhythm']
+            if 'score_married_alternation' in sequence_df.columns:
+                score_columns.append('score_married_alternation')
+            else:
+                logger.warning("score_married_alternation not found in DataFrame. Excluding from plot.")
+            
+            # Log data summary
+            logger.debug(f"Sequence DataFrame for {group}:\n{sequence_df[score_columns + ['date']].describe().to_string()}")
+            if sequence_df[score_columns].isna().all().all():
+                logger.error(f"All score columns ({score_columns}) contain only NaN values.")
+                return None
+            
+            # Create line plot
+            fig, ax = plt.subplots(figsize=(12, 6))
+            for col in score_columns:
+                # Skip if column is all NaN or zero
+                if sequence_df[col].isna().all() or (sequence_df[col] == 0).all():
+                    logger.warning(f"Skipping {col} due to all NaN or zero values.")
+                    continue
+                sns.lineplot(data=sequence_df, x='date', y=col, label=col.replace('score_', '').replace('_', ' ').title(), ax=ax)
+            
+            if not ax.has_data():
+                logger.error("No data plotted. Check if all score columns are empty or invalid.")
+                return None
+            
+            ax.set_title(f"Sequence Scores Over Time for {group} Group")
+            ax.set_xlabel("Date")
+            ax.set_ylabel("Score (0-1)")
+            ax.legend()
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            
+            # Ensure plot displays
+            plt.show(block=False)  # Non-blocking show for compatibility
+            logger.info(f"Created sequence comparison plot for group {group}.")
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to create sequence comparison plot for group {group}: {e}")
+            return None                     

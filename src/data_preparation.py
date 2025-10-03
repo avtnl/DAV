@@ -1,12 +1,243 @@
 import pandas as pd
-import re
+import numpy as np
+from collections import Counter, defaultdict
 from loguru import logger
-import emoji
+import re
 import itertools
+import emoji
 
 class DataPreparation:
     """A class for preparing WhatsApp message data for visualization, including category,
     time-based, distribution, and relationship analyses."""
+
+    class SequenceHandler:
+        """
+        Subclass for handling sequence-specific analysis in chat data.
+        Generates daily sequence DataFrames, computes scores (alternation, rhythm, not-married),
+        and detects married couples based on interaction patterns.
+        """
+        
+        def __init__(self, gender_map, married_couples=None):
+            """
+            Initialize SequenceHandler with required mappings.
+            
+            Args:
+                gender_map (dict): Mapping of authors to genders, e.g., {'Anthony van Tilburg': 'M', ...}.
+                married_couples (list of tuples, optional): Known married pairs, e.g., [('M1', 'F1')].
+            """
+            self.gender_map = gender_map
+            self.married_couples = married_couples or []
+
+        def build_sequence_scores(self, df_group, authors, include_married_alternation=False):
+            """
+            Generate a DataFrame with daily sequence scores for a group.
+            
+            Args:
+                df_group (pandas.DataFrame): Filtered DataFrame for a single group.
+                authors (list): List of unique authors in the group.
+                include_married_alternation (bool): Whether to compute score_married_alternation.
+            
+            Returns:
+                pandas.DataFrame: Columns: date, total_messages, total_participants, sequence,
+                                  score_alternating_MF, score_rhythm, score_not_married,
+                                  [score_married_alternation].
+            """
+            if df_group.empty:
+                logger.error("Empty DataFrame provided for sequence scoring.")
+                return pd.DataFrame()
+            
+            try:
+                df_group['timestamp'] = pd.to_datetime(df_group['timestamp'])
+                df_group['date'] = df_group['timestamp'].dt.date
+                
+                # Log author activity
+                author_counts = df_group.groupby('author').size()
+                logger.debug(f"Author message counts in group {df_group['whatsapp_group'].iloc[0]}:\n{author_counts.to_string()}")
+                
+                # Filter out days with insufficient messages
+                daily_counts = df_group.groupby('date').size()
+                valid_dates = daily_counts[daily_counts >= 3].index  # At least 3 messages
+                df_group = df_group[df_group['date'].isin(valid_dates)]
+                if df_group.empty:
+                    logger.warning(f"No days with >=3 messages for group {df_group['whatsapp_group'].iloc[0]}.")
+                    return pd.DataFrame()
+                
+                daily_data = []
+                for date, daily_df in df_group.groupby('date'):
+                    sequence = daily_df['author'].tolist()
+                    total_messages = len(sequence)
+                    total_participants = len(set(sequence))
+                    
+                    # Log sequences with specific authors for debugging
+                    if any(a in sequence for a in ['Phons Berkemeijer', 'Anja Berkemeijer']):
+                        logger.debug(f"Date {date}: Sequence = {sequence}")
+                    
+                    score_alternating_MF = self._compute_alternating_MF(sequence)
+                    score_rhythm = self._compute_rhythm_autocorrelation(sequence)
+                    score_not_married = self._compute_not_married(sequence, authors)
+                    score_married_alternation = self._compute_alternating_married(sequence) if include_married_alternation and self.married_couples else 0.0
+                    
+                    row = {
+                        'date': date,
+                        'total_messages': total_messages,
+                        'total_participants': total_participants,
+                        'sequence': sequence,
+                        'score_alternating_MF': score_alternating_MF,
+                        'score_rhythm': score_rhythm,
+                        'score_not_married': score_not_married
+                    }
+                    if include_married_alternation:
+                        row['score_married_alternation'] = score_married_alternation
+                    daily_data.append(row)
+                
+                scores_df = pd.DataFrame(daily_data)
+                logger.info(f"Generated sequence scores DataFrame for group {df_group['whatsapp_group'].iloc[0]} with {len(scores_df)} days.")
+                return scores_df
+            except Exception as e:
+                logger.exception(f"Failed to build sequence scores: {e}")
+                return pd.DataFrame()
+
+        def detect_married_couples(self, df_scores):
+            """
+            Aggregate scores to detect likely married couples based on low interaction.
+            Prioritizes the pair with the lowest interaction score, then assigns the remaining pair.
+            
+            Args:
+                df_scores (pandas.DataFrame): Output from build_sequence_scores.
+            
+            Returns:
+                dict: Detected couples, e.g., {'M1': 'F1', 'M2': 'F2'}.
+            """
+            if df_scores.empty:
+                logger.error("Empty scores DataFrame provided for couple detection.")
+                return {}
+            
+            try:
+                # Aggregate not-married scores
+                aggregate_interactions = defaultdict(float)
+                for _, row in df_scores.iterrows():
+                    for pair, score in row['score_not_married'].items():
+                        aggregate_interactions[pair] += score
+                num_days = len(df_scores)
+                for pair in aggregate_interactions:
+                    aggregate_interactions[pair] /= num_days if num_days > 0 else 1
+                
+                logger.debug(f"Aggregated interaction scores: {dict(aggregate_interactions)}")
+                
+                # Filter M-F pairs
+                mf_pairs = {pair: score for pair, score in aggregate_interactions.items() if self._is_mf_pair(pair)}
+                if not mf_pairs:
+                    logger.error("No M-F pairs found for couple detection.")
+                    return {}
+                
+                # Select the pair with the lowest interaction score (likely married)
+                sorted_pairs = sorted(mf_pairs.items(), key=lambda x: x[1])  # Lowest score first
+                top_pair = sorted_pairs[0][0]  # e.g., 'Anthony van Tilburg-Madeleine'
+                top_m, top_f = top_pair.split('-')
+                
+                # Find remaining male and female
+                males = [a for a in self.gender_map if self.gender_map[a] == 'M']
+                females = [a for a in self.gender_map if self.gender_map[a] == 'F']
+                remaining_males = [m for m in males if m != top_m]
+                remaining_females = [f for f in females if f != top_f]
+                
+                if len(remaining_males) != 1 or len(remaining_females) != 1:
+                    logger.warning(f"Unexpected number of remaining males ({len(remaining_males)}) or females ({len(remaining_females)}).")
+                    return {top_m: top_f}
+                
+                # Form the second couple
+                detected = {top_m: top_f, remaining_males[0]: remaining_females[0]}
+                
+                # Validate with alternation score
+                self.married_couples = [(m, f) for m, f in detected.items()]
+                alt_scores = df_scores['sequence'].apply(self._compute_alternating_married)
+                avg_alt_score = alt_scores.mean() if not alt_scores.empty else 0
+                logger.info(f"Detected couples: {detected} with avg alternation score {avg_alt_score:.3f}")
+                return detected
+            except Exception as e:
+                logger.exception(f"Failed to detect married couples: {e}")
+                return {}
+
+        def _compute_alternating_MF(self, sequence):
+            """Compute gender alternation score (0-1): Fraction of transitions where gender changes."""
+            if len(sequence) < 2:
+                return 0.0
+            transitions = list(zip(sequence[:-1], sequence[1:]))
+            alternations = sum(1 for prev, next in transitions if self.gender_map.get(prev, '') != self.gender_map.get(next, ''))
+            return alternations / len(transitions)
+
+        def _compute_rhythm_autocorrelation(self, sequence, max_lag=5):
+            """Compute rhythm score using autocorrelation: Average similarity over lags."""
+            if len(sequence) < 2:
+                return 0.0
+            author_codes = {author: idx for idx, author in enumerate(set(sequence))}
+            codes = [author_codes[author] for author in sequence]
+            codes = np.array(codes)
+            autocorrs = []
+            n = len(codes)
+            
+            # Suppress NumPy warnings for this block
+            with np.errstate(all='warn'):
+                for lag in range(1, min(max_lag + 1, n)):
+                    if n - lag >= 2:  # Ensure enough data for correlation
+                        # Check for non-zero variance
+                        if np.std(codes[:-lag]) > 0 and np.std(codes[lag:]) > 0:
+                            corr = np.corrcoef(codes[:-lag], codes[lag:])[0, 1]
+                            autocorrs.append(corr if not np.isnan(corr) else 0)
+                        else:
+                            autocorrs.append(0)  # Zero correlation for constant sequences
+                    else:
+                        autocorrs.append(0)  # Zero for short sequences
+            
+            return np.mean(autocorrs) if autocorrs else 0.0
+
+        def _compute_not_married(self, sequence, authors):
+            """Compute pair-wise interaction scores (higher = more likely not married)."""
+            if len(sequence) < 2:
+                return {f"{m}-{f}": 0.0 for m in authors for f in authors if self._is_mf_pair(f"{m}-{f}")}
+            
+            transitions = Counter(zip(sequence[:-1], sequence[1:]))
+            mf_interactions = defaultdict(float)
+            males = [a for a in authors if self.gender_map.get(a, '') == 'M']
+            females = [a for a in authors if self.gender_map.get(a, '') == 'F']
+            
+            for m in males:
+                for f in females:
+                    pair_key = f"{m}-{f}"
+                    mf_interactions[pair_key] = transitions.get((m, f), 0) + transitions.get((f, m), 0)
+            
+            # Normalize by max interaction to avoid suppressing low-activity pairs
+            total_mf = max(mf_interactions.values(), default=1)
+            if total_mf > 0:
+                for pair in mf_interactions:
+                    mf_interactions[pair] = 1 - (mf_interactions[pair] / total_mf)  # Invert: low interaction = high score
+            
+            logger.debug(f"Not-married scores for sequence {sequence[:10]}...: {dict(mf_interactions)}")
+            return {pair: score for pair, score in mf_interactions.items()}
+
+        def _is_mf_pair(self, pair):
+            """Check if a pair string (e.g., 'M1-F1') is M-F."""
+            if '-' in pair:
+                m, f = pair.split('-')
+                return self.gender_map.get(m, '') == 'M' and self.gender_map.get(f, '') == 'F'
+            return False
+
+        def _compute_alternating_married(self, sequence):
+            """Alternation score factoring in marriage: Lower if transitions are within married pairs."""
+            if len(sequence) < 2 or not self.married_couples:
+                return 0.0
+            transitions = list(zip(sequence[:-1], sequence[1:]))
+            married_trans = sum(1 for prev, next in transitions if (prev, next) in self.married_couples or (next, prev) in self.married_couples)
+            return 1 - (married_trans / len(transitions)) if len(transitions) > 0 else 0.0
+
+        def _compute_rhythm_ngram(self, sequence, n=2):
+            """Alternative rhythm score: 1 - (unique n-grams / total n-grams)."""
+            if len(sequence) <= n:
+                return 0.0
+            ngrams = list(zip(*[sequence[i:] for i in range(n)]))
+            unique = len(set(ngrams))
+            total = len(ngrams)
+            return 1 - (unique / total) if total > 0 else 0.0
 
     def __init__(self, data_editor=None):
         """Initialize DataPreparation with a DataEditor instance and emoji pattern.
@@ -414,100 +645,6 @@ class DataPreparation:
             logger.exception(f"Failed to build visual relationships_2: {e}")
             return None, None
 
-    def build_visual_relationships_2(self, df_group, authors):
-        """
-        Build tables showing relationships between emoji sequences and authors in a WhatsApp group.
-
-        Args:
-            df_group (pandas.DataFrame): Filtered DataFrame for a specific group with 'message_cleaned' and 'author' columns.
-            authors (list): List of unique authors in the group.
-
-        Returns:
-            tuple: (pandas.DataFrame or None, pandas.DataFrame or None) - Numerical DataFrames for table1 and table2.
-        """
-        MIN_TOTAL = 10
-        MIN_HIGHEST = 60  # in percent
-
-        if df_group.empty:
-            logger.error("Empty DataFrame provided for building visual relationships_2.")
-            return None, None
-
-        try:
-            # Extract emoji sequences from message_cleaned
-            sequences = []
-            for _, row in df_group.iterrows():
-                message = row['message_cleaned']
-                author = row['author']
-                if isinstance(message, str):
-                    emoji_sequences = self.emoji_pattern.findall(message)
-                    for seq in emoji_sequences:
-                        sequences.append({'sequence': seq, 'author': author})
-
-            if not sequences:
-                logger.info("No emoji sequences found in the group.")
-                return None, None
-
-            seq_df = pd.DataFrame(sequences)
-            counts = seq_df.groupby(['sequence', 'author']).size().reset_index(name='count')
-            pivot = counts.pivot(index='sequence', columns='author', values='count').fillna(0)
-
-            # Calculate total
-            pivot['total'] = pivot.sum(axis=1)
-
-            # Filter out rows where total == 0 (though unlikely)
-            pivot = pivot[pivot['total'] > 0]
-
-            # Authors columns
-            authors = sorted([a for a in authors if a in pivot.columns])
-            if not authors:
-                logger.error("No matching authors found in pivot table.")
-                return None, None
-
-            # Convert counts to int
-            pivot[authors] = pivot[authors].astype(int)
-            pivot['total'] = pivot['total'].astype(int)
-
-            # Calculate percentages (numerical)
-            percentages = pivot[authors].div(pivot['total'], axis=0) * 100
-            percentages['highest'] = percentages.max(axis=1)
-
-            # Count number of authors with non-zero percentages
-            non_zero_authors = (percentages[authors] > 0).sum(axis=1)
-
-            # Combine into full numerical table: total + percentages (authors + highest)
-            full_table_num = pd.concat([pivot[['total']], percentages], axis=1)
-
-            # Create string version for logging
-            full_table_str = full_table_num.copy()
-            for col in authors + ['highest']:
-                full_table_str[col] = full_table_str[col].apply(lambda x: f"{int(x)}%")
-
-            # Table 1: total >= MIN_TOTAL, sorted by total descending
-            table1_num = full_table_num[full_table_num['total'] >= MIN_TOTAL].sort_values('total', ascending=False)
-            if not table1_num.empty:
-                table1_str = full_table_str.loc[table1_num.index]
-                logger.info(f"Table 1 (total >= {MIN_TOTAL}, sorted by total desc) for group {df_group['whatsapp_group'].iloc[0]}:\n{table1_str.to_string()}")
-            else:
-                logger.info(f"No emoji sequences with total >= {MIN_TOTAL} for group {df_group['whatsapp_group'].iloc[0]}.")
-
-            # Table 2: highest >= MIN_HIGHEST, total >= MIN_TOTAL, and max 2 authors with >0%, sorted by highest descending
-            table2_num = full_table_num[
-                (full_table_num['highest'] >= MIN_HIGHEST) & 
-                (full_table_num['total'] >= MIN_TOTAL) & 
-                (non_zero_authors <= 2)
-            ].sort_values('highest', ascending=False)
-            if not table2_num.empty:
-                table2_str = full_table_str.loc[table2_num.index]
-                logger.info(f"Table 2 (highest >= {MIN_HIGHEST}%, total >= {MIN_TOTAL}, max 2 authors with >0%, sorted by highest desc) for group {df_group['whatsapp_group'].iloc[0]}:\n{table2_str.to_string()}")
-            else:
-                logger.info(f"No emoji sequences with highest >= {MIN_HIGHEST}%, total >= {MIN_TOTAL}, and max 2 authors with >0% for group {df_group['whatsapp_group'].iloc[0]}.")
-                return table1_num, None
-
-            return table1_num, table2_num
-        except Exception as e:
-            logger.exception(f"Failed to build visual relationships_2: {e}")
-            return None, None
-
     def build_visual_relationships_3(self, df_group, authors):
         """
         Analyze daily participation in a WhatsApp group and combine results into a single table.
@@ -759,4 +896,52 @@ class DataPreparation:
             return combined_df
         except Exception as e:
             logger.exception(f"Failed to prepare relationships_3 data: {e}")
+            return None
+        
+    def build_visual_relationships_bubble(self, df, groups=None):
+        """
+        Prepare data for a bubble plot: average words vs average punctuations per message,
+        with bubble size as number of messages, split by group and has_emoji.
+        
+        Args:
+            df (pandas.DataFrame): The full DataFrame with WhatsApp data.
+            groups (list, optional): List of 2 group names to include. Defaults to first 2 unique groups.
+        
+        Returns:
+            pandas.DataFrame: Aggregated data with columns: whatsapp_group, author, has_emoji,
+                            message_count, avg_words, avg_punct.
+        """
+        try:
+            if groups is None:
+                groups = df['whatsapp_group'].unique()[:2]
+            df_filtered = df[df['whatsapp_group'].isin(groups)].copy()
+            
+            def count_words(message):
+                if not isinstance(message, str):
+                    return 0
+                # Replace sequences of emojis with a single 'EMOJI' to count as one word
+                message = self.data_editor.emoji_pattern.sub('EMOJI', message)
+                # Split on spaces (punctuation attached to words)
+                words = re.split(r'\s+', message.strip())
+                return len([w for w in words if w])
+            
+            def count_punctuations(message):
+                if not isinstance(message, str):
+                    return 0
+                # Count ! ? . ,
+                return len(re.findall(r'[!?\.,]', message))
+            
+            df_filtered['word_count'] = df_filtered['message_cleaned'].apply(count_words)
+            df_filtered['punct_count'] = df_filtered['message_cleaned'].apply(count_punctuations)
+            
+            agg_df = df_filtered.groupby(['whatsapp_group', 'author', 'has_emoji']).agg(
+                message_count=('message_cleaned', 'count'),
+                avg_words=('word_count', 'mean'),
+                avg_punct=('punct_count', 'mean')
+            ).reset_index()
+            
+            logger.info(f"Prepared bubble plot data for groups {groups}:\n{agg_df.to_string(index=False)}")
+            return agg_df
+        except Exception as e:
+            logger.exception(f"Failed to prepare bubble plot data: {e}")
             return None
