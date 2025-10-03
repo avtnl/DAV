@@ -109,20 +109,20 @@ def main():
         return
   
     # Assign STEPs to run
-    Script = [3, 7]
+    Script = [1,2,3,4,5]
 
     # Define tables directory
     tables_dir = Path("tables")
     tables_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize variables needed for STEPs 1, 4, 5, 6, 7, and 8
-    if 1 in Script or 4 in Script or 5 in Script or 6 in Script or 7 in Script or 8 in Script:
+    # Initialize variables needed for STEPs 1, 4, 5 and 8
+    if 1 in Script or 4 in Script or 5 in Script or 8 in Script:
         df, group_authors, non_anthony_group, anthony_group, sorted_groups = data_preparation.build_visual_categories(df)
         if df is None or group_authors is None or sorted_groups is None:
-            logger.error("Failed to initialize required variables for STEPs 1, 4, 5, 6, 7, or 8.")
+            logger.error("Failed to initialize required variables for STEPs 1, 4, 5 or 8.")
             return
 
-    # STEP 1A: Prepare data for visualization (categories)
+    # STEP 1: Prepare data for visualization (categories)
     if 1 in Script:
         # Create bar chart (categories)
         fig = plot_manager.build_visual_categories(group_authors, non_anthony_group, anthony_group, sorted_groups)
@@ -134,18 +134,6 @@ def main():
         if png_file is None:
             return
 
-    # STEP 1B: Attachment categories visualization
-    if 1 in Script:
-        # Create attachment bar chart (overall)
-        fig2 = plot_manager.build_visual_categories_2(df)
-        if fig2 is None:
-            return
-        
-        # Save attachment bar chart
-        png_file2 = file_manager.save_png(fig2, image_dir, filename="attachment_bar_chart")
-        if png_file2 is None:
-            return
-  
     # STEP 2: Time-based visualization for 'dac' group
     if 2 in Script:
         # Filter DataFrame for whatsapp_group='dac'
@@ -198,62 +186,17 @@ def main():
                         if png_file_dist is None:
                             logger.error("Failed to save distribution bar chart.")
                     
-                    # Create scatterplot for top 25 emojis per author
-                    fig_dist_2 = plot_manager.build_visual_distribution_2(df_maap)
-                    if fig_dist_2 is None:
-                        logger.error("Failed to create distribution scatterplot.")
-                    else:
-                        # Save distribution scatterplot
-                        png_file_dist_2 = file_manager.save_png(fig_dist_2, image_dir, filename="emoji_counts_per_author")
-                        if png_file_dist_2 is None:
-                            logger.error("Failed to save distribution scatterplot.")
-
-    # STEP 4: Relationships visualization per group
+    # STEP 4: Relationships visualization as arc for daily participation in 'maap' group
     if 4 in Script:
-        for group in sorted_groups:
-            df_group = df[df['whatsapp_group'] == group].copy()
-            if df_group.empty:
-                logger.error(f"No data found for WhatsApp group '{group}'. Skipping relationships visualization.")
-                continue
-            
-            table2 = data_preparation.build_visual_relationships(df_group, group_authors[group])
-            if table2 is not None:
-                fig_rel = plot_manager.build_visual_relationships(table2, group)
-                if fig_rel is not None:
-                    png_file_rel = file_manager.save_png(fig_rel, image_dir, filename=f"relationships_{group}")
-                    if png_file_rel is None:
-                        logger.error("Failed to save relationships plot.")
-
-    # STEP 5: Relationships visualization for emoji sequences per group
-    if 5 in Script:
-        for group in sorted_groups:
-            df_group = df[df['whatsapp_group'] == group].copy()
-            if df_group.empty:
-                logger.error(f"No data found for WhatsApp group '{group}'. Skipping relationships_2 visualization.")
-                continue
-            
-            table1, table2 = data_preparation.build_visual_relationships_2(df_group, group_authors[group])
-            if table1 is not None and not table1.empty:
-                file_manager.save_table(table1, tables_dir, f"emoji_seq_total_{group}")
-            if table2 is not None and not table2.empty:
-                file_manager.save_table(table2, tables_dir, f"emoji_seq_highest_{group}")
-                fig_rel = plot_manager.build_visual_relationships_2(table2, group)
-                if fig_rel is not None:
-                    png_file_rel = file_manager.save_png(fig_rel, image_dir, filename=f"relationships_emoji_{group}")
-                    if png_file_rel is None:
-                        logger.error("Failed to save relationships_2 plot.")
-
-    # STEP 6: Relationships visualization for daily participation in 'maap' group
-    if 6 in Script:
         group = 'maap'
         df_group = df[df['whatsapp_group'] == group].copy()
         if df_group.empty:
             logger.error(f"No data found for WhatsApp group '{group}'. Skipping relationships_3 visualization.")
         else:
-            combined_df = data_preparation.build_visual_relationships_3(df_group, group_authors[group])
+            combined_df = data_preparation.build_visual_relationships_arc(df_group, group_authors[group])
             if combined_df is not None and not combined_df.empty:
                 file_manager.save_table(combined_df, tables_dir, f"participation_{group}")
-                fig_net = plot_manager.build_visual_relationships_4(combined_df, group)
+                fig_net = plot_manager.build_visual_relationships_arc(combined_df, group)
                 if fig_net is not None:
                     png_file_net = file_manager.save_png(fig_net, image_dir, filename=f"network_interactions_{group}")
                     if png_file_net is None:
@@ -261,8 +204,8 @@ def main():
             else:
                 logger.error("Failed to create combined participation table.")
 
-    # STEP 7: Bubble plot visualization for 'maap' and 'golfmaten' groups
-    if 7 in Script:
+    # STEP 5: Relationships visualization as bubble plot for 4 groups
+    if 5 in Script:
         groups = ['maap', 'dac', 'golfmaten', 'tillies']
         df_groups = df[df['whatsapp_group'].isin(groups)].copy()
         if df_groups.empty:
@@ -285,7 +228,7 @@ def main():
                     else:
                         logger.info(f"Saved bubble plot: {png_file_bubble}")
 
-    # STEP 8: Sequence handling for daily participation in 'maap' group
+    # STEP 8: Model focussing on sequence handling for daily participation in 'maap' group
     if 8 in Script:
         group = 'maap'
         df_group = df[df['whatsapp_group'] == group].copy()
@@ -317,11 +260,11 @@ def main():
                 if not sequence_df_with_married.empty:
                     file_manager.save_table(sequence_df_with_married, tables_dir, f"sequence_scores_with_married_{group}")
                     # Create and save visualization
-                    fig = plot_manager.build_visual_sequence_comparison(sequence_df_with_married, group)
+                    fig = plot_manager.build_visual_model(sequence_df_with_married, group)
                     if fig is not None:
-                        file_manager.save_png(fig, image_dir, f"sequence_comparison_{group}")
+                        file_manager.save_png(fig, image_dir, f"model_{group}")
                     else:
-                        logger.error(f"Failed to generate sequence comparison plot for {group}.")
+                        logger.error(f"Failed to generate model plot for {group}.")
                 else:
                     logger.error(f"Failed to generate sequence DataFrame with married alternation for {group}.")
               
