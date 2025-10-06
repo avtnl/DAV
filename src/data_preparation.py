@@ -741,17 +741,24 @@ class DataPreparation:
             def count_words(message):
                 if not isinstance(message, str):
                     return 0
-                # Replace sequences of emojis with a single 'EMOJI' to count as one word
-                message = self.data_editor.emoji_pattern.sub('EMOJI', message)
-                # Split on spaces (punctuation attached to words)
+                # Add space before emoji sequences if not preceded by space
+                message = re.sub(r'([^\s])(' + self.emoji_pattern.pattern + r')', r'\1 \2', message)
+                # Replace sequences of emojis with a single 'EMOJI'
+                message = self.emoji_pattern.sub('EMOJI', message)
+                # Handle currency with decimals as one word (e.g., €5.50 or $5.50)
+                message = re.sub(r'([€$]\s*\d+[.,]\d+)', lambda m: m.group(0).replace(' ', ''), message)
+                # Split on spaces
                 words = re.split(r'\s+', message.strip())
                 return len([w for w in words if w])
             
             def count_punctuations(message):
                 if not isinstance(message, str):
                     return 0
-                # Count ! ? . ,
-                return len(re.findall(r'[!?\.,]', message))
+                # Replace repeated punctuation with a single instance
+                message = re.sub(r'([!?.,;:])\1+', r'\1', message)
+                # Count ! ? . , ; : but exclude decimal points in numbers
+                punctuations = re.findall(r'(?<![\d])[!?.,;:](?![\d])', message)
+                return len(punctuations)
             
             df_filtered['word_count'] = df_filtered['message_cleaned'].apply(count_words)
             df_filtered['punct_count'] = df_filtered['message_cleaned'].apply(count_punctuations)

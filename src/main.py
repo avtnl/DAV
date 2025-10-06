@@ -109,7 +109,7 @@ def main():
         return
   
     # Assign STEPs to run
-    Script = [1,2,3,4,5]
+    Script = [5]
 
     # Define tables directory
     tables_dir = Path("tables")
@@ -204,29 +204,32 @@ def main():
             else:
                 logger.error("Failed to create combined participation table.")
 
-    # STEP 5: Relationships visualization as bubble plot for 4 groups
+    # STEP 5: Bubble Plot for Relationships, including both emoji usage categories
     if 5 in Script:
-        groups = ['maap', 'dac', 'golfmaten', 'tillies']
+        groups = ['maap', 'golfmaten', 'dac', 'tillies']
         df_groups = df[df['whatsapp_group'].isin(groups)].copy()
         if df_groups.empty:
             logger.error(f"No data found for WhatsApp groups {groups}. Skipping bubble plot visualization.")
         else:
-            # Prepare data for bubble plot
-            bubble_df = data_preparation.build_visual_relationships_bubble(df_groups, groups)
-            if bubble_df is None or bubble_df.empty:
-                logger.error("Failed to prepare data for bubble plot visualization.")
-            else:
-                # Create bubble plot
-                fig_bubble = plot_manager.build_visual_relationships_bubble(bubble_df)
-                if fig_bubble is None:
-                    logger.error("Failed to create bubble plot.")
+            try:
+                # Prepare data for bubble plot including both has_emoji categories
+                bubble_df = data_preparation.build_visual_relationships_bubble(df_groups, groups)
+                if bubble_df is None or bubble_df.empty:
+                    logger.error("Failed to prepare bubble plot data.")
                 else:
-                    # Save bubble plot
-                    png_file_bubble = file_manager.save_png(fig_bubble, image_dir, filename="bubble_plot_words_vs_punct")
-                    if png_file_bubble is None:
-                        logger.error("Failed to save bubble plot.")
+                    # Create single bubble plot with both emoji categories
+                    fig_bubble = plot_manager.build_visual_relationships_bubble(bubble_df)
+                    if fig_bubble is None:
+                        logger.error("Failed to create bubble plot.")
                     else:
-                        logger.info(f"Saved bubble plot: {png_file_bubble}")
+                        # Save the single bubble plot
+                        png_file_bubble = file_manager.save_png(fig_bubble, image_dir, filename="bubble_plot_words_vs_punct")
+                        if png_file_bubble is None:
+                            logger.error("Failed to save bubble plot.")
+                        else:
+                            logger.info(f"Saved bubble plot: {png_file_bubble}")
+            except Exception as e:
+                logger.exception(f"Error in STEP 5 - Bubble Plot: {e}")
 
     # STEP 8: Model focussing on sequence handling for daily participation in 'maap' group
     if 8 in Script:

@@ -517,42 +517,61 @@ class PlotManager:
 
     def build_visual_relationships_bubble(self, agg_df):
         """
-        Create a bubble plot from prepared data: avg_words vs avg_punct,
-        bubble size = message_count, colored by group, alpha by has_emoji.
-        
+        Create a bubble plot from prepared data: avg_words vs avg_punct, bubble size = message_count.
+        Groups/ Colors: has_emoji=True in shades of green (darkest for largest, top 5), 
+        has_emoji=False in shades of orange (darkest for largest, top 5), others in lightest green/orange,
+        with three trendlines: black (all), orange (has_emoji=False), green (has_emoji=True).
+
         Args:
             agg_df (pandas.DataFrame): Aggregated data from DataPreparation with columns:
-                                      whatsapp_group, author, has_emoji, message_count, avg_words, avg_punct.
-        
+                                    whatsapp_group, author, has_emoji, message_count, avg_words, avg_punct.
+
         Returns:
-            matplotlib.figure.Figure or None: The plot figure.
+            matplotlib.figure.Figure or None: Figure object for the bubble plot, or None if creation fails.
         """
         if agg_df is None or agg_df.empty:
             logger.error("No data provided for bubble plot.")
             return None
+
         try:
+            # Define color shades (10 shades, using first 5 for top 5, darkest for 1st, lightest for 5th; 10th for others)
+            blue_shades = ['#0066CC', '#1A8CFF', '#3399FF', '#4DA6FF', '#66B2FF', '#80BFFF', '#99CCFF', '#B3D9FF', '#CCE6FF', '#E6F3FF']  # Dark to light blue
+            green_shades = ['#00CC00', '#1AFF1A', '#33FF33', '#4DFF4D', '#66FF66', '#80FF80', '#99FF99', '#B3FFB3', '#CCFFCC', '#E6FFE6']  # Dark to light green
+            red_shades = ['#CC0000', '#FF1A1A', '#FF3333', '#FF4D4D', '#FF6666', '#FF8080', '#FF9999', '#FFB3B3', '#FFCCCC', '#FFE6E6']  # Dark to light red
+
+            # Plot: has_emoji=True in green shades, has_emoji=False in orange shades for top 5 combinations
             fig, ax = plt.subplots(figsize=(12, 8))
-            groups = agg_df['whatsapp_group'].unique()
-            # Color mapping for groups (using hex codes)
-            colors = {
-                groups[0]: '#FFA500' if len(groups) > 0 else '#808080',  # Orange for first group (e.g., maap)
-                groups[1]: '#90EE90' if len(groups) > 1 else '#808080',   # Light green for second group (e.g., dac)
-                groups[2]: '#0000FF' if len(groups) > 2 else '#808080',   # Blue for third group (e.g., golfmaten)
-                groups[3]: '#800080' if len(groups) > 3 else '#808080'    # Purple for fourth group (e.g., tillies)
-            }
             
-            # Create a set to track legend entries
-            legend_added = set()
+            # Get top 5 group/author combinations for has_emoji=True and has_emoji=False
+            emoji_true = agg_df[agg_df['has_emoji'] == True]
+            emoji_false = agg_df[agg_df['has_emoji'] == False]
+            
+            top_5_true = emoji_true.sort_values('message_count', ascending=False).head(5)[['whatsapp_group', 'author']].values.tolist()
+            top_5_true_keys = [f"{group}_{author}" for group, author in top_5_true]
+            top_5_false = emoji_false.sort_values('message_count', ascending=False).head(5)[['whatsapp_group', 'author']].values.tolist()
+            top_5_false_keys = [f"{group}_{author}" for group, author in top_5_false]
+            
+            # Log to check top 5
+            logger.debug(f"Top 5 group/author combinations for has_emoji=True: {top_5_true}")
+            logger.debug(f"Top 5 group/author combinations for has_emoji=False: {top_5_false}")
             
             for _, row in agg_df.iterrows():
                 group = row['whatsapp_group']
-                has_emoji = row['has_emoji']
                 author = row['author']
-                # Create author initials for labeling
-                initials = ''.join(word[0].upper() for word in author.split() if word)
-                color = colors.get(group, '#808080')
-                alpha = 0.7 if has_emoji else 0.3
+                has_emoji = row['has_emoji']
+                group_author = f"{group}_{author}"
                 size = row['message_count'] * 10
+                initials = f"{group[0].upper()}{''.join(word[0].upper() for word in author.split() if word)}"
+                
+                # Assign color based on has_emoji and top 5 combinations
+                if has_emoji and group_author in top_5_true_keys:
+                    rank = top_5_true_keys.index(group_author)
+                    color = green_shades[rank]
+                elif not has_emoji and group_author in top_5_false_keys:
+                    rank = top_5_false_keys.index(group_author)
+                    color = red_shades[rank]
+                else:
+                    color = green_shades[6] if has_emoji else red_shades[6]  # Lightest green/red for others
                 
                 # Plot scatter point
                 ax.scatter(
@@ -560,10 +579,10 @@ class PlotManager:
                     row['avg_punct'],
                     s=size,
                     color=color,
-                    alpha=alpha
+                    alpha=0.5
                 )
                 
-                # Add author initials as label
+                # Add author initials
                 ax.text(
                     row['avg_words'],
                     row['avg_punct'],
@@ -574,32 +593,53 @@ class PlotManager:
                     color='black',
                     bbox=dict(facecolor='white', alpha=0.8, edgecolor='none')
                 )
+            
+            # Add trendlines
+            if len(agg_df) > 1:
+                # Overall trendline (black)
+                x = agg_df['avg_words']
+                y = agg_df['avg_punct']
+                slope, intercept = np.polyfit(x, y, 1)
+                line_x = np.linspace(x.min(), x.max(), 100)
+                line_y = slope * line_x + intercept
+                ax.plot(line_x, line_y, color='black', linestyle='--', label='Trendline (All)')
                 
-                # Add legend entry only once per group/emoji combination
-                legend_key = (group, has_emoji)
-                if legend_key not in legend_added:
-                    label = f"{group} ({'with' if has_emoji else 'without'} emojis)"
-                    ax.scatter([], [], s=100, color=color, alpha=alpha, label=label)
-                    legend_added.add(legend_key)
+                # Trendline for has_emoji=False (orange)
+                if len(emoji_false) > 1:
+                    x_false = emoji_false['avg_words']
+                    y_false = emoji_false['avg_punct']
+                    slope_false, intercept_false = np.polyfit(x_false, y_false, 1)
+                    line_y_false = slope_false * line_x + intercept_false
+                    ax.plot(line_x, line_y_false, color='red', linestyle='--', label='Trendline (No Emojis)')
+                
+                # Trendline for has_emoji=True (green)
+                if len(emoji_true) > 1:
+                    x_true = emoji_true['avg_words']
+                    y_true = emoji_true['avg_punct']
+                    slope_true, intercept_true = np.polyfit(x_true, y_true, 1)
+                    line_y_true = slope_true * line_x + intercept_true
+                    ax.plot(line_x, line_y_true, color='green', linestyle='--', label='Trendline (With Emojis)')
             
-            # Add trendlines for averages across all groups for each has_emoji category
-            for has_emoji, trend_color in [(True, 'red'), (False, 'black')]:
-                subset = agg_df[agg_df['has_emoji'] == has_emoji]
-                if len(subset) > 1:  # Need at least 2 points for regression
-                    x = subset['avg_words']
-                    y = subset['avg_punct']
-                    slope, intercept = np.polyfit(x, y, 1)  # Linear fit
-                    line_x = np.linspace(x.min(), x.max(), 100)
-                    line_y = slope * line_x + intercept
-                    ax.plot(line_x, line_y, color=trend_color, linestyle='--', label=f"Trendline ({'with' if has_emoji else 'without'} emojis)")
-            
+            # Customize plot
             ax.set_xlabel('Average Number of Words per Message')
             ax.set_ylabel('Average Number of Punctuations per Message')
-            ax.set_title('Bubble Plot: Words vs Punctuations by Group, Author, and Emoji Usage\n(Bubble Size: Number of Messages)')
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+            ax.set_title('Bubble Plot: Words vs Punctuations by Group, Author, and Emoji Usage\n(Top 5 with Emojis in Green, without Emojis in Orange, Others in Lightest Green/Orange, Bubble Size: Number of Messages)')
+            
+            # Create custom legend
+            legend_elements = []
+            for i, (group, author) in enumerate(top_5_true):
+                legend_elements.append(plt.scatter([], [], s=100, color=green_shades[i], label=f'Top {i+1} (With Emojis): {group} - {author}'))
+            for i, (group, author) in enumerate(top_5_false):
+                legend_elements.append(plt.scatter([], [], s=100, color=red_shades[i], label=f'Top {i+1} (Without Emojis): {group} - {author}'))
+            legend_elements.append(plt.scatter([], [], s=100, color=green_shades[9], label='Other (With Emojis)'))
+            legend_elements.append(plt.scatter([], [], s=100, color=red_shades[9], label='Other (Without Emojis)'))
+            ax.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left')
+            
             plt.tight_layout()
             plt.show()
-            return fig
+            
+            logger.info("Created bubble plot successfully.")
+            return fig  # Return single figure instead of a list
         except Exception as e:
             logger.exception(f"Failed to build bubble plot: {e}")
             return None
@@ -663,4 +703,4 @@ class PlotManager:
             return fig
         except Exception as e:
             logger.exception(f"Failed to create sequence comparison plot for group {group}: {e}")
-            return None                     
+            return None                    
