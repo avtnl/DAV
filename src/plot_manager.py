@@ -884,6 +884,35 @@ class PlotManager:
             # )
             # ax.add_patch(rect)
 
+            # Add block arrows at y=0.25 between x_red[k] and x_green[k] for k=0,1,2
+            for i, k in enumerate(ks):
+                # Draw block arrow from x_reds[i] to x_greens[i] at y=0.25
+                ax.annotate(
+                    '',
+                    xy=(x_greens[i], 0.25),  # End point (arrowhead)
+                    xytext=(x_reds[i], 0.25),  # Start point
+                    arrowprops=dict(
+                        arrowstyle='-|>',
+                        color='black',
+                        linewidth=3,
+                        mutation_scale=20
+                    ),
+                    zorder=1
+                )
+                # Draw reverse block arrow for thicker effect (optional, mimicking build_visual_categories)
+                ax.annotate(
+                    '',
+                    xy=(x_reds[i], 0.25),  # End point (arrowhead)
+                    xytext=(x_greens[i], 0.25),  # Start point
+                    arrowprops=dict(
+                        arrowstyle='-|>',
+                        color='black',
+                        linewidth=3,
+                        mutation_scale=20
+                    ),
+                    zorder=1
+                )
+
             # Customize plot
             ax.set_xlabel('Average Number of Words per Message')
             ax.set_ylabel('Average Number of Punctuations per Message')
