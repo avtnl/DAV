@@ -622,12 +622,12 @@ class PlotManager:
             
             # Create custom legend
             legend_elements = []
-            # Without emojis
-            legend_elements.append(plt.scatter([], [], s=100, color=red_shades[0], label='Without emojis'))
-            # With emojis
-            legend_elements.append(plt.scatter([], [], s=100, color=green_shades[0], label='With emojis'))
-            
-            # Trend lines
+            # Calculate total message
+            total_false_msgs = int(emoji_false['message_count'].sum()) if not emoji_false.empty else 0
+            total_true_msgs = int(emoji_true['message_count'].sum()) if not emoji_true.empty else 0
+            legend_elements.append(plt.scatter([], [], s=100, color=red_shades[0], label=f'Without emojis\nTotal: {total_false_msgs:,} msgs'))
+            legend_elements.append(plt.scatter([], [], s=100, color=green_shades[0], label=f'With emojis\nTotal: {total_true_msgs:,} msgs'))
+            legend_elements.append(plt.scatter([], [], s=0, label='\nSize of bubble reflects number of msgs\n', alpha=0))
             legend_elements.append(plt.plot([], [], color='red', linestyle='--', label='Trend line without emojis')[0])
             legend_elements.append(plt.plot([], [], color='green', linestyle='--', label='Trend line with emojis')[0])
             
@@ -640,6 +640,113 @@ class PlotManager:
             return fig  # Return single figure instead of a list
         except Exception as e:
             logger.exception(f"Failed to build bubble plot: {e}")
+            return None
+
+    def build_visual_relationships_bubble_2(self, agg_df):
+        """
+        Create a bubble plot showing average words vs average punctuations per message,
+        with bubble size as number of messages, split by has_emoji. Top 5 group-author
+        combinations by message_count are colored in gradients (green for has_emoji=True,
+        red for has_emoji=False), others in gray. Includes trend lines with standard
+        deviation bands, with overlapping area in orange.
+        """
+        try:
+            if agg_df is None or agg_df.empty:
+                logger.error("No data provided for bubble plot v2.")
+                return None
+            emoji_true = agg_df[agg_df['has_emoji'] == True]
+            emoji_false = agg_df[agg_df['has_emoji'] == False]
+            top_5_true = emoji_true.nlargest(5, 'message_count')
+            top_5_false = emoji_false.nlargest(5, 'message_count')
+            top_5_true_keys = top_5_true.apply(lambda row: f"{row['whatsapp_group']}-{row['author']}", axis=1).tolist()
+            top_5_false_keys = top_5_false.apply(lambda row: f"{row['whatsapp_group']}-{row['author']}", axis=1).tolist()
+            fig, ax = plt.subplots(figsize=(12, 8))
+            for _, row in agg_df.iterrows():
+                group_author = f"{row['whatsapp_group']}-{row['author']}"
+                has_emoji = row['has_emoji']
+                size = np.sqrt(row['message_count']) * 60  # Scale bubble size by factor 3
+                initials = ''.join([name[0] for name in row['author'].split()])
+                if has_emoji and group_author in top_5_true_keys:
+                    rank = top_5_true_keys.index(group_author)
+                    color = 'green'
+                elif not has_emoji and group_author in top_5_false_keys:
+                    rank = top_5_false_keys.index(group_author)
+                    color = 'red'
+                else:
+                    color = 'gray'
+                ax.scatter(row['avg_words'], row['avg_punct'], s=size, color=color, alpha=0.5)
+                if group_author in top_5_true_keys or group_author in top_5_false_keys:
+                    ax.text(
+                        row['avg_words'], row['avg_punct'], initials,
+                        fontsize=8, ha='center', va='center',
+                        color='black', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none')
+                    )
+            if len(agg_df) > 1:
+                line_x = np.linspace(agg_df['avg_words'].min(), agg_df['avg_words'].max(), 100)
+                # Initialize arrays for overlap calculation
+                y_false_lower = np.zeros_like(line_x)
+                y_false_upper = np.zeros_like(line_x)
+                y_true_lower = np.zeros_like(line_x)
+                y_true_upper = np.zeros_like(line_x)
+                # Trendline and band for has_emoji=False (red)
+                if len(emoji_false) > 1:
+                    x_false = emoji_false['avg_words']
+                    y_false = emoji_false['avg_punct']
+                    slope_false, intercept_false = np.polyfit(x_false, y_false, 1)
+                    line_y_false = slope_false * line_x + intercept_false
+                    ax.plot(line_x, line_y_false, color='red', linestyle='--')
+                    predicted_y_false = slope_false * x_false + intercept_false
+                    residuals_false = y_false - predicted_y_false
+                    std_false = np.std(residuals_false)
+                    y_false_lower = line_y_false - std_false
+                    y_false_upper = line_y_false + std_false
+                    ax.fill_between(line_x, y_false_lower, y_false_upper, color='red', alpha=0.4)
+                # Trendline and band for has_emoji=True (green)
+                if len(emoji_true) > 1:
+                    x_true = emoji_true['avg_words']
+                    y_true = emoji_true['avg_punct']
+                    slope_true, intercept_true = np.polyfit(x_true, y_true, 1)
+                    line_y_true = slope_true * line_x + intercept_true
+                    ax.plot(line_x, line_y_true, color='green', linestyle='--')
+                    predicted_y_true = slope_true * x_true + intercept_true
+                    residuals_true = y_true - predicted_y_true
+                    std_true = np.std(residuals_true)
+                    y_true_lower = line_y_true - std_true
+                    y_true_upper = line_y_true + std_true
+                    ax.fill_between(line_x, y_true_lower, y_true_upper, color='green', alpha=0.4)
+                # Fill overlapping area in orange
+                if len(emoji_false) > 1 and len(emoji_true) > 1:
+                    # Find overlapping region: max of lower bounds, min of upper bounds
+                    y_overlap_lower = np.maximum(y_false_lower, y_true_lower)
+                    y_overlap_upper = np.minimum(y_false_upper, y_true_upper)
+                    # Only fill where upper bound > lower bound (valid overlap)
+                    valid_overlap = y_overlap_upper > y_overlap_lower
+                    if valid_overlap.any():
+                        ax.fill_between(line_x, y_overlap_lower, y_overlap_upper, where=valid_overlap, color='orange', alpha=0.5)
+            ax.set_xlabel('Average Number of Words per Message')
+            ax.set_ylabel('Average Number of Punctuations per Message')
+            ax.set_title("More words = More Punctuations, but Emojis reduce number of Punctuations!", fontsize=20)
+            from matplotlib.patches import Patch
+            legend_elements = []
+            total_false_msgs = int(emoji_false['message_count'].sum()) if not emoji_false.empty else 0
+            top_5_false_msgs = int(top_5_false['message_count'].sum()) if not top_5_false.empty else 0
+            total_true_msgs = int(emoji_true['message_count'].sum()) if not emoji_true.empty else 0
+            top_5_true_msgs = int(top_5_true['message_count'].sum()) if not top_5_true.empty else 0
+            legend_elements.append(plt.scatter([], [], s=100, color='red', label=f'Without emojis\nTotal: {total_false_msgs:,} msgs / Top 5: {top_5_false_msgs:,} msgs'))
+            legend_elements.append(plt.scatter([], [], s=100, color='green', label=f'With emojis\nTotal: {total_true_msgs:,} msgs / Top 5: {top_5_true_msgs:,} msgs'))
+            legend_elements.append(plt.scatter([], [], s=0, label='\nSize of bubble reflects number of msgs\n', alpha=0))
+            legend_elements.append(plt.plot([], [], color='red', linestyle='--', label='Trend line without emojis')[0])
+            legend_elements.append(plt.plot([], [], color='green', linestyle='--', label='Trend line with emojis')[0])
+            legend_elements.append(Patch(facecolor='red', alpha=0.4, label='Std dev without emojis'))
+            legend_elements.append(Patch(facecolor='green', alpha=0.4, label='Std dev with emojis'))
+            legend_elements.append(Patch(facecolor='orange', alpha=0.5, label='Overlap of std dev bands'))
+            ax.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left')
+            plt.tight_layout()
+            plt.show()
+            logger.info("Created bubble plot v2 successfully.")
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build bubble plot v2: {e}")
             return None
 
     def build_visual_correlation_heatmap(self, df, groups=None):

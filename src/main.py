@@ -229,6 +229,18 @@ def main():
                         else:
                             logger.info(f"Saved bubble plot: {png_file_bubble}")
 
+                    # Create second version of bubble plot
+                    fig_bubble_2 = plot_manager.build_visual_relationships_bubble_2(bubble_df)
+                    if fig_bubble_2 is None:
+                        logger.error("Failed to create second bubble plot.")
+                    else:
+                        # Save the second bubble plot
+                        png_file_bubble_2 = file_manager.save_png(fig_bubble_2, image_dir, filename="bubble_plot_words_vs_punct_2")
+                        if png_file_bubble_2 is None:
+                            logger.error("Failed to save second bubble plot.")
+                        else:
+                            logger.info(f"Saved second bubble plot: {png_file_bubble_2}")
+
                 # Create correlation heatmap
                 fig_heatmap = plot_manager.build_visual_correlation_heatmap(df_groups, groups)
                 if fig_heatmap is None:
@@ -241,7 +253,7 @@ def main():
                     else:
                         logger.info(f"Saved correlation heatmap: {png_file_heatmap}")
             except Exception as e:
-                logger.exception(f"Error in STEP 5 - Relationship Visualizations: {e}")        
+                logger.exception(f"Error in STEP 5 - Relationship Visualizations: {e}")       
 
     # STEP 8: Model focussing on sequence handling for daily participation in 'maap' group
     if 8 in Script:
