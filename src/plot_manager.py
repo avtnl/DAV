@@ -9,6 +9,7 @@ import matplotlib.font_manager as fm
 import networkx as nx
 import itertools
 import emoji
+import re
 
 # Suppress FutureWarning from seaborn/pandas
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -519,8 +520,8 @@ class PlotManager:
         """
         Create a bubble plot from prepared data: avg_words vs avg_punct, bubble size = message_count.
         Groups/ Colors: has_emoji=True in shades of green (darkest for largest, top 5), 
-        has_emoji=False in shades of orange (darkest for largest, top 5), others in lightest green/orange,
-        with three trendlines: black (all), orange (has_emoji=False), green (has_emoji=True).
+        has_emoji=False in shades of red (darkest for largest, top 5),
+        with two trendlines: red (has_emoji=False), green (has_emoji=True).
 
         Args:
             agg_df (pandas.DataFrame): Aggregated data from DataPreparation with columns:
@@ -535,7 +536,6 @@ class PlotManager:
 
         try:
             # Define color shades (10 shades, using first 5 for top 5, darkest for 1st, lightest for 5th; 10th for others)
-            blue_shades = ['#0066CC', '#1A8CFF', '#3399FF', '#4DA6FF', '#66B2FF', '#80BFFF', '#99CCFF', '#B3D9FF', '#CCE6FF', '#E6F3FF']  # Dark to light blue
             green_shades = ['#00CC00', '#1AFF1A', '#33FF33', '#4DFF4D', '#66FF66', '#80FF80', '#99FF99', '#B3FFB3', '#CCFFCC', '#E6FFE6']  # Dark to light green
             red_shades = ['#CC0000', '#FF1A1A', '#FF3333', '#FF4D4D', '#FF6666', '#FF8080', '#FF9999', '#FFB3B3', '#FFCCCC', '#FFE6E6']  # Dark to light red
 
@@ -596,21 +596,16 @@ class PlotManager:
             
             # Add trendlines
             if len(agg_df) > 1:
-                # Overall trendline (black)
-                x = agg_df['avg_words']
-                y = agg_df['avg_punct']
-                slope, intercept = np.polyfit(x, y, 1)
-                line_x = np.linspace(x.min(), x.max(), 100)
-                line_y = slope * line_x + intercept
-                ax.plot(line_x, line_y, color='black', linestyle='--', label='Trendline (All)')
+                # Define line_x for trendlines based on the range of avg_words
+                line_x = np.linspace(agg_df['avg_words'].min(), agg_df['avg_words'].max(), 100)
                 
-                # Trendline for has_emoji=False (orange)
+                # Trendline for has_emoji=False (red)
                 if len(emoji_false) > 1:
                     x_false = emoji_false['avg_words']
                     y_false = emoji_false['avg_punct']
                     slope_false, intercept_false = np.polyfit(x_false, y_false, 1)
                     line_y_false = slope_false * line_x + intercept_false
-                    ax.plot(line_x, line_y_false, color='red', linestyle='--', label='Trendline (No Emojis)')
+                    ax.plot(line_x, line_y_false, color='red', linestyle='--')
                 
                 # Trendline for has_emoji=True (green)
                 if len(emoji_true) > 1:
@@ -618,21 +613,24 @@ class PlotManager:
                     y_true = emoji_true['avg_punct']
                     slope_true, intercept_true = np.polyfit(x_true, y_true, 1)
                     line_y_true = slope_true * line_x + intercept_true
-                    ax.plot(line_x, line_y_true, color='green', linestyle='--', label='Trendline (With Emojis)')
+                    ax.plot(line_x, line_y_true, color='green', linestyle='--')
             
             # Customize plot
             ax.set_xlabel('Average Number of Words per Message')
             ax.set_ylabel('Average Number of Punctuations per Message')
-            ax.set_title('Bubble Plot: Words vs Punctuations by Group, Author, and Emoji Usage\n(Top 5 with Emojis in Green, without Emojis in Orange, Others in Lightest Green/Orange, Bubble Size: Number of Messages)')
+            ax.set_title("More words = More Punctuations, but Emojis reduce number of Punctuations!", fontsize=20)
             
             # Create custom legend
             legend_elements = []
-            for i, (group, author) in enumerate(top_5_true):
-                legend_elements.append(plt.scatter([], [], s=100, color=green_shades[i], label=f'Top {i+1} (With Emojis): {group} - {author}'))
-            for i, (group, author) in enumerate(top_5_false):
-                legend_elements.append(plt.scatter([], [], s=100, color=red_shades[i], label=f'Top {i+1} (Without Emojis): {group} - {author}'))
-            legend_elements.append(plt.scatter([], [], s=100, color=green_shades[9], label='Other (With Emojis)'))
-            legend_elements.append(plt.scatter([], [], s=100, color=red_shades[9], label='Other (Without Emojis)'))
+            # Without emojis
+            legend_elements.append(plt.scatter([], [], s=100, color=red_shades[0], label='Without emojis'))
+            # With emojis
+            legend_elements.append(plt.scatter([], [], s=100, color=green_shades[0], label='With emojis'))
+            
+            # Trend lines
+            legend_elements.append(plt.plot([], [], color='red', linestyle='--', label='Trend line without emojis')[0])
+            legend_elements.append(plt.plot([], [], color='green', linestyle='--', label='Trend line with emojis')[0])
+            
             ax.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left')
             
             plt.tight_layout()
@@ -642,6 +640,85 @@ class PlotManager:
             return fig  # Return single figure instead of a list
         except Exception as e:
             logger.exception(f"Failed to build bubble plot: {e}")
+            return None
+
+    def build_visual_correlation_heatmap(self, df, groups=None):
+        """
+        Create a heatmap showing the correlation between word count and punctuation count
+        for messages with and without emojis.
+
+        Args:
+            df (pandas.DataFrame): DataFrame with columns: message_cleaned, has_emoji.
+            groups (list, optional): List of group names to filter. Defaults to all groups.
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the heatmap, or None if creation fails.
+        """
+        try:
+            if df is None or df.empty:
+                logger.error("No data provided for correlation heatmap.")
+                return None
+
+            # Filter by groups if provided
+            if groups is not None:
+                df = df[df['whatsapp_group'].isin(groups)].copy()
+                if df.empty:
+                    logger.error(f"No data found for groups {groups} in correlation heatmap.")
+                    return None
+
+            # Calculate word and punctuation counts
+            def count_words(message):
+                if not isinstance(message, str):
+                    return 0
+                # Add space before emoji sequences if not preceded by space
+                emoji_pattern = ''.join(re.escape(char) for char in emoji.EMOJI_DATA.keys())
+                message = re.sub(r'([^\s])([' + emoji_pattern + r'])', r'\1 \2', message)
+                # Replace sequences of emojis with a single 'EMOJI'
+                message = re.sub(r'[' + emoji_pattern + r']+', 'EMOJI', message)
+                # Handle currency with decimals as one word (e.g., €5.50 or $5.50)
+                message = re.sub(r'([€$]\s*\d+[.,]\d+)', lambda m: m.group(0).replace(' ', ''), message)
+                # Split on spaces
+                words = re.split(r'\s+', message.strip())
+                return len([w for w in words if w])
+
+            def count_punctuations(message):
+                if not isinstance(message, str):
+                    return 0
+                # Replace repeated punctuation with a single instance
+                message = re.sub(r'([!?.,;:])\1+', r'\1', message)
+                # Count ! ? . , ; : but exclude decimal points in numbers
+                punctuations = re.findall(r'(?<![\d])[!?.,;:](?![\d])', message)
+                return len(punctuations)
+
+            df['word_count'] = df['message_cleaned'].apply(count_words)
+            df['punct_count'] = df['message_cleaned'].apply(count_punctuations)
+
+            # Split data by has_emoji
+            emoji_true = df[df['has_emoji'] == True][['word_count', 'punct_count']]
+            emoji_false = df[df['has_emoji'] == False][['word_count', 'punct_count']]
+
+            # Calculate correlation matrices
+            corr_true = emoji_true.corr() if not emoji_true.empty else pd.DataFrame(np.nan, index=['word_count', 'punct_count'], columns=['word_count', 'punct_count'])
+            corr_false = emoji_false.corr() if not emoji_false.empty else pd.DataFrame(np.nan, index=['word_count', 'punct_count'], columns=['word_count', 'punct_count'])
+
+            # Combine into a single DataFrame for heatmap
+            corr_data = pd.DataFrame({
+                'With Emojis': corr_true.loc['word_count', 'punct_count'],
+                'Without Emojis': corr_false.loc['word_count', 'punct_count']
+            }, index=['Correlation'])
+
+            # Create heatmap
+            fig, ax = plt.subplots(figsize=(8, 4))
+            sns.heatmap(corr_data, annot=True, cmap='coolwarm', vmin=-1, vmax=1, center=0, ax=ax)
+            ax.set_title('Correlation: Words vs Punctuation (With vs Without Emojis)')
+            ax.set_ylabel('')
+            plt.tight_layout()
+            plt.show()
+
+            logger.info("Created correlation heatmap successfully.")
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build correlation heatmap: {e}")
             return None
 
     def build_visual_model(self, sequence_df, group):

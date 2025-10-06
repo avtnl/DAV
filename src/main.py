@@ -228,8 +228,20 @@ def main():
                             logger.error("Failed to save bubble plot.")
                         else:
                             logger.info(f"Saved bubble plot: {png_file_bubble}")
+
+                # Create correlation heatmap
+                fig_heatmap = plot_manager.build_visual_correlation_heatmap(df_groups, groups)
+                if fig_heatmap is None:
+                    logger.error("Failed to create correlation heatmap.")
+                else:
+                    # Save heatmap
+                    png_file_heatmap = file_manager.save_png(fig_heatmap, image_dir, filename="correlation_heatmap_words_vs_punct")
+                    if png_file_heatmap is None:
+                        logger.error("Failed to save correlation heatmap.")
+                    else:
+                        logger.info(f"Saved correlation heatmap: {png_file_heatmap}")
             except Exception as e:
-                logger.exception(f"Error in STEP 5 - Bubble Plot: {e}")
+                logger.exception(f"Error in STEP 5 - Relationship Visualizations: {e}")        
 
     # STEP 8: Model focussing on sequence handling for daily participation in 'maap' group
     if 8 in Script:
