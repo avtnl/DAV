@@ -51,3 +51,54 @@
                     png_file_rel = file_manager.save_png(fig_rel, image_dir, filename=f"relationships_emoji_{group}")
                     if png_file_rel is None:
                         logger.error("Failed to save relationships_2 plot.")
+
+    # STEP 5: Bubble Plot for Relationships, including both emoji usage categories
+    if 5 in Script:
+        groups = ['maap', 'golfmaten', 'dac', 'tillies']
+        df_groups = df[df['whatsapp_group'].isin(groups)].copy()
+        if df_groups.empty:
+            logger.error(f"No data found for WhatsApp groups {groups}. Skipping bubble plot visualization.")
+        else:
+            try:
+                # Prepare data for bubble plot including both has_emoji categories
+                bubble_df = data_preparation.build_visual_relationships_bubble(df_groups, groups)
+                if bubble_df is None or bubble_df.empty:
+                    logger.error("Failed to prepare bubble plot data.")
+                else:
+                    # Create single bubble plot with both emoji categories
+                    fig_bubble = plot_manager.build_visual_relationships_bubble(bubble_df)
+                    if fig_bubble is None:
+                        logger.error("Failed to create bubble plot.")
+                    else:
+                        # Save the single bubble plot
+                        png_file_bubble = file_manager.save_png(fig_bubble, image_dir, filename="bubble_plot_words_vs_punct")
+                        if png_file_bubble is None:
+                            logger.error("Failed to save bubble plot.")
+                        else:
+                            logger.info(f"Saved bubble plot: {png_file_bubble}")
+
+                    # Create second version of bubble plot
+                    fig_bubble_2 = plot_manager.build_visual_relationships_bubble_2(bubble_df)
+                    if fig_bubble_2 is None:
+                        logger.error("Failed to create second bubble plot.")
+                    else:
+                        # Save the second bubble plot
+                        png_file_bubble_2 = file_manager.save_png(fig_bubble_2, image_dir, filename="bubble_plot_words_vs_punct_2")
+                        if png_file_bubble_2 is None:
+                            logger.error("Failed to save second bubble plot.")
+                        else:
+                            logger.info(f"Saved second bubble plot: {png_file_bubble_2}")
+
+                # Create correlation heatmap
+                fig_heatmap = plot_manager.build_visual_correlation_heatmap(df_groups, groups)
+                if fig_heatmap is None:
+                    logger.error("Failed to create correlation heatmap.")
+                else:
+                    # Save heatmap
+                    png_file_heatmap = file_manager.save_png(fig_heatmap, image_dir, filename="correlation_heatmap_words_vs_punct")
+                    if png_file_heatmap is None:
+                        logger.error("Failed to save correlation heatmap.")
+                    else:
+                        logger.info(f"Saved correlation heatmap: {png_file_heatmap}")
+            except Exception as e:
+                logger.exception(f"Error in STEP 5 - Relationship Visualizations: {e}")                         

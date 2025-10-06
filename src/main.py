@@ -218,7 +218,7 @@ def main():
                     logger.error("Failed to prepare bubble plot data.")
                 else:
                     # Create single bubble plot with both emoji categories
-                    fig_bubble = plot_manager.build_visual_relationships_bubble(bubble_df)
+                    fig_bubble = plot_manager.build_visual_relationships_bubble_2(bubble_df)
                     if fig_bubble is None:
                         logger.error("Failed to create bubble plot.")
                     else:
@@ -228,30 +228,6 @@ def main():
                             logger.error("Failed to save bubble plot.")
                         else:
                             logger.info(f"Saved bubble plot: {png_file_bubble}")
-
-                    # Create second version of bubble plot
-                    fig_bubble_2 = plot_manager.build_visual_relationships_bubble_2(bubble_df)
-                    if fig_bubble_2 is None:
-                        logger.error("Failed to create second bubble plot.")
-                    else:
-                        # Save the second bubble plot
-                        png_file_bubble_2 = file_manager.save_png(fig_bubble_2, image_dir, filename="bubble_plot_words_vs_punct_2")
-                        if png_file_bubble_2 is None:
-                            logger.error("Failed to save second bubble plot.")
-                        else:
-                            logger.info(f"Saved second bubble plot: {png_file_bubble_2}")
-
-                # Create correlation heatmap
-                fig_heatmap = plot_manager.build_visual_correlation_heatmap(df_groups, groups)
-                if fig_heatmap is None:
-                    logger.error("Failed to create correlation heatmap.")
-                else:
-                    # Save heatmap
-                    png_file_heatmap = file_manager.save_png(fig_heatmap, image_dir, filename="correlation_heatmap_words_vs_punct")
-                    if png_file_heatmap is None:
-                        logger.error("Failed to save correlation heatmap.")
-                    else:
-                        logger.info(f"Saved correlation heatmap: {png_file_heatmap}")
             except Exception as e:
                 logger.exception(f"Error in STEP 5 - Relationship Visualizations: {e}")       
 

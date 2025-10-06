@@ -1,5 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import seaborn as sns
 import numpy as np
 from collections import Counter, defaultdict
@@ -618,7 +619,7 @@ class PlotManager:
             # Customize plot
             ax.set_xlabel('Average Number of Words per Message')
             ax.set_ylabel('Average Number of Punctuations per Message')
-            ax.set_title("More words = More Punctuations, but Emojis reduce number of Punctuations!", fontsize=20)
+            ax.set_title("More words = More Punctuations, but Emojis reduce number of Punctuations!",  fontsize=20, x=0.6, ha='center')
             
             # Create custom legend
             legend_elements = []
@@ -644,188 +645,269 @@ class PlotManager:
 
     def build_visual_relationships_bubble_2(self, agg_df):
         """
-        Create a bubble plot showing average words vs average punctuations per message,
-        with bubble size as number of messages, split by has_emoji. Top 5 group-author
-        combinations by message_count are colored in gradients (green for has_emoji=True,
-        red for has_emoji=False), others in gray. Includes trend lines with standard
-        deviation bands, with overlapping area in orange.
+        Create an enhanced bubble plot from prepared data: avg_words vs avg_punct, bubble size = message_count.
+        Groups/Colors: has_emoji=True in shades of green (darkest for largest, top 5),
+        has_emoji=False in shades of red (darkest for largest, top 5),
+        with two trendlines: red (has_emoji=False), green (has_emoji=True).
+        Adds horizontal and vertical lines at y=1,2,3 with corresponding x-value labels, and filled areas.
+
+        Args:
+            agg_df (pandas.DataFrame): Aggregated data from DataPreparation with columns:
+                                    whatsapp_group, author, has_emoji, message_count, avg_words, avg_punct.
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the bubble plot, or None if creation fails.
         """
+        if agg_df is None or agg_df.empty:
+            logger.error("No data provided for enhanced bubble plot.")
+            return None
+
         try:
-            if agg_df is None or agg_df.empty:
-                logger.error("No data provided for bubble plot v2.")
-                return None
+            # Define color shades (10 shades, using first 5 for top 5, darkest for 1st, lightest for 5th; 6th for others)
+            green_shades = ['#00CC00', '#1AFF1A', '#33FF33', '#4DFF4D', '#66FF66', '#80FF80', '#99FF99', '#B3FFB3', '#CCFFCC', '#E6FFE6']  # Dark to light green
+            red_shades = ['#CC0000', '#FF1A1A', '#FF3333', '#FF4D4D', '#FF6666', '#FF8080', '#FF9999', '#FFB3B3', '#FFCCCC', '#FFE6E6']  # Dark to light red
+            gray_shades = ['#1A1A1A', '#333333', '#4D4D4D', '#666666', '#808080', '#999999', '#B3B3B3', '#CCCCCC', '#E6E6E6', '#F2F2F2']  # Dark to light gray
+
+            # Create plot
+            fig, ax = plt.subplots(figsize=(12, 8))
+            
+            # Get top 5 group/author combinations for has_emoji=True and has_emoji=False
             emoji_true = agg_df[agg_df['has_emoji'] == True]
             emoji_false = agg_df[agg_df['has_emoji'] == False]
-            top_5_true = emoji_true.nlargest(5, 'message_count')
-            top_5_false = emoji_false.nlargest(5, 'message_count')
-            top_5_true_keys = top_5_true.apply(lambda row: f"{row['whatsapp_group']}-{row['author']}", axis=1).tolist()
-            top_5_false_keys = top_5_false.apply(lambda row: f"{row['whatsapp_group']}-{row['author']}", axis=1).tolist()
-            fig, ax = plt.subplots(figsize=(12, 8))
-            for _, row in agg_df.iterrows():
-                group_author = f"{row['whatsapp_group']}-{row['author']}"
-                has_emoji = row['has_emoji']
-                size = np.sqrt(row['message_count']) * 60  # Scale bubble size by factor 3
-                initials = ''.join([name[0] for name in row['author'].split()])
-                if has_emoji and group_author in top_5_true_keys:
-                    rank = top_5_true_keys.index(group_author)
-                    color = 'green'
-                elif not has_emoji and group_author in top_5_false_keys:
-                    rank = top_5_false_keys.index(group_author)
-                    color = 'red'
-                else:
-                    color = 'gray'
-                ax.scatter(row['avg_words'], row['avg_punct'], s=size, color=color, alpha=0.5)
-                if group_author in top_5_true_keys or group_author in top_5_false_keys:
-                    ax.text(
-                        row['avg_words'], row['avg_punct'], initials,
-                        fontsize=8, ha='center', va='center',
-                        color='black', bbox=dict(facecolor='white', alpha=0.8, edgecolor='none')
-                    )
+            
+            top_5_true = emoji_true.sort_values('message_count', ascending=False).head(5)[['whatsapp_group', 'author']].values.tolist()
+            top_5_true_keys = [f"{group}_{author}" for group, author in top_5_true]
+            top_5_false = emoji_false.sort_values('message_count', ascending=False).head(5)[['whatsapp_group', 'author']].values.tolist()
+            top_5_false_keys = [f"{group}_{author}" for group, author in top_5_false]
+            
+            # Log to check top 5
+            logger.debug(f"Top 5 group/author combinations for has_emoji=True: {top_5_true}")
+            logger.debug(f"Top 5 group/author combinations for has_emoji=False: {top_5_false}")
+            
+            # Compute trendlines first to get slopes and intercepts
+            slope_false, intercept_false, slope_true, intercept_true = None, None, None, None
             if len(agg_df) > 1:
-                line_x = np.linspace(agg_df['avg_words'].min(), agg_df['avg_words'].max(), 100)
-                # Initialize arrays for overlap calculation
-                y_false_lower = np.zeros_like(line_x)
-                y_false_upper = np.zeros_like(line_x)
-                y_true_lower = np.zeros_like(line_x)
-                y_true_upper = np.zeros_like(line_x)
-                # Trendline and band for has_emoji=False (red)
+                # Trendline for has_emoji=False (red)
                 if len(emoji_false) > 1:
                     x_false = emoji_false['avg_words']
                     y_false = emoji_false['avg_punct']
                     slope_false, intercept_false = np.polyfit(x_false, y_false, 1)
-                    line_y_false = slope_false * line_x + intercept_false
-                    ax.plot(line_x, line_y_false, color='red', linestyle='--')
-                    predicted_y_false = slope_false * x_false + intercept_false
-                    residuals_false = y_false - predicted_y_false
-                    std_false = np.std(residuals_false)
-                    y_false_lower = line_y_false - std_false
-                    y_false_upper = line_y_false + std_false
-                    ax.fill_between(line_x, y_false_lower, y_false_upper, color='red', alpha=0.4)
-                # Trendline and band for has_emoji=True (green)
+                
+                # Trendline for has_emoji=True (green)
                 if len(emoji_true) > 1:
                     x_true = emoji_true['avg_words']
                     y_true = emoji_true['avg_punct']
                     slope_true, intercept_true = np.polyfit(x_true, y_true, 1)
+            
+            # Calculate intersection points for y=1,2,3
+            ks = [1, 2, 3]
+            x_reds = []
+            x_greens = []
+            for k in ks:
+                x_red = (k - intercept_false) / slope_false if slope_false and slope_false != 0 else 0
+                x_green = (k - intercept_true) / slope_true if slope_true and slope_true != 0 else 0
+                # Clip to non-negative
+                x_red = max(0, x_red)
+                x_green = max(0, x_green)
+                x_reds.append(x_red)
+                x_greens.append(x_green)
+
+            # Calculate additional y values where x_green[1] and x_green[2] hit the red trendline
+            additional_ys = []
+            for k in [0, 1]:
+                # Use x_green[1] (for y=1) and x_green[2] (for y=2) from green trendline
+                x_green = x_greens[k]
+                # Calculate y at x_green on red trendline
+                y_next = slope_false * x_green + intercept_false if slope_false is not None and intercept_false is not None else 0
+                additional_ys.append(y_next)
+            
+            # Log the additional_ys values
+            logger.info(f"Additional y values where x_green[1] and x_green[2] hit red trendline: {additional_ys}")
+
+            # Set y-axis to start at 0 and ensure y=3.5 is visible
+            ax.set_ylim(bottom=0, top=max(3.5, agg_df['avg_punct'].max() * 1.1))
+
+            # Fill areas first (grays under red, greens between red and green, additional areas)
+            # Grays (stepped polygons under red)
+            gray_colors = [gray_shades[3], gray_shades[5], gray_shades[7]]
+            prev_x_red = 0
+            prev_k = 0
+            for i, (k, x_red, color) in enumerate(zip(ks, x_reds, gray_colors)):
+                ax.fill(
+                    [0, 0, x_red, prev_x_red],
+                    [prev_k, k, k, prev_k],
+                    color=color,
+                    alpha=0.5,
+                    zorder=0
+                )
+                prev_x_red = x_red
+                prev_k = k
+
+            # Grays (rectangles from y=0 to k, x_red to x_green)
+            gray_colors = [gray_shades[3], gray_shades[5], gray_shades[7]]            
+            for i, (k, x_red, x_green, color) in enumerate(zip(ks, x_reds, x_greens, gray_colors)):
+                ax.fill(
+                    [x_red, x_red, x_green, x_green],
+                    [0, k, k, 0],
+                    color=color,
+                    alpha=0.5,
+                    zorder=0
+                )
+
+            # Additional areas
+            # Polygon: (x_green[1], additional_ys[1]), (x_red[2], 3), (x_red[2], 0), (x_green[1], 0)
+            ax.fill(
+                [x_greens[1], x_reds[2], x_reds[2], x_greens[1]],
+                [additional_ys[1], 3, 0, 0],
+                color=gray_shades[7],
+                alpha=0.5,
+                zorder=0
+            )
+
+            # Polygon: (x_green[0], additional_ys[0]), (x_red[1], 2), (x_red[1], 0), (x_green[0], 0)
+            ax.fill(
+                [x_greens[0], x_reds[1], x_reds[1], x_greens[0]],
+                [additional_ys[0], 2, 0, 0],
+                color=gray_shades[5],
+                alpha=0.5,
+                zorder=0
+            )
+
+            # Triangle: (0, 0), (x_red[0], 1), (x_red[0], 0)
+            ax.fill(
+                [0, x_reds[0], x_reds[0]],
+                [0, 1, 0],
+                color=gray_shades[3],
+                alpha=0.5,
+                zorder=0
+            )
+
+            # Triangle: (x_red[1], 2), (x_green[1], additional_ys[1]), (x_green[1], 2)
+            ax.fill(
+                [x_reds[1], x_greens[1], x_greens[1]],
+                [2, additional_ys[1], 2],
+                color=gray_shades[7],
+                alpha=0.5,
+                zorder=0
+            )
+
+            # Plot bubbles on top
+            for _, row in agg_df.iterrows():
+                group = row['whatsapp_group']
+                author = row['author']
+                has_emoji = row['has_emoji']
+                group_author = f"{group}_{author}"
+                size = row['message_count'] * 10
+                initials = f"{group[0].upper()}{''.join(word[0].upper() for word in author.split() if word)}"
+                
+                # Assign color based on has_emoji and top 5 combinations
+                if has_emoji and group_author in top_5_true_keys:
+                    rank = top_5_true_keys.index(group_author)
+                    color = green_shades[6]
+                elif not has_emoji and group_author in top_5_false_keys:
+                    rank = top_5_false_keys.index(group_author)
+                    color = red_shades[6]
+                else:
+                    color = green_shades[6] if has_emoji else red_shades[6]  # Lightest green/red for others
+                
+                # Plot scatter point
+                ax.scatter(
+                    row['avg_words'],
+                    row['avg_punct'],
+                    s=size,
+                    color=color,
+                    alpha=0.5
+                )
+                
+                # Add author initials
+                ax.text(
+                    row['avg_words'],
+                    row['avg_punct'],
+                    initials,
+                    fontsize=8,
+                    ha='center',
+                    va='center',
+                    color='black',
+                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='none')
+                )
+            
+            # Add trendlines
+            if len(agg_df) > 1:
+                # Define line_x for trendlines based on the range of avg_words
+                line_x = np.linspace(agg_df['avg_words'].min(), agg_df['avg_words'].max(), 100)
+                
+                # Trendline for has_emoji=False (red)
+                if len(emoji_false) > 1:
+                    line_y_false = slope_false * line_x + intercept_false
+                    ax.plot(line_x, line_y_false, color='red', linestyle='--')
+                
+                # Trendline for has_emoji=True (green)
+                if len(emoji_true) > 1:
                     line_y_true = slope_true * line_x + intercept_true
                     ax.plot(line_x, line_y_true, color='green', linestyle='--')
-                    predicted_y_true = slope_true * x_true + intercept_true
-                    residuals_true = y_true - predicted_y_true
-                    std_true = np.std(residuals_true)
-                    y_true_lower = line_y_true - std_true
-                    y_true_upper = line_y_true + std_true
-                    ax.fill_between(line_x, y_true_lower, y_true_upper, color='green', alpha=0.4)
-                # Fill overlapping area in orange
-                if len(emoji_false) > 1 and len(emoji_true) > 1:
-                    # Find overlapping region: max of lower bounds, min of upper bounds
-                    y_overlap_lower = np.maximum(y_false_lower, y_true_lower)
-                    y_overlap_upper = np.minimum(y_false_upper, y_true_upper)
-                    # Only fill where upper bound > lower bound (valid overlap)
-                    valid_overlap = y_overlap_upper > y_overlap_lower
-                    if valid_overlap.any():
-                        ax.fill_between(line_x, y_overlap_lower, y_overlap_upper, where=valid_overlap, color='orange', alpha=0.5)
+            
+            # Add horizontal and vertical lines with x-value labels
+            for i, k in enumerate(ks):
+                x_red = x_reds[i]
+                x_green = x_greens[i]
+                
+                # Horizontals
+                ax.hlines(y=k, xmin=0, xmax=x_red, color='black', linestyle='--')
+                ax.hlines(y=k, xmin=x_red, xmax=x_green, color='black', linestyle=':')
+                
+                # Verticals
+                ax.vlines(x=x_red, ymin=0, ymax=k, color='red', linestyle='--')
+                ax.vlines(x=x_green, ymin=0, ymax=k, color='green', linestyle=':')
+                
+                # Add x-value labels
+                ax.text(x_red, 0.2, f"{x_red:.1f}", color='red', ha='center', va='top', fontsize=12)
+                ax.text(x_green, 0.2, f"{x_green:.1f}", color='green', ha='center', va='top', fontsize=12)
+
+            # Add red and green dots at trendline intersections
+            for i, k in enumerate(ks):
+                # Red dots at (x_red[i], k)
+                ax.scatter([x_reds[i]], [k], s=100, color=red_shades[0], zorder=5)
+                ax.scatter([x_reds[i]], 0.05, s=100, color=red_shades[0], zorder=5)
+                # Green dots at (x_green[i], k)
+                ax.scatter([x_greens[i]], [k], s=100, color=green_shades[0], zorder=5)
+                ax.scatter([x_greens[i]], 0.05, s=100, color=green_shades[0], zorder=5)
+
+            # # Add black rectangle with thicker lines
+            # rect = patches.Rectangle(
+            #     (5, 0),  # Bottom-left corner (x, y)
+            #     22,   # Width
+            #     0.25,       # Height (from y=1 to y=3)
+            #     linewidth=3,  # Thicker line
+            #     edgecolor='black',
+            #     facecolor='none',  # No fill, just the outline
+            #     zorder=1
+            # )
+            # ax.add_patch(rect)
+
+            # Customize plot
             ax.set_xlabel('Average Number of Words per Message')
             ax.set_ylabel('Average Number of Punctuations per Message')
-            ax.set_title("More words = More Punctuations, but Emojis reduce number of Punctuations!", fontsize=20)
-            from matplotlib.patches import Patch
+            ax.set_title("More words = More Punctuations ... and Emojis reduce the number of Punctuations!", fontsize=20, x=0.65, ha='center')
+
+            # Create custom legend
             legend_elements = []
             total_false_msgs = int(emoji_false['message_count'].sum()) if not emoji_false.empty else 0
-            top_5_false_msgs = int(top_5_false['message_count'].sum()) if not top_5_false.empty else 0
             total_true_msgs = int(emoji_true['message_count'].sum()) if not emoji_true.empty else 0
-            top_5_true_msgs = int(top_5_true['message_count'].sum()) if not top_5_true.empty else 0
-            legend_elements.append(plt.scatter([], [], s=100, color='red', label=f'Without emojis\nTotal: {total_false_msgs:,} msgs / Top 5: {top_5_false_msgs:,} msgs'))
-            legend_elements.append(plt.scatter([], [], s=100, color='green', label=f'With emojis\nTotal: {total_true_msgs:,} msgs / Top 5: {top_5_true_msgs:,} msgs'))
+            legend_elements.append(plt.scatter([], [], s=100, color=red_shades[6], label=f'Without emojis\nTotal: {total_false_msgs:,} msgs'))
+            legend_elements.append(plt.scatter([], [], s=100, color=green_shades[6], label=f'With emojis\nTotal: {total_true_msgs:,} msgs'))
             legend_elements.append(plt.scatter([], [], s=0, label='\nSize of bubble reflects number of msgs\n', alpha=0))
             legend_elements.append(plt.plot([], [], color='red', linestyle='--', label='Trend line without emojis')[0])
             legend_elements.append(plt.plot([], [], color='green', linestyle='--', label='Trend line with emojis')[0])
-            legend_elements.append(Patch(facecolor='red', alpha=0.4, label='Std dev without emojis'))
-            legend_elements.append(Patch(facecolor='green', alpha=0.4, label='Std dev with emojis'))
-            legend_elements.append(Patch(facecolor='orange', alpha=0.5, label='Overlap of std dev bands'))
+            
             ax.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left')
+            
             plt.tight_layout()
             plt.show()
-            logger.info("Created bubble plot v2 successfully.")
+            
+            logger.info("Created enhanced bubble plot successfully.")
             return fig
         except Exception as e:
-            logger.exception(f"Failed to build bubble plot v2: {e}")
-            return None
-
-    def build_visual_correlation_heatmap(self, df, groups=None):
-        """
-        Create a heatmap showing the correlation between word count and punctuation count
-        for messages with and without emojis.
-
-        Args:
-            df (pandas.DataFrame): DataFrame with columns: message_cleaned, has_emoji.
-            groups (list, optional): List of group names to filter. Defaults to all groups.
-
-        Returns:
-            matplotlib.figure.Figure or None: Figure object for the heatmap, or None if creation fails.
-        """
-        try:
-            if df is None or df.empty:
-                logger.error("No data provided for correlation heatmap.")
-                return None
-
-            # Filter by groups if provided
-            if groups is not None:
-                df = df[df['whatsapp_group'].isin(groups)].copy()
-                if df.empty:
-                    logger.error(f"No data found for groups {groups} in correlation heatmap.")
-                    return None
-
-            # Calculate word and punctuation counts
-            def count_words(message):
-                if not isinstance(message, str):
-                    return 0
-                # Add space before emoji sequences if not preceded by space
-                emoji_pattern = ''.join(re.escape(char) for char in emoji.EMOJI_DATA.keys())
-                message = re.sub(r'([^\s])([' + emoji_pattern + r'])', r'\1 \2', message)
-                # Replace sequences of emojis with a single 'EMOJI'
-                message = re.sub(r'[' + emoji_pattern + r']+', 'EMOJI', message)
-                # Handle currency with decimals as one word (e.g., €5.50 or $5.50)
-                message = re.sub(r'([€$]\s*\d+[.,]\d+)', lambda m: m.group(0).replace(' ', ''), message)
-                # Split on spaces
-                words = re.split(r'\s+', message.strip())
-                return len([w for w in words if w])
-
-            def count_punctuations(message):
-                if not isinstance(message, str):
-                    return 0
-                # Replace repeated punctuation with a single instance
-                message = re.sub(r'([!?.,;:])\1+', r'\1', message)
-                # Count ! ? . , ; : but exclude decimal points in numbers
-                punctuations = re.findall(r'(?<![\d])[!?.,;:](?![\d])', message)
-                return len(punctuations)
-
-            df['word_count'] = df['message_cleaned'].apply(count_words)
-            df['punct_count'] = df['message_cleaned'].apply(count_punctuations)
-
-            # Split data by has_emoji
-            emoji_true = df[df['has_emoji'] == True][['word_count', 'punct_count']]
-            emoji_false = df[df['has_emoji'] == False][['word_count', 'punct_count']]
-
-            # Calculate correlation matrices
-            corr_true = emoji_true.corr() if not emoji_true.empty else pd.DataFrame(np.nan, index=['word_count', 'punct_count'], columns=['word_count', 'punct_count'])
-            corr_false = emoji_false.corr() if not emoji_false.empty else pd.DataFrame(np.nan, index=['word_count', 'punct_count'], columns=['word_count', 'punct_count'])
-
-            # Combine into a single DataFrame for heatmap
-            corr_data = pd.DataFrame({
-                'With Emojis': corr_true.loc['word_count', 'punct_count'],
-                'Without Emojis': corr_false.loc['word_count', 'punct_count']
-            }, index=['Correlation'])
-
-            # Create heatmap
-            fig, ax = plt.subplots(figsize=(8, 4))
-            sns.heatmap(corr_data, annot=True, cmap='coolwarm', vmin=-1, vmax=1, center=0, ax=ax)
-            ax.set_title('Correlation: Words vs Punctuation (With vs Without Emojis)')
-            ax.set_ylabel('')
-            plt.tight_layout()
-            plt.show()
-
-            logger.info("Created correlation heatmap successfully.")
-            return fig
-        except Exception as e:
-            logger.exception(f"Failed to build correlation heatmap: {e}")
+            logger.exception(f"Failed to build enhanced bubble plot: {e}")
             return None
 
     def build_visual_model(self, sequence_df, group):
