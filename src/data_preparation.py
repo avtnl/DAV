@@ -5,6 +5,7 @@ from loguru import logger
 import re
 import itertools
 import emoji
+import networkx as nx
 
 class DataPreparation:
     """A class for preparing WhatsApp message data for visualization, including category,
@@ -774,3 +775,210 @@ class DataPreparation:
         except Exception as e:
             logger.exception(f"Failed to prepare bubble plot data: {e}")
             return None
+        
+    def build_interaction_features(self, df, group_authors):
+        """
+        Build a feature matrix for interaction and network dynamics analysis.
+        Features include normalized reply frequencies, mention frequencies, centrality measures,
+        and cross-group participation. Computed per author-year, with separate rows for
+        'Anthony van Tilburg' for each group per year and an overall row across all groups.
+        
+        Args:
+            df (pandas.DataFrame): Full cleaned DataFrame with 'whatsapp_group' column.
+            group_authors (dict): Dictionary of group names to lists of authors.
+        
+        Returns:
+            pandas.DataFrame: Feature matrix with 'author_year' or 'author_year_group' index and 'whatsapp_group' column.
+        """
+        try:
+            all_authors = sorted(set(a for authors in group_authors.values() for a in authors))
+            first_names = {a: a.split()[0] for a in all_authors}
+            first_name_to_author = {v: k for k, v in first_names.items()}
+            
+            df = df.copy()
+            df['year'] = df['timestamp'].dt.year
+            df = df.sort_values(['whatsapp_group', 'timestamp'])
+            df['prev_author'] = df.groupby('whatsapp_group')['author'].shift(1)
+            df['mentions'] = df['message'].apply(lambda x: self.data_editor.extract_mentions(x, first_name_to_author))
+            feature_list = []
+            
+            # Group by author and year
+            for (author, year), author_year_df in df.groupby(['author', 'year']):
+                if author == 'Anthony van Tilburg':
+                    # Create separate rows for each group and an overall row
+                    for group in author_year_df['whatsapp_group'].unique():
+                        sub_df = author_year_df[author_year_df['whatsapp_group'] == group]
+                        if sub_df.empty:
+                            continue
+                        features = {
+                            'author_year': f"{author}_{year}_{group}",
+                            'whatsapp_group': group
+                        }
+                        reply_counts = sub_df[sub_df['prev_author'].notna()]['prev_author'].value_counts(normalize=True)
+                        for tgt in all_authors:
+                            features[f'reply_to_{tgt.replace(" ", "_")}'] = reply_counts.get(tgt, 0.0)
+                        mention_flat = [m for mentions in sub_df['mentions'] for m in mentions]
+                        mention_counts = Counter(mention_flat)
+                        total_mentions = sum(mention_counts.values())
+                        for tgt in all_authors:
+                            features[f'mention_{tgt.replace(" ", "_")}'] = mention_counts[tgt] / total_mentions if total_mentions > 0 else 0.0
+                        year_df = df[df['year'] == year].copy()
+                        G = nx.Graph()
+                        for _, row in year_df[year_df['prev_author'].notna()].iterrows():
+                            G.add_edge(row['author'], row['prev_author'])
+                        if len(G) > 0 and author in G:
+                            features['degree_centrality'] = nx.degree_centrality(G)[author]
+                            features['betweenness_centrality'] = nx.betweenness_centrality(G)[author]
+                            features['closeness_centrality'] = nx.closeness_centrality(G)[author]
+                        else:
+                            features['degree_centrality'] = 0.0
+                            features['betweenness_centrality'] = 0.0
+                            features['closeness_centrality'] = 0.0
+                        features['num_groups_participated'] = author_year_df['whatsapp_group'].nunique()
+                        total_msgs = len(sub_df)
+                        features['avg_msgs_per_group'] = total_msgs / features['num_groups_participated'] if features['num_groups_participated'] > 0 else 0.0
+                        threading_features = self._compute_threading_features(sub_df, author)
+                        features.update(threading_features)
+                        feature_list.append(features)
+                    
+                    # Add overall row for Anthony
+                    sub_df = author_year_df  # Use all data for this author-year
+                    features = {
+                        'author_year': f"{author}_{year}",
+                        'whatsapp_group': 'overall'
+                    }
+                    reply_counts = sub_df[sub_df['prev_author'].notna()]['prev_author'].value_counts(normalize=True)
+                    for tgt in all_authors:
+                        features[f'reply_to_{tgt.replace(" ", "_")}'] = reply_counts.get(tgt, 0.0)
+                    mention_flat = [m for mentions in sub_df['mentions'] for m in mentions]
+                    mention_counts = Counter(mention_flat)
+                    total_mentions = sum(mention_counts.values())
+                    for tgt in all_authors:
+                        features[f'mention_{tgt.replace(" ", "_")}'] = mention_counts[tgt] / total_mentions if total_mentions > 0 else 0.0
+                    year_df = df[df['year'] == year].copy()
+                    G = nx.Graph()
+                    for _, row in year_df[year_df['prev_author'].notna()].iterrows():
+                        G.add_edge(row['author'], row['prev_author'])
+                    if len(G) > 0 and author in G:
+                        features['degree_centrality'] = nx.degree_centrality(G)[author]
+                        features['betweenness_centrality'] = nx.betweenness_centrality(G)[author]
+                        features['closeness_centrality'] = nx.closeness_centrality(G)[author]
+                    else:
+                        features['degree_centrality'] = 0.0
+                        features['betweenness_centrality'] = 0.0
+                        features['closeness_centrality'] = 0.0
+                    features['num_groups_participated'] = author_year_df['whatsapp_group'].nunique()
+                    total_msgs = len(sub_df)
+                    features['avg_msgs_per_group'] = total_msgs / features['num_groups_participated'] if features['num_groups_participated'] > 0 else 0.0
+                    threading_features = self._compute_threading_features(sub_df, author)
+                    features.update(threading_features)
+                    feature_list.append(features)
+                else:
+                    # For other authors, use primary group (most messages)
+                    group_counts = author_year_df['whatsapp_group'].value_counts()
+                    primary_group = group_counts.index[0] if not group_counts.empty else 'unknown'
+                    sub_df = author_year_df[author_year_df['whatsapp_group'] == primary_group]
+                    features = {
+                        'author_year': f"{author}_{year}",
+                        'whatsapp_group': primary_group
+                    }
+                    reply_counts = sub_df[sub_df['prev_author'].notna()]['prev_author'].value_counts(normalize=True)
+                    for tgt in all_authors:
+                        features[f'reply_to_{tgt.replace(" ", "_")}'] = reply_counts.get(tgt, 0.0)
+                    mention_flat = [m for mentions in sub_df['mentions'] for m in mentions]
+                    mention_counts = Counter(mention_flat)
+                    total_mentions = sum(mention_counts.values())
+                    for tgt in all_authors:
+                        features[f'mention_{tgt.replace(" ", "_")}'] = mention_counts[tgt] / total_mentions if total_mentions > 0 else 0.0
+                    year_df = df[df['year'] == year].copy()
+                    G = nx.Graph()
+                    for _, row in year_df[year_df['prev_author'].notna()].iterrows():
+                        G.add_edge(row['author'], row['prev_author'])
+                    if len(G) > 0 and author in G:
+                        features['degree_centrality'] = nx.degree_centrality(G)[author]
+                        features['betweenness_centrality'] = nx.betweenness_centrality(G)[author]
+                        features['closeness_centrality'] = nx.closeness_centrality(G)[author]
+                    else:
+                        features['degree_centrality'] = 0.0
+                        features['betweenness_centrality'] = 0.0
+                        features['closeness_centrality'] = 0.0
+                    features['num_groups_participated'] = author_year_df['whatsapp_group'].nunique()
+                    total_msgs = len(sub_df)
+                    features['avg_msgs_per_group'] = total_msgs / features['num_groups_participated'] if features['num_groups_participated'] > 0 else 0.0
+                    threading_features = self._compute_threading_features(sub_df, author)
+                    features.update(threading_features)
+                    feature_list.append(features)
+            
+            feature_df = pd.DataFrame(feature_list).set_index('author_year')
+            logger.info(f"Built interaction feature matrix with shape {feature_df.shape}")
+            logger.debug(f"Feature matrix columns: {feature_df.columns.tolist()}")
+            logger.debug(f"Feature matrix preview:\n{feature_df.head().to_string()}")
+            return feature_df
+        except Exception as e:
+            logger.exception(f"Failed to build interaction features: {e}")
+            return None
+
+    def _compute_threading_features(self, sub_df, author):
+        """
+        Compute threading-related features for an author in their sub-DataFrame.
+        
+        Args:
+            sub_df (pandas.DataFrame): Sub-DataFrame for author-year.
+            author (str): Author name.
+        
+        Returns:
+            dict: Threading features (num_initiated, avg_depth_initiated, num_joined, avg_position).
+        """
+        features = {
+            'num_initiated': 0,
+            'avg_depth_initiated': 0.0,
+            'num_joined': 0,
+            'avg_position': 0.0
+        }
+        try:
+            if sub_df.empty or len(sub_df) < 2:
+                logger.debug(f"Sub-DataFrame for {author} is empty or too small for threading analysis.")
+                return features
+            
+            # Ensure timestamp is datetime
+            sub_df = sub_df.copy()
+            sub_df['timestamp'] = pd.to_datetime(sub_df['timestamp'])
+            
+            # Reset index to avoid alignment issues
+            sub_df = sub_df.reset_index(drop=True)
+            
+            # Compute time differences within groups
+            group_dfs = []
+            for group, group_df in sub_df.groupby('whatsapp_group'):
+                if len(group_df) < 2:
+                    logger.debug(f"Group {group} for {author} has fewer than 2 messages, skipping.")
+                    continue
+                group_df = group_df.sort_values('timestamp')
+                group_df['time_diff'] = group_df['timestamp'].diff().dt.total_seconds() / 3600.0
+                group_df['thread_id'] = (group_df['time_diff'] > 1).cumsum()
+                group_dfs.append(group_df)
+            
+            if not group_dfs:
+                logger.debug(f"No valid groups with sufficient messages for {author}.")
+                return features
+            
+            # Concatenate group DataFrames
+            sub_df = pd.concat(group_dfs, ignore_index=True)
+            
+            # Count threads initiated by this author (first message in a thread)
+            thread_starts = sub_df[sub_df['thread_id'].diff() != 0]  # First message of each thread
+            thread_starts = thread_starts[thread_starts['author'] == author]
+            features['num_initiated'] = len(thread_starts)
+            
+            # Placeholder for other features due to complexity of thread depth/position
+            # For simplicity, assume avg_depth_initiated=1.0 and avg_position=0.5
+            features['avg_depth_initiated'] = 1.0 if features['num_initiated'] > 0 else 0.0
+            features['num_joined'] = len(sub_df) - features['num_initiated']
+            features['avg_position'] = 0.5 if len(sub_df) > 0 else 0.0
+            
+            logger.debug(f"Threading features for {author}: {features}")
+            return features
+        except Exception as e:
+            logger.warning(f"Failed to compute threading features for {author}: {e}")
+            return features
+      

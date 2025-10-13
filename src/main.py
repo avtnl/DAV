@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from loguru import logger
 from file_manager import FileManager
 from data_editor import DataEditor
@@ -6,6 +7,8 @@ from data_preparation import DataPreparation
 from plot_manager import PlotManager
 import tomllib
 from pathlib import Path
+from sklearn.feature_extraction.text import CountVectorizer
+import matplotlib.pyplot as plt
 
 def main():
     # Instantiate classes
@@ -109,17 +112,17 @@ def main():
         return
   
     # Assign STEPs to run
-    Script = [5]
+    Script = [7]
 
     # Define tables directory
     tables_dir = Path("tables")
     tables_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize variables needed for STEPs 1, 4, 5 and 8
-    if 1 in Script or 4 in Script or 5 in Script or 8 in Script:
+    # Initialize variables needed for STEPs 1, 4, 5, 6, 7 and 8
+    if 1 in Script or 4 in Script or 5 in Script or 6 in Script or 7 in Script or 8 in Script:
         df, group_authors, non_anthony_group, anthony_group, sorted_groups = data_preparation.build_visual_categories(df)
         if df is None or group_authors is None or sorted_groups is None:
-            logger.error("Failed to initialize required variables for STEPs 1, 4, 5 or 8.")
+            logger.error("Failed to initialize required variables for STEPs 1, 4, 5, 6, 7 or 8.")
             return
 
     # STEP 1: Prepare data for visualization (categories)
@@ -231,8 +234,133 @@ def main():
             except Exception as e:
                 logger.exception(f"Error in STEP 5 - Relationship Visualizations: {e}")       
 
+    # STEP 6: Normalize messages for golf-relatedness analysis
+    if 6 in Script:
+        try:
+            # Ensure cleaned messages exist
+            if 'message_cleaned' not in df.columns:
+                logger.error("Column 'message_cleaned' not found. Ensure clean_for_deleted_media_patterns() is called first.")
+                return
+            # Apply emoji handling and text normalization
+            df['message_with_emojis'] = df['message_cleaned'].apply(data_editor.handle_emojis)
+            df['message_normalized'] = df['message_with_emojis'].apply(data_editor.normalize_text)
+            logger.info(f"Normalized messages: {df[['message_cleaned', 'message_with_emojis', 'message_normalized']].head(10).to_string()}")
+            # Save processed DataFrame
+            csv_file = file_manager.save_csv(df, processed)
+            parq_file = file_manager.save_parq(df, processed)
+            if csv_file is None or parq_file is None:
+                logger.error("Failed to save normalized DataFrame.")
+                return
+            logger.info(f"Saved normalized DataFrame: CSV={csv_file}, Parquet={parq_file}")
+
+            golf_keywords = ['tee', 'birdie', 'bogey', 'bunker', 'caddie', 'chip', 'divot', 'draw', 'driver', 'eagle', 'fade', 'fairway', 'green', 'handicap', 'hcp', 'hole', 'hook', 'hybrid', 'lie', 'par', 'putter', 'qualifying', 'rough', 'slice', 'stroke', 'stablefore', 'stbf', 'stb', 'wedge', 'irons', 'masters', 'ryder', 'coupe', 'troffee', 'wedstrijd', 'majors', 'flag_in_hole', 'person_golfing', 'man_golfing', 'woman_golfing', 'trophy', 'white_circle']  # Your custom list
+            
+            # # Aggregate normalized messages per group
+            # grouped = df.groupby('whatsapp_group')['message_normalized'].apply(' '.join).reset_index()
+            # vectorizer = CountVectorizer(vocabulary=golf_keywords)
+            # Aggregate normalized messages by group and author
+            grouped = df.groupby(['whatsapp_group', 'author'])['message_normalized'].apply(' '.join).reset_index()
+            # Create a label column for group/author combinations
+            grouped['group_author'] = grouped['whatsapp_group'] + '/' + grouped['author']
+            vectorizer = CountVectorizer(vocabulary=golf_keywords)
+            X = vectorizer.fit_transform(grouped['message_normalized'])
+            total_words = grouped['message_normalized'].apply(lambda x: len(x.split())).replace(0, 1)  # Avoid division by zero
+            X_normalized = X.toarray() / np.array(total_words)[:, np.newaxis]
+
+            # # Convert to DataFrame for saving/logging
+            # feature_df = pd.DataFrame(X_normalized, columns=golf_keywords, index=grouped['whatsapp_group'])
+            # feature_df = feature_df.reset_index().rename(columns={'index': 'whatsapp_group'})  # Make groups a column if needed
+
+            # Convert to DataFrame for saving/logging
+            feature_df = pd.DataFrame(X_normalized, columns=golf_keywords, index=grouped['group_author'])
+            feature_df = feature_df.reset_index().rename(columns={'index': 'group_author'})
+
+            # Save using existing save_table
+            tables_dir = Path("tables")  # Already defined earlier in main()
+            saved_table = file_manager.save_table(feature_df, tables_dir, prefix="golf_features_normalized")
+            if saved_table:
+                logger.info(f"Saved golf feature matrix: {saved_table}")
+            else:
+                logger.error("Failed to save golf feature matrix.")
+
+            # Optional: Log a preview instead/alongside
+            logger.debug(f"Golf feature matrix preview:\n{feature_df.head().to_string()}")
+
+            # Call the new plot function
+            fig_multi = plot_manager.build_visual_multi_dimensional_2(feature_df, method='pca')
+            if fig_multi is None:
+                logger.error("Failed to create multi-dimensional visualization_2.")
+            else:
+                # Save the plot
+                png_file_multi = file_manager.save_png(fig_multi, image_dir, filename="golf_relatedness_pca")
+                if png_file_multi is None:
+                    logger.error("Failed to save multi-dimensional visualization.")
+                else:
+                    logger.info(f"Saved multi-dimensional visualization: {png_file_multi}")
+        except Exception as e:
+            logger.exception(f"Error in STEP 6 - Message Normalization: {e}")
+            return
+
+    # # STEP 7: Interaction and Network Dynamics (1 plot, including whatsapp_group "tillies")
+    # if 7 in Script:
+    #     feature_df = data_preparation.build_interaction_features(df, group_authors)
+    #     if feature_df is not None:
+    #         # Use the new specialized plot function
+    #         fig_interact = plot_manager.build_visual_interactions(feature_df, method='pca')
+    #         if fig_interact is not None:
+    #             png_file_interact = file_manager.save_png(fig_interact, image_dir, filename="interaction_dynamics_pca")
+    #             if png_file_interact is None:
+    #                 logger.error("Failed to save interaction dynamics plot.")
+
+    # # STEP 7: Interaction and Network Dynamics (1 plot, excluding whatsapp_group "tillies")
+    # if 7 in Script:
+    #     # Filter out the 'tillies' group
+    #     df_filtered = df[df['whatsapp_group'] != 'tillies'].copy()
+    #     if df_filtered.empty:
+    #         logger.error("No data remains after filtering out 'tillies' group. Skipping STEP 7.")
+    #     else:
+    #         # Update group_authors to exclude 'tillies'
+    #         group_authors_filtered = {group: authors for group, authors in group_authors.items() if group != 'tillies'}
+    #         if not group_authors_filtered:
+    #             logger.error("No groups remain after filtering out 'tillies'. Skipping STEP 7.")
+    #         else:
+    #             feature_df = data_preparation.build_interaction_features(df_filtered, group_authors_filtered)
+    #             if feature_df is not None:
+    #                 # Use the new specialized plot function
+    #                 fig_interact = plot_manager.build_visual_interactions(feature_df, method='pca')
+    #                 if fig_interact is not None:
+    #                     png_file_interact = file_manager.save_png(fig_interact, image_dir, filename="interaction_dynamics_pca")
+    #                     if png_file_interact is None:
+    #                         logger.error("Failed to save interaction dynamics plot.")
+
+    # STEP 7: Interaction and Network Dynamics
+    if 7 in Script:
+        df_filtered = df[df['whatsapp_group'] != 'tillies'].copy()
+        if df_filtered.empty:
+            logger.error("No data remains after filtering out 'tillies' group. Skipping STEP 7.")
+        else:
+            group_authors_filtered = {group: authors for group, authors in group_authors.items() if group != 'tillies'}
+            if not group_authors_filtered:
+                logger.error("No groups remain after filtering out 'tillies'. Skipping STEP 7.")
+            else:
+                feature_df = data_preparation.build_interaction_features(df_filtered, group_authors_filtered)
+                if feature_df is not None:
+                    fig_interact, fig_groups = plot_manager.build_visual_interactions_2(feature_df, method='pca')
+                    if fig_interact is not None:
+                        png_file_interact = file_manager.save_png(fig_interact, image_dir, filename="interaction_dynamics_pca")
+                        if png_file_interact is None:
+                            logger.error("Failed to save interaction dynamics plot.")
+                        else:
+                            logger.info(f"Saved interaction dynamics plot: {png_file_interact}")
+                    if fig_groups is not None:
+                        png_file_groups = file_manager.save_png(fig_groups, image_dir, filename="interaction_dynamics_groups_pca")
+                        if png_file_groups is None:
+                            logger.error("Failed to save group-based interaction dynamics plot.")
+                        else:
+                            logger.info(f"Saved group-based interaction dynamics plot: {png_file_groups}")
+
     # STEP 8: Model focussing on sequence handling for daily participation in 'maap' group
-    if 8 in Script:
+    if 8 in Script: 
         group = 'maap'
         df_group = df[df['whatsapp_group'] == group].copy()
         if df_group.empty:

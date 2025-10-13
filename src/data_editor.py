@@ -2,18 +2,26 @@ import pandas as pd
 import re
 from loguru import logger
 import emoji  # Existing import for emoji-related methods
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
 
+# Download required NLTK data
+nltk.download('punkt_tab')
+nltk.download('stopwords')
+    
 class DataEditor:
     """A class for cleaning and processing WhatsApp message data, including timestamp conversion,
     author cleaning, and emoji/URL detection."""
 
     def __init__(self):
-        """Initialize DataEditor with regular expression patterns and emoji sets.
+        """Initialize DataEditor with regular expression patterns, emoji sets, and stopwords.
 
         Attributes:
             emoji_pattern (re.Pattern): Regex pattern to match sequences of emojis (one or more).
             ignore_emojis (set): Set of skin tone modifier emojis to exclude from emoji counts.
             url_pattern (re.Pattern): Regex pattern to detect URLs in messages.
+            stopwords (set): Set of stopwords for text normalization.
         """
         self.emoji_pattern = re.compile(
             "["
@@ -31,6 +39,8 @@ class DataEditor:
         self.ignore_emojis = {chr(int(code, 16)) for code in ['1F3FB', '1F3FC', '1F3FD', '1F3FE', '1F3FF']}
         # Define URL pattern
         self.url_pattern = re.compile(r"(?i)\b((?:https?://|ftp://|www\.)\S+)", flags=re.UNICODE)
+        # Initialize stopwords (using Dutch stopwords as an example)
+        self.stopwords = set(stopwords.words('dutch'))
 
     def convert_timestamp(self, datafile):
         """
@@ -288,3 +298,59 @@ class DataEditor:
         except Exception as e:
             logger.exception(f"Failed to clean messages for deleted media patterns: {e}")
             return None
+
+    def handle_emojis(self, text):
+        """
+        Convert emojis in the input text to their Unicode names, excluding skin tone modifiers.
+        Args:
+            text (str): Text containing emojis to convert.
+        Returns:
+            str: Text with emojis replaced by their Unicode names (e.g., ⛳ -> flag_in_hole).
+        """
+        if not isinstance(text, str):
+            return text
+        # Convert emojis to their names without colons for cleaner integration
+        text = emoji.demojize(text, delimiters=("", ""))
+        # Remove skin tone modifiers
+        text = re.sub(r'_(light|medium_light|medium|medium_dark|dark)_skin_tone', '', text)
+        return text
+
+    def normalize_text(self, text):
+        """
+        Normalize text by lowercasing, removing punctuation, removing stopwords, and tokenizing.
+        Args:
+            text (str): Text to normalize.
+        Returns:
+            str: Normalized text as a space-separated string of tokens.
+        """
+        if not isinstance(text, str):
+            return ""
+        # Lowercase
+        text = text.lower()
+        # Remove punctuation (except for emoji names which are alphanumeric)
+        text = re.sub(r'[^\w\s]', ' ', text)
+        # Tokenize
+        tokens = word_tokenize(text)
+        # Remove stopwords
+        tokens = [word for word in tokens if word not in self.stopwords]
+        # Rejoin tokens
+        return ' '.join(tokens)
+
+    def extract_mentions(self, text, first_name_to_author):
+            """
+            Extract mentioned authors from the message text based on @mentions of first names.
+            
+            Args:
+                text (str): Message text to analyze.
+                first_name_to_author (dict): Mapping of first names to full author names.
+            
+            Returns:
+                list: List of mentioned full author names.
+            """
+            if not isinstance(text, str):
+                return []
+            mentions = []
+            for first_name, author in first_name_to_author.items():
+                if re.search(r'@' + re.escape(first_name), text, re.IGNORECASE):
+                    mentions.append(author)
+            return list(set(mentions))  # Deduplicate if multiple mentions            

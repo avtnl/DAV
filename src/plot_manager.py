@@ -11,6 +11,8 @@ import networkx as nx
 import itertools
 import emoji
 import re
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 
 # Suppress FutureWarning from seaborn/pandas
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -998,4 +1000,255 @@ class PlotManager:
             return fig
         except Exception as e:
             logger.exception(f"Failed to create sequence comparison plot for group {group}: {e}")
-            return None                    
+            return None
+        
+    def build_visual_multi_dimensional(self, feature_df, method='tsne'):
+        """
+        Create a 2D visualization of WhatsApp groups based on golf-relatedness using PCA or t-SNE.
+
+        Args:
+            feature_df (pandas.DataFrame): DataFrame with 'whatsapp_group' as the first column and keyword frequencies as subsequent columns.
+            method (str): Dimensionality reduction method ('pca' or 'tsne'). Default: 'tsne'.
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the 2D plot, or None if creation fails.
+        """
+        try:
+            # Extract group names and feature matrix
+            groups = feature_df['whatsapp_group'].values
+            X_normalized = feature_df.drop('whatsapp_group', axis=1).values
+
+            # Apply dimensionality reduction
+            if method.lower() == 'pca':
+                reducer = PCA(n_components=2)
+                X_reduced = reducer.fit_transform(X_normalized)
+                loadings = pd.DataFrame(reducer.components_.T, index=feature_df.drop('whatsapp_group', axis=1).columns, columns=['Component 1', 'Component 2'])
+                logger.info(f"PCA Loadings:\n{loadings.to_string()}")                
+            elif method.lower() == 'tsne':
+                reducer = TSNE(n_components=2, perplexity=2, random_state=42)  # Low perplexity for few points
+            else:
+                logger.error(f"Invalid method '{method}'. Use 'pca' or 'tsne'.")
+                return None
+
+            X_reduced = reducer.fit_transform(X_normalized)
+
+            # Create plot
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.scatter(X_reduced[:, 0], X_reduced[:, 1], c='blue')
+
+            # Annotate group names
+            for i, group in enumerate(groups):
+                ax.annotate(group, (X_reduced[i, 0], X_reduced[i, 1]), fontsize=12, ha='right')
+
+            ax.set_title(f"Golf-Relatedness of WhatsApp Groups ({method.upper()})")
+            ax.set_xlabel('Component 1')
+            ax.set_ylabel('Component 2')
+            plt.tight_layout()
+            plt.show()
+
+            logger.info(f"Created {method.upper()} visualization successfully.")
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build multi-dimensional visualization: {e}")
+            return None
+
+    def build_visual_multi_dimensional_2(self, feature_df, method='tsne'):
+        """
+        Create a 2D visualization of group/author combinations based on golf-relatedness using PCA or t-SNE.
+
+        Args:
+            feature_df (pandas.DataFrame): DataFrame with 'group_author' as the first column and keyword frequencies as subsequent columns.
+            method (str): Dimensionality reduction method ('pca' or 'tsne'). Default: 'tsne'.
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the 2D plot, or None if creation fails.
+        """
+        try:
+            # Extract group/author labels and feature matrix
+            group_authors = feature_df['group_author'].values
+            X_normalized = feature_df.drop('group_author', axis=1).values
+
+            # Apply dimensionality reduction
+            if method.lower() == 'pca':
+                reducer = PCA(n_components=2)
+            elif method.lower() == 'tsne':
+                reducer = TSNE(n_components=2, perplexity=min(5, len(group_authors)-1), random_state=42)  # Adjust perplexity
+            else:
+                logger.error(f"Invalid method '{method}'. Use 'pca' or 'tsne'.")
+                return None
+
+            X_reduced = reducer.fit_transform(X_normalized)
+
+            # Create plot
+            fig, ax = plt.subplots(figsize=(10, 8))  # Slightly larger for more points
+            # Color-code by group for clarity
+            groups = [ga.split('/')[0] for ga in group_authors]
+            unique_groups = list(set(groups))
+            colors = sns.color_palette("husl", len(unique_groups))
+            group_color_map = dict(zip(unique_groups, colors))
+
+            for i, group_author in enumerate(group_authors):
+                group = group_author.split('/')[0]
+                ax.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[group_color_map[group]], label=group if i == groups.index(group) else None)
+                # ax.annotate(group_author, (X_reduced[i, 0], X_reduced[i, 1]), fontsize=8, ha='right')  # Smaller font
+
+            ax.set_title(f"Golf-Relatedness of Group/Author Combinations ({method.upper()})")
+            ax.set_xlabel('Component 1')
+            ax.set_ylabel('Component 2')
+            ax.legend(title="WhatsApp Group")
+            plt.tight_layout()
+            plt.show()
+
+            # Log PCA loadings if using PCA
+            if method.lower() == 'pca':
+                loadings = pd.DataFrame(reducer.components_.T, index=feature_df.drop('group_author', axis=1).columns, columns=['Component 1', 'Component 2'])
+                logger.info(f"PCA Loadings:\n{loadings.to_string()}")
+
+            logger.info(f"Created {method.upper()} visualization for group/author combinations successfully.")
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build multi-dimensional visualization: {e}")
+            return None
+
+    def build_visual_interactions(self, feature_df, method='tsne'):
+            """
+            Specialized 2D visualization for interaction features using PCA or t-SNE.
+            Colors by author for evolution over years.
+            
+            Args:
+                feature_df (pandas.DataFrame): Feature matrix with 'author_year' index.
+                method (str): 'pca' or 'tsne'.
+            
+            Returns:
+                matplotlib.figure.Figure or None: The plot figure.
+            """
+            try:
+                labels = feature_df.index.values
+                X = feature_df.values
+
+                if method.lower() == 'pca':
+                    reducer = PCA(n_components=2)
+                elif method.lower() == 'tsne':
+                    reducer = TSNE(n_components=2, perplexity=min(5, len(labels)-1), random_state=42)
+                else:
+                    raise ValueError(f"Invalid method '{method}'.")
+
+                X_reduced = reducer.fit_transform(X)
+
+                # Extract authors from labels (author_year)
+                authors = [label.split('_')[0] for label in labels]  # Assuming no '_' in names
+                unique_authors = list(set(authors))
+                colors = sns.color_palette("husl", len(unique_authors))
+                author_color_map = dict(zip(unique_authors, colors))
+
+                fig, ax = plt.subplots(figsize=(10, 8))
+                for i, label in enumerate(labels):
+                    auth = label.split('_')[0]
+                    ax.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[author_color_map[auth]], label=auth if authors.index(auth) == i else None)
+                    # ax.annotate(label, (X_reduced[i, 0], X_reduced[i, 1]), fontsize=8, ha='right')
+
+                ax.set_title(f"Interaction Dynamics of Authors Over Years ({method.upper()})")
+                ax.set_xlabel('Component 1')
+                ax.set_ylabel('Component 2')
+                ax.legend(title="Author")
+                plt.tight_layout()
+                plt.show()
+
+                logger.info(f"Created interaction visualization with {method.upper()}.")
+                return fig
+            except Exception as e:
+                logger.exception(f"Failed to build interaction visualization: {e}")
+                return None
+
+    def build_visual_interactions_2(self, feature_df, method='tsne'):
+        """
+        Create two 2D visualizations for interaction features using PCA or t-SNE.
+        First plot: Colors by author, with 'Anthony van Tilburg' points for each group-year and overall.
+        Second plot: Colors by group ('maap': blue, 'golfmaten': red, 'dac': green) and
+        'Anthony van Tilburg' points by group (light blue for 'maap', light red for 'golfmaten',
+        light green for 'dac', gray for overall).
+        
+        Args:
+            feature_df (pandas.DataFrame): Feature matrix with 'author_year' or 'author_year_group' index and 'whatsapp_group' column.
+            method (str): 'pca' or 'tsne'.
+        
+        Returns:
+            tuple: (matplotlib.figure.Figure, matplotlib.figure.Figure) or (None, None) if creation fails.
+        """
+        try:
+            labels = feature_df.index.values
+            X = feature_df.drop(['whatsapp_group'], axis=1, errors='ignore').values
+            if method.lower() == 'pca':
+                reducer = PCA(n_components=2)
+            elif method.lower() == 'tsne':
+                reducer = TSNE(n_components=2, perplexity=min(5, len(labels)-1), random_state=42)
+            else:
+                raise ValueError(f"Invalid method '{method}'.")
+            X_reduced = reducer.fit_transform(X)
+
+            # First plot: Color by author
+            authors = [label.split('_')[0] for label in labels]  # Extract author from 'author_year' or 'author_year_group'
+            unique_authors = list(set(authors))
+            colors = sns.color_palette("husl", len(unique_authors))
+            author_color_map = dict(zip(unique_authors, colors))
+            fig1, ax1 = plt.subplots(figsize=(10, 8))
+            for i, label in enumerate(labels):
+                auth = label.split('_')[0]
+                ax1.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[author_color_map[auth]], label=auth if authors.index(auth) == i else None)
+                ax1.annotate(label, (X_reduced[i, 0], X_reduced[i, 1]), fontsize=8, ha='right')
+            ax1.set_title(f"Interaction Dynamics of Authors Over Years ({method.upper()})")
+            ax1.set_xlabel('Component 1')
+            ax1.set_ylabel('Component 2')
+            ax1.legend(title="Author")
+            plt.tight_layout()
+            plt.show()
+
+            # Second plot: Color by group, with special colors for Anthony van Tilburg
+            fig2, ax2 = plt.subplots(figsize=(10, 8))
+            group_color_map = {
+                'maap': 'blue',
+                'golfmaten': 'red',
+                'dac': 'green',
+                'maap_anthony': 'lightblue',
+                'golfmaten_anthony': 'lightcoral',
+                'dac_anthony': 'lightgreen',
+                'overall': 'gray'
+            }
+            legend_elements = [
+                patches.Patch(color='blue', label='maap'),
+                patches.Patch(color='red', label='golfmaten'),
+                patches.Patch(color='green', label='dac'),
+                patches.Patch(color='lightblue', label='Anthony van Tilburg (maap)'),
+                patches.Patch(color='lightcoral', label='Anthony van Tilburg (golfmaten)'),
+                patches.Patch(color='lightgreen', label='Anthony van Tilburg (dac)'),
+                patches.Patch(color='gray', label='Anthony van Tilburg (overall)')
+            ]
+            for i, label in enumerate(labels):
+                author = label.split('_')[0]
+                group = feature_df.iloc[i]['whatsapp_group']
+                if author == 'Anthony van Tilburg':
+                    # Check if the label is group-specific or overall
+                    if group == 'overall':
+                        color = group_color_map['overall']
+                    else:
+                        color = group_color_map.get(f"{group}_anthony", 'black')  # Use group-specific color for Anthony
+                else:
+                    color = group_color_map.get(group, 'black')  # Fallback for non-Anthony authors
+                ax2.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[color], label=None)
+                # ax2.annotate(label, (X_reduced[i, 0], X_reduced[i, 1]), fontsize=8, ha='right')
+            ax2.set_title(f"Interaction Dynamics by Group ({method.upper()})")
+            ax2.set_xlabel('Component 1')
+            ax2.set_ylabel('Component 2')
+            ax2.legend(handles=legend_elements, title="Group Membership")
+            plt.tight_layout()
+            plt.show()
+
+            if method.lower() == 'pca':
+                loadings = pd.DataFrame(reducer.components_.T, index=feature_df.drop(['whatsapp_group'], axis=1, errors='ignore').columns, columns=['Component 1', 'Component 2'])
+                logger.info(f"PCA Loadings:\n{loadings.to_string()}")
+
+            logger.info(f"Created interaction visualizations with {method.upper()}.")
+            return fig1, fig2
+        except Exception as e:
+            logger.exception(f"Failed to build interaction visualizations: {e}")
+            return None, None                                            
