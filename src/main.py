@@ -112,7 +112,7 @@ def main():
         return
   
     # Assign STEPs to run
-    Script = [7]
+    Script = [1]
 
     # Define tables directory
     tables_dir = Path("tables")

@@ -193,7 +193,7 @@ class DataEditor:
 
     def clean_for_deleted_media_patterns(self, df):
         """
-        Clean messages in the DataFrame by removing deleted messages and media patterns,
+        Clean messages in the DataFrame by removing deleted messages, media patterns, and links,
         and add columns to track the count of each type of deleted media, group picture changes, and links.
         Args:
             df (pandas.DataFrame): Input DataFrame with 'message' column.
@@ -207,7 +207,7 @@ class DataEditor:
             # Initialize new columns
             df["has_emoji"] = False
             df["number_of_emojis"] = 0
-            df["has_link"] = False  # New column for links
+            df["has_link"] = False # New column for links
             df["was_deleted"] = False
             df["number_of_changes_to_group"] = 0
             df["pictures_deleted"] = 0
@@ -218,7 +218,7 @@ class DataEditor:
             df["documents_deleted"] = 0
             df["videonotes_deleted"] = 0
             df["message_cleaned"] = df["message"]
-
+            
             # Define regex patterns for cleaning
             non_media_patterns = [
                 (r'Dit bericht is verwijderd\.', "message deleted", re.IGNORECASE),
@@ -233,25 +233,38 @@ class DataEditor:
                 (r'document\s*weggelaten', "document deleted", re.IGNORECASE),
                 (r'videonotitie\s*weggelaten', "video note deleted", re.IGNORECASE)
             ]
+            
+            # Comprehensive link removal pattern
+            # Matches: (optional whitespace) + URL + (optional whitespace/punctuation)
+            link_removal_pattern = r'(\s*https?://[^\s<>"{}|\\^`\[\]]+[\.,;:!?]?\s*)'
+            
             fallback_pattern = r'\s*[\u200e\u200f]*\[\d{2}-\d{2}-\d{4},\s*\d{2}:\d{2}:\d{2}\]\s*(?:Anthony van Tilburg|Anja Berkemeijer|Phons Berkemeijer|Madeleine)[\s\u200e\u200f]*:.*'
-
+            
             # Clean messages and update columns
             def clean_message(row):
                 message = row["message"]
                 # Update emoji columns
                 row["has_emoji"] = self.has_emoji(message)
                 row["number_of_emojis"] = self.count_emojis(message)
-                # Update link column
+                # Update link column (using existing function)
                 row["has_link"] = self.has_link(message)
                 # Update deletion status
                 row["was_deleted"] = self.was_deleted(message)
                 # Update group picture changes
                 row["number_of_changes_to_group"] = self.changes_to_grouppicture(message)
-
+                
+                # Remove links and surrounding whitespace first (before other cleaning)
+                if self.has_link(message):
+                    logger.debug(f"Removing link from message: {message}")
+                    # Remove links with surrounding whitespace/punctuation
+                    message = re.sub(link_removal_pattern, ' ', message, flags=re.IGNORECASE)
+                    # Clean up multiple spaces and trim
+                    message = re.sub(r'\s+', ' ', message).strip()
+                
                 # Apply non-media patterns
                 for pattern, change, flags in non_media_patterns:
                     message = re.sub(pattern, '', message, flags=flags).strip()
-
+                
                 # Count media pattern occurrences
                 for pattern, change, flags in media_patterns:
                     matches = re.findall(pattern, message, flags=flags)
@@ -274,25 +287,35 @@ class DataEditor:
                             row["videonotes_deleted"] += count
                         # Remove matched patterns
                         message = re.sub(pattern, '', message, flags=flags).strip()
-
+                
+                # If media was deleted, remove trailing timestamp-author pattern
+                total_media_deleted = (row["pictures_deleted"] + row["videos_deleted"] + row["audios_deleted"] +
+                                    row["gifs_deleted"] + row["stickers_deleted"] + row["documents_deleted"] +
+                                    row["videonotes_deleted"])
+                if total_media_deleted > 0:
+                    ta_pattern = r'[\s\u200e\u200f]*\[\d{2}-\d{2}-\d{4},\s*\d{2}:\d{2}:\d{2}\]\s*[^:]*:[\s\u200e\u200f]*$'
+                    message = re.sub(ta_pattern, '', message).strip()
+                
                 # Fallback: Remove any trailing timestamp and author/media info
                 if re.search(fallback_pattern, message, flags=re.IGNORECASE):
                     logger.debug(f"Matched fallback pattern '{fallback_pattern}' in message: {message}")
                     message = re.sub(fallback_pattern, '', message, flags=re.IGNORECASE).strip()
-
+                
                 # If message is empty, contains only spaces, or is None, set to "completely removed"
                 if message is None or message == "" or message.strip() == "":
                     message = "completely removed"
-
+                
                 row["message_cleaned"] = message
                 return row
-
+            
             df = df.apply(clean_message, axis=1)
+            
             # Log if no links are found
             if df["has_link"].sum() == 0:
                 logger.info("No links found in the messages")
             else:
                 logger.info(f"Found {df['has_link'].sum()} messages with links")
+            
             logger.info(f"Cleaned messages: {df[['message', 'message_cleaned', 'has_emoji', 'number_of_emojis', 'has_link', 'was_deleted', 'number_of_changes_to_group', 'pictures_deleted', 'videos_deleted', 'audios_deleted', 'gifs_deleted', 'stickers_deleted', 'documents_deleted', 'videonotes_deleted']].head(10).to_string()}")
             return df
         except Exception as e:
