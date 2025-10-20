@@ -1,18 +1,19 @@
 import pandas as pd
 import re
 from loguru import logger
-import emoji  # Existing import for emoji-related methods
+import emoji
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
+from datetime import timedelta
 
 # Download required NLTK data
 nltk.download('punkt_tab')
 nltk.download('stopwords')
-    
+
 class DataEditor:
     """A class for cleaning and processing WhatsApp message data, including timestamp conversion,
-    author cleaning, and emoji/URL detection."""
+    author cleaning, emoji/URL detection, and additional message analysis."""
 
     def __init__(self):
         """Initialize DataEditor with regular expression patterns, emoji sets, and stopwords.
@@ -22,6 +23,9 @@ class DataEditor:
             ignore_emojis (set): Set of skin tone modifier emojis to exclude from emoji counts.
             url_pattern (re.Pattern): Regex pattern to detect URLs in messages.
             stopwords (set): Set of stopwords for text normalization.
+            punctuation_pattern (re.Pattern): Regex pattern to match punctuation marks.
+            connected_emoji_pattern (re.Pattern): Regex pattern to match two or more connected emojis.
+            connected_punctuation_pattern (re.Pattern): Regex pattern to match two or more connected punctuations.
         """
         self.emoji_pattern = re.compile(
             "["
@@ -35,12 +39,12 @@ class DataEditor:
             "]+",
             flags=re.UNICODE,
         )
-        # Define emojis to ignore (skin tone modifiers)
         self.ignore_emojis = {chr(int(code, 16)) for code in ['1F3FB', '1F3FC', '1F3FD', '1F3FE', '1F3FF']}
-        # Define URL pattern
         self.url_pattern = re.compile(r"(?i)\b((?:https?://|ftp://|www\.)\S+)", flags=re.UNICODE)
-        # Initialize stopwords (using Dutch stopwords as an example)
         self.stopwords = set(stopwords.words('dutch'))
+        self.punctuation_pattern = re.compile(r'(?<![\d])[!?.,;:](?![\d])')
+        self.connected_emoji_pattern = re.compile(r'([' + ''.join(self.emoji_pattern.pattern[1:-2]) + r']{2,})', flags=re.UNICODE)
+        self.connected_punctuation_pattern = re.compile(r'([!?.,;:]{2,})')
 
     def convert_timestamp(self, datafile):
         """
@@ -57,7 +61,6 @@ class DataEditor:
     def clean_author(self, df):
         """
         Clean author names by removing leading tilde characters.
-        Sometimes, author names have a tilde in front due to formatting issues.
         Args:
             df (pandas.DataFrame): DataFrame with an 'author' column.
         Returns:
@@ -81,8 +84,7 @@ class DataEditor:
 
     def count_emojis(self, text):
         """
-        Count the total number of emojis in the input text, excluding specified skin tone modifiers.
-        Counts each emoji occurrence, even if the same emoji is used multiple times.
+        Count the total number of emojis in the input text, excluding skin tone modifiers.
         Args:
             text (str): Text to count emojis in.
         Returns:
@@ -90,7 +92,6 @@ class DataEditor:
         """
         if not isinstance(text, str):
             return 0
-        # Use emoji library to extract emojis
         emojis = [char for char in text if char in emoji.EMOJI_DATA and char not in self.ignore_emojis]
         return len(emojis)
 
@@ -149,8 +150,6 @@ class DataEditor:
         try:
             df = pd.concat(dataframes.values(), ignore_index=True)
             logger.info(f"Concatenated DataFrame with {len(df)} rows and columns: {df.columns.tolist()}")
-            
-            # Verify the result
             logger.info(f"Unique WhatsApp groups: {df['whatsapp_group'].unique().tolist()}")
             logger.debug(f"DataFrame head:\n{df.head().to_string()}")
             logger.debug(f"DataFrame dtypes:\n{df.dtypes}")
@@ -172,11 +171,8 @@ class DataEditor:
             return None
         
         try:
-            # Debug: Check author counts per group
             logger.info("Author counts per WhatsApp group:")
             logger.info(df.groupby(["whatsapp_group", "author"]).size().to_string())
-            
-            # Filter out group names
             rows_before = len(df)
             df = df.loc[df["author"] != "MAAP"]
             df = df.loc[df["author"] != "Golfmaten"]
@@ -204,10 +200,9 @@ class DataEditor:
             logger.error("No valid DataFrame provided for cleaning deleted media patterns")
             return None
         try:
-            # Initialize new columns
             df["has_emoji"] = False
             df["number_of_emojis"] = 0
-            df["has_link"] = False # New column for links
+            df["has_link"] = False
             df["was_deleted"] = False
             df["number_of_changes_to_group"] = 0
             df["pictures_deleted"] = 0
@@ -219,7 +214,6 @@ class DataEditor:
             df["videonotes_deleted"] = 0
             df["message_cleaned"] = df["message"]
             
-            # Define regex patterns for cleaning
             non_media_patterns = [
                 (r'Dit bericht is verwijderd\.', "message deleted", re.IGNORECASE),
                 (r'(?:Anthony van Tilburg|Anja Berkemeijer|Phons Berkemeijer|Madeleine) heeft de groepsafbeelding gewijzigd', "grouppicture", re.IGNORECASE)
@@ -233,39 +227,25 @@ class DataEditor:
                 (r'document\s*weggelaten', "document deleted", re.IGNORECASE),
                 (r'videonotitie\s*weggelaten', "video note deleted", re.IGNORECASE)
             ]
-            
-            # Comprehensive link removal pattern
-            # Matches: (optional whitespace) + URL + (optional whitespace/punctuation)
             link_removal_pattern = r'(\s*https?://[^\s<>"{}|\\^`\[\]]+[\.,;:!?]?\s*)'
-            
             fallback_pattern = r'\s*[\u200e\u200f]*\[\d{2}-\d{2}-\d{4},\s*\d{2}:\d{2}:\d{2}\]\s*(?:Anthony van Tilburg|Anja Berkemeijer|Phons Berkemeijer|Madeleine)[\s\u200e\u200f]*:.*'
             
-            # Clean messages and update columns
             def clean_message(row):
                 message = row["message"]
-                # Update emoji columns
                 row["has_emoji"] = self.has_emoji(message)
                 row["number_of_emojis"] = self.count_emojis(message)
-                # Update link column (using existing function)
                 row["has_link"] = self.has_link(message)
-                # Update deletion status
                 row["was_deleted"] = self.was_deleted(message)
-                # Update group picture changes
                 row["number_of_changes_to_group"] = self.changes_to_grouppicture(message)
                 
-                # Remove links and surrounding whitespace first (before other cleaning)
                 if self.has_link(message):
                     logger.debug(f"Removing link from message: {message}")
-                    # Remove links with surrounding whitespace/punctuation
                     message = re.sub(link_removal_pattern, ' ', message, flags=re.IGNORECASE)
-                    # Clean up multiple spaces and trim
                     message = re.sub(r'\s+', ' ', message).strip()
                 
-                # Apply non-media patterns
                 for pattern, change, flags in non_media_patterns:
                     message = re.sub(pattern, '', message, flags=flags).strip()
                 
-                # Count media pattern occurrences
                 for pattern, change, flags in media_patterns:
                     matches = re.findall(pattern, message, flags=flags)
                     count = len(matches)
@@ -285,10 +265,8 @@ class DataEditor:
                             row["documents_deleted"] += count
                         elif change == "video note deleted":
                             row["videonotes_deleted"] += count
-                        # Remove matched patterns
                         message = re.sub(pattern, '', message, flags=flags).strip()
                 
-                # If media was deleted, remove trailing timestamp-author pattern
                 total_media_deleted = (row["pictures_deleted"] + row["videos_deleted"] + row["audios_deleted"] +
                                     row["gifs_deleted"] + row["stickers_deleted"] + row["documents_deleted"] +
                                     row["videonotes_deleted"])
@@ -296,12 +274,10 @@ class DataEditor:
                     ta_pattern = r'[\s\u200e\u200f]*\[\d{2}-\d{2}-\d{4},\s*\d{2}:\d{2}:\d{2}\]\s*[^:]*:[\s\u200e\u200f]*$'
                     message = re.sub(ta_pattern, '', message).strip()
                 
-                # Fallback: Remove any trailing timestamp and author/media info
                 if re.search(fallback_pattern, message, flags=re.IGNORECASE):
                     logger.debug(f"Matched fallback pattern '{fallback_pattern}' in message: {message}")
                     message = re.sub(fallback_pattern, '', message, flags=re.IGNORECASE).strip()
                 
-                # If message is empty, contains only spaces, or is None, set to "completely removed"
                 if message is None or message == "" or message.strip() == "":
                     message = "completely removed"
                 
@@ -310,7 +286,6 @@ class DataEditor:
             
             df = df.apply(clean_message, axis=1)
             
-            # Log if no links are found
             if df["has_link"].sum() == 0:
                 logger.info("No links found in the messages")
             else:
@@ -332,9 +307,7 @@ class DataEditor:
         """
         if not isinstance(text, str):
             return text
-        # Convert emojis to their names without colons for cleaner integration
         text = emoji.demojize(text, delimiters=("", ""))
-        # Remove skin tone modifiers
         text = re.sub(r'_(light|medium_light|medium|medium_dark|dark)_skin_tone', '', text)
         return text
 
@@ -348,32 +321,373 @@ class DataEditor:
         """
         if not isinstance(text, str):
             return ""
-        # Lowercase
         text = text.lower()
-        # Remove punctuation (except for emoji names which are alphanumeric)
         text = re.sub(r'[^\w\s]', ' ', text)
-        # Tokenize
         tokens = word_tokenize(text)
-        # Remove stopwords
         tokens = [word for word in tokens if word not in self.stopwords]
-        # Rejoin tokens
         return ' '.join(tokens)
 
     def extract_mentions(self, text, first_name_to_author):
-            """
-            Extract mentioned authors from the message text based on @mentions of first names.
-            
-            Args:
-                text (str): Message text to analyze.
-                first_name_to_author (dict): Mapping of first names to full author names.
-            
-            Returns:
-                list: List of mentioned full author names.
-            """
-            if not isinstance(text, str):
-                return []
-            mentions = []
-            for first_name, author in first_name_to_author.items():
-                if re.search(r'@' + re.escape(first_name), text, re.IGNORECASE):
-                    mentions.append(author)
-            return list(set(mentions))  # Deduplicate if multiple mentions            
+        """
+        Extract mentioned authors from the message text based on @mentions of first names.
+        Args:
+            text (str): Message text to analyze.
+            first_name_to_author (dict): Mapping of first names to full author names.
+        Returns:
+            list: List of mentioned full author names.
+        """
+        if not isinstance(text, str):
+            return []
+        mentions = []
+        for first_name, author in first_name_to_author.items():
+            if re.search(r'@' + re.escape(first_name), text, re.IGNORECASE):
+                mentions.append(author)
+        return list(set(mentions))
+
+    def number_of_chats_that_day(self, df):
+        """
+        Count the number of messages for each day based on the timestamp.
+        Args:
+            df (pandas.DataFrame): DataFrame with 'timestamp' column.
+        Returns:
+            pandas.Series: Series with the count of messages per day for each row.
+        """
+        if 'timestamp' not in df.columns:
+            logger.error("Timestamp column not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        df['date'] = df['timestamp'].dt.date
+        chat_counts = df.groupby('date').size()
+        return df['date'].map(chat_counts).fillna(0).astype(int)
+
+    def length_chat(self, message):
+        """
+        Count the number of characters in the cleaned message, counting each emoji as 1 character.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            int: Number of characters, with emojis counted as 1 each.
+        """
+        if not isinstance(message, str):
+            return 0
+        emoji_count = self.count_emojis(message)
+        no_emoji_text = re.sub(self.emoji_pattern, '', message)
+        char_count = len(no_emoji_text)
+        return char_count + emoji_count
+
+    def previous_author(self, df):
+        """
+        Determine the previous author for each message. Empty if the message is the first of the day.
+        Args:
+            df (pandas.DataFrame): DataFrame with 'timestamp' and 'author' columns.
+        Returns:
+            pandas.Series: Series with the previous author for each row.
+        """
+        if 'timestamp' not in df.columns or 'author' not in df.columns:
+            logger.error("Required columns (timestamp, author) not found in DataFrame")
+            return pd.Series([''] * len(df), index=df.index)
+        df = df.sort_values('timestamp')
+        df['date'] = df['timestamp'].dt.date
+        previous_authors = []
+        for date, group in df.groupby('date'):
+            authors = group['author'].values
+            previous = ['']  # First message of the day has no previous author
+            previous.extend(authors[:-1])
+            previous_authors.extend(previous)
+        return pd.Series(previous_authors, index=df.index)
+
+    def response_time(self, df):
+        """
+        Calculate the time difference in seconds since the previous message on the same day.
+        Args:
+            df (pandas.DataFrame): DataFrame with 'timestamp' column.
+        Returns:
+            pandas.Series: Series with response time in seconds (integer) for each row.
+        """
+        if 'timestamp' not in df.columns:
+            logger.error("Timestamp column not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        df = df.sort_values('timestamp')
+        df['date'] = df['timestamp'].dt.date
+        response_times = []
+        for date, group in df.groupby('date'):
+            timestamps = group['timestamp']
+            diffs = timestamps.diff().dt.total_seconds().fillna(0).astype(int)
+            response_times.extend(diffs)
+        return pd.Series(response_times, index=df.index)
+
+    def list_of_all_emojis(self, message):
+        """
+        Extract all emojis in the message as a comma-separated list.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            str: Comma-separated list of emoji Unicode names.
+        """
+        if not isinstance(message, str):
+            return ''
+        emojis = [char for char in message if char in emoji.EMOJI_DATA and char not in self.ignore_emojis]
+        emoji_names = [emoji.demojize(char, delimiters=("", "")).replace('_', '') for char in emojis]
+        return ','.join(emoji_names)
+
+    def list_of_connected_emojis(self, message):
+        """
+        Extract sequences of two or more connected emojis as a comma-separated list.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            str: Comma-separated list of connected emoji sequences (Unicode names).
+        """
+        if not isinstance(message, str):
+            return ''
+        matches = self.connected_emoji_pattern.findall(message)
+        connected_emojis = []
+        for match in matches:
+            emoji_seq = [emoji.demojize(char, delimiters=("", "")).replace('_', '')
+                        for char in match if char in emoji.EMOJI_DATA and char not in self.ignore_emojis]
+            if len(emoji_seq) >= 2:
+                connected_emojis.append(''.join(emoji_seq))
+        return ','.join(connected_emojis)
+
+    def count_punctuations(self, message):
+        """
+        Count the number of punctuation marks in the message, excluding decimals in numbers.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            int: Number of punctuation marks.
+        """
+        if not isinstance(message, str):
+            return 0
+        message = re.sub(r'([!?.,;:])\1+', r'\1', message)
+        punctuations = re.findall(r'(?<![\d])[!?.,;:](?![\d])', message)
+        return len(punctuations)
+
+    def has_punctuation(self, message):
+        """
+        Check if the message contains any punctuation.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            bool: True if punctuation is present, False otherwise.
+        """
+        return self.count_punctuations(message) > 0
+
+    def list_of_all_punctuations(self, message):
+        """
+        Extract all punctuation marks as a comma-separated list.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            str: Comma-separated list of punctuation marks.
+        """
+        if not isinstance(message, str):
+            return ''
+        punctuations = self.punctuation_pattern.findall(message)
+        return ','.join(punctuations)
+
+    def list_of_connected_punctuations(self, message):
+        """
+        Extract sequences of two or more connected punctuation marks as a comma-separated list.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            str: Comma-separated list of connected punctuation sequences.
+        """
+        if not isinstance(message, str):
+            return ''
+        matches = self.connected_punctuation_pattern.findall(message)
+        return ','.join(matches)
+
+    def ends_with_emoji(self, message):
+        """
+        Check if the message ends with an emoji.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            bool: True if the last character is an emoji, False otherwise.
+        """
+        if not isinstance(message, str) or not message.strip():
+            return False
+        last_char = message.strip()[-1]
+        return last_char in emoji.EMOJI_DATA and last_char not in self.ignore_emojis
+
+    def emoji_ending_chat(self, message):
+        """
+        Return the Unicode name of the emoji that ends the message, if any.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            str: Unicode name of the ending emoji, or empty string if none.
+        """
+        if not self.ends_with_emoji(message):
+            return ''
+        last_char = message.strip()[-1]
+        return emoji.demojize(last_char, delimiters=("", "")).replace('_', '')
+
+    def ends_with_punctuation(self, message):
+        """
+        Check if the message ends with a punctuation mark.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            bool: True if the last character is a punctuation mark, False otherwise.
+        """
+        if not isinstance(message, str) or not message.strip():
+            return False
+        last_char = message.strip()[-1]
+        return bool(self.punctuation_pattern.match(last_char))
+
+    def punctuation_ending_chat(self, message):
+        """
+        Return the punctuation mark that ends the message, if any.
+        Args:
+            message (str): Cleaned message text.
+        Returns:
+            str: Punctuation mark that ends the message, or empty string if none.
+        """
+        if not self.ends_with_punctuation(message):
+            return ''
+        return message.strip()[-1]
+
+    def get_year(self, df):
+        """
+        Extract the year from the timestamp column.
+        Args:
+            df (pandas.DataFrame): DataFrame with 'timestamp' column.
+        Returns:
+            pandas.Series: Series with the year for each row.
+        """
+        if 'timestamp' not in df.columns:
+            logger.error("Timestamp column not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        return df['timestamp'].dt.year
+
+    def active_years(self, df):
+        """
+        Compute the active years (min and max) for each author in each group.
+        Args:
+            df (pandas.DataFrame): DataFrame with 'whatsapp_group', 'author', and 'year' columns.
+        Returns:
+            pandas.Series: Series with active years as 'min-max' string for each row.
+        """
+        if not all(col in df.columns for col in ['whatsapp_group', 'author', 'year']):
+            logger.error("Required columns (whatsapp_group, author, year) not found in DataFrame")
+            return pd.Series([''] * len(df), index=df.index)
+        active_years = df.groupby(['whatsapp_group', 'author'])['year'].agg(['min', 'max']).reset_index()
+        active_years['active_years'] = active_years.apply(lambda x: f"{x['min']}-{x['max']}", axis=1)
+        active_years_dict = {(row['whatsapp_group'], row['author']): row['active_years'] 
+                            for _, row in active_years.iterrows()}
+        return df.apply(lambda x: active_years_dict.get((x['whatsapp_group'], x['author']), ''), axis=1)
+
+    def early_leaver(self, df):
+        """
+        Flag authors who were not active in 2025 within the period 2015-07-01 to 2025-07-31.
+        Args:
+            df (pandas.DataFrame): DataFrame with 'whatsapp_group', 'author', 'year', and 'timestamp' columns.
+        Returns:
+            pandas.Series: Series with True for early leavers, False otherwise.
+        """
+        if not all(col in df.columns for col in ['whatsapp_group', 'author', 'year', 'timestamp']):
+            logger.error("Required columns (whatsapp_group, author, year, timestamp) not found in DataFrame")
+            return pd.Series([False] * len(df), index=df.index)
+        filter_df = df[(df['timestamp'] >= '2015-07-01') & (df['timestamp'] <= '2025-07-31')]
+        active_years_period = filter_df.groupby(['whatsapp_group', 'author'])['year'].agg(['max']).reset_index()
+        early_leavers = set(active_years_period[active_years_period['max'] < 2025][['whatsapp_group', 'author']].itertuples(index=False, name=None))
+        return df.apply(lambda x: (x['whatsapp_group'], x['author']) in early_leavers, axis=1)
+
+    def convert_booleans(self, df):
+        """
+        Convert specified boolean columns to string values.
+        Args:
+            df (pandas.DataFrame): DataFrame with boolean columns 'has_link', 'was_deleted', 'has_emoji',
+                                   'ends_with_emoji', 'has_punctuation', 'ends_with_punctuation'.
+        Returns:
+            pandas.DataFrame or None: Modified DataFrame with boolean columns converted to strings, or None if processing fails.
+        """
+        if df is None or df.empty:
+            logger.error("No valid DataFrame provided for boolean conversion")
+            return None
+        try:
+            boolean_mappings = {
+                'has_link': {True: 'link', False: ''},
+                'was_deleted': {True: 'deleted', False: ''},
+                'has_emoji': {True: 'emoji(s)', False: ''},
+                'ends_with_emoji': {True: 'ends_with_emoji', False: ''},
+                'has_punctuation': {True: 'punctuation(s)', False: ''},
+                'ends_with_punctuation': {True: 'ends_with_punctuation', False: ''}
+            }
+            for column, mapping in boolean_mappings.items():
+                if column not in df.columns:
+                    logger.error(f"Column {column} not found in DataFrame")
+                    return None
+                df[column] = df[column].map(mapping)
+            logger.info(f"Converted boolean columns: {list(boolean_mappings.keys())}")
+            logger.debug(f"DataFrame after boolean conversion:\n{df[list(boolean_mappings.keys())].head().to_string()}")
+            return df
+        except Exception as e:
+            logger.exception(f"Failed to convert boolean columns: {e}")
+            return None
+
+    def organize_df(self, df):
+        """
+        Create a new DataFrame with the specified columns in the desired order, excluding rows where early_leaver is True.
+        Args:
+            df (pandas.DataFrame): Input DataFrame with required columns.
+        Returns:
+            pandas.DataFrame or None: Organized DataFrame, or None if processing fails.
+        """
+        if df is None or df.empty:
+            logger.error("No valid DataFrame provided for organizing")
+            return None
+        try:
+            # Ensure all required columns are present
+            required_columns = [
+                'timestamp', 'author', 'message_cleaned', 'has_emoji', 'whatsapp_group',
+                'number_of_emojis', 'has_link', 'was_deleted', 'pictures_deleted',
+                'videos_deleted', 'audios_deleted', 'gifs_deleted', 'stickers_deleted',
+                'documents_deleted', 'videonotes_deleted', 'year', 'active_years', 'early_leaver'
+            ]
+            if not all(col in df.columns for col in required_columns):
+                logger.error(f"Missing required columns: {[col for col in required_columns if col not in df.columns]}")
+                return None
+
+            # Filter out rows where early_leaver is True
+            rows_before = len(df)
+            df = df[df['early_leaver'] == False].reset_index(drop=True)
+            rows_after = len(df)
+            logger.info(f"Filtered out early leavers: {rows_before} rows reduced to {rows_after} rows")
+
+            # Add new columns
+            df['number_of_chats_that_day'] = self.number_of_chats_that_day(df)
+            df['length_chat'] = df['message_cleaned'].apply(self.length_chat)
+            df['previous_author'] = self.previous_author(df)
+            df['response_time'] = self.response_time(df)
+            df['list_of_all_emojis'] = df['message_cleaned'].apply(self.list_of_all_emojis)
+            df['list_of_connected_emojis'] = df['message_cleaned'].apply(self.list_of_connected_emojis)
+            df['number_of_punctuations'] = df['message_cleaned'].apply(self.count_punctuations)
+            df['has_punctuation'] = df['message_cleaned'].apply(self.has_punctuation)
+            df['list_of_all_punctuations'] = df['message_cleaned'].apply(self.list_of_all_punctuations)
+            df['list_of_connected_punctuations'] = df['message_cleaned'].apply(self.list_of_connected_punctuations)
+            df['ends_with_emoji'] = df['message_cleaned'].apply(self.ends_with_emoji)
+            df['emoji_ending_chat'] = df['message_cleaned'].apply(self.emoji_ending_chat)
+            df['ends_with_punctuation'] = df['message_cleaned'].apply(self.ends_with_punctuation)
+            df['punctuation_ending_chat'] = df['message_cleaned'].apply(self.punctuation_ending_chat)
+
+            # Select and order columns (excluding number_of_changes_to_group and convert_emoji)
+            organized_columns = [
+                'whatsapp_group', 'timestamp', 'year', 'author', 'active_years', 'early_leaver',
+                'number_of_chats_that_day', 'length_chat', 'previous_author', 'response_time',
+                'has_link', 'was_deleted', 'pictures_deleted', 'videos_deleted', 'audios_deleted',
+                'gifs_deleted', 'stickers_deleted', 'documents_deleted', 'videonotes_deleted',
+                'number_of_emojis', 'has_emoji', 'list_of_all_emojis', 'list_of_connected_emojis',
+                'ends_with_emoji', 'emoji_ending_chat', 'number_of_punctuations', 'has_punctuation',
+                'list_of_all_punctuations', 'list_of_connected_punctuations', 'ends_with_punctuation',
+                'punctuation_ending_chat'
+            ]
+            df_organized = df[organized_columns]
+            logger.info(f"Organized DataFrame with {len(df_organized)} rows and columns: {df_organized.columns.tolist()}")
+            logger.debug(f"Organized DataFrame head:\n{df_organized.head().to_string()}")
+            return df_organized
+        except Exception as e:
+            logger.exception(f"Failed to organize DataFrame: {e}")
+            return None

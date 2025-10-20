@@ -282,21 +282,24 @@ class DataPreparation:
             return None, None, None, None, None
 
         try:
-            # Ensure timestamp is datetime and extract year
+            # Ensure timestamp is datetime
             df["timestamp"] = pd.to_datetime(df["timestamp"])
-            df["year"] = df["timestamp"].dt.year
-            logger.debug(f"Added year column. DataFrame columns: {df.columns.tolist()}")
+            
+            # Use DataEditor methods to add year, active_years, and early_leaver columns
+            df["year"] = self.data_editor.get_year(df)
+            df["active_years"] = self.data_editor.active_years(df)
+            df["early_leaver"] = self.data_editor.early_leaver(df)
+            logger.debug(f"Added year, active_years, and early_leaver columns. DataFrame columns: {df.columns.tolist()}")
 
             # Log active years per author per group
             active_years = df.groupby(['whatsapp_group', 'author'])['year'].agg(['min', 'max']).reset_index()
+            active_years['active_years'] = active_years.apply(lambda x: f"{x['min']}-{x['max']}", axis=1)
             logger.info("Active years per author per group:")
-            logger.info(active_years.to_string())
+            logger.info(active_years[['whatsapp_group', 'author', 'active_years']].to_string())
 
-            # Flag authors who left early (max year < 2025 in period)
-            filter_df = df[(df['timestamp'] >= '2020-07-01') & (df['timestamp'] <= '2025-07-31')]
-            active_years_period = filter_df.groupby(['whatsapp_group', 'author'])['year'].agg(['min', 'max']).reset_index()
-            early_leavers = active_years_period[(active_years_period['max'] < 2025) & (active_years_period['author'] != "Anthony van Tilburg")]
-            logger.info("Authors who left early (max year < 2025 in July 2020 - July 2025):")
+            # Log early leavers
+            early_leavers = df[df['early_leaver'] == True][['whatsapp_group', 'author']].drop_duplicates()
+            logger.info("Authors who left early (max year < 2025 in July 2015 - July 2025):")
             logger.info(early_leavers.to_string() if not early_leavers.empty else "No authors left early.")
 
             # Get authors per group
@@ -306,8 +309,8 @@ class DataPreparation:
                 logger.info(f"{group}: {auths.tolist()}")
 
             # Prepare data for visualization
-            filter_df = df[(df['timestamp'] >= '2020-07-01') & (df['timestamp'] <= '2025-07-31')]
-            logger.info(f"Filtered DataFrame for July 2020 - July 2025: {len(filter_df)} rows")
+            filter_df = df[(df['timestamp'] >= '2015-07-01') & (df['timestamp'] <= '2025-07-31')]
+            logger.info(f"Filtered DataFrame for July 2015 - July 2025: {len(filter_df)} rows")
 
             # Calculate total messages per group for sorting
             group_total = filter_df.groupby('whatsapp_group').size().reset_index(name='total_messages')
