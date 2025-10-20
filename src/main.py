@@ -101,7 +101,7 @@ def main():
         return
   
     # Assign STEPs to run
-    Script = [10]
+    Script = [10, 11]
 
     tables_dir = Path("tables")
     tables_dir.mkdir(parents=True, exist_ok=True)
@@ -252,7 +252,9 @@ def main():
                 logger.error("No groups remain after filtering out 'tillies'. Skipping STEP 7.")
             else:
                 feature_df = data_preparation.build_interaction_features(df_filtered, group_authors_filtered)
-                if feature_df is not None:
+                if feature_df is None:
+                    logger.error("Failed to build interaction features.")
+                else:
                     fig_interact, fig_groups = plot_manager.build_visual_interactions_2(feature_df, method='pca')
                     if fig_interact is not None:
                         png_file_interact = file_manager.save_png(fig_interact, image_dir, filename="interaction_dynamics_pca")
@@ -295,10 +297,10 @@ def main():
                 if not sequence_df_with_married.empty:
                     file_manager.save_table(sequence_df_with_married, tables_dir, f"sequence_scores_with_married_{group}")
                     fig = plot_manager.build_visual_model(sequence_df_with_married, group)
-                    if fig is not None:
-                        file_manager.save_png(fig, image_dir, f"model_{group}")
-                    else:
+                    if fig is None:
                         logger.error(f"Failed to generate model plot for {group}.")
+                    else:
+                        file_manager.save_png(fig, image_dir, f"model_{group}")
                 else:
                     logger.error(f"Failed to generate sequence DataFrame with married alternation for {group}.")
 
@@ -309,10 +311,14 @@ def main():
                 return
             # Add new columns before organizing
             df['year'] = data_editor.get_year(df)
+            df['month'] = data_editor.get_month(df)
+            df['week'] = data_editor.get_week(df)
             df['active_years'] = data_editor.active_years(df)
             df['early_leaver'] = data_editor.early_leaver(df)
-            logger.info(f"Added columns: year, active_years, early_leaver")
-            logger.debug(f"DataFrame with new columns:\n{df[['whatsapp_group', 'author', 'year', 'active_years', 'early_leaver']].head().to_string()}")
+            #logger.info(f"Added columns: year, month, active_years, early_leaver")
+            #logger.debug(f"DataFrame with new columns:\n{df[['whatsapp_group', 'author', 'year', 'month', 'active_years', 'early_leaver']].head().to_string()}")
+            logger.info(f"Added columns: year, month, week, active_years, early_leaver")
+            logger.debug(f"DataFrame with new columns:\n{df[['whatsapp_group', 'author', 'year', 'month', 'week', 'active_years', 'early_leaver']].head().to_string()}")
             
             df_organized = data_editor.organize_df(df)
             if df_organized is None:
@@ -342,6 +348,91 @@ def main():
                 logger.error("Failed to save active years table.")
         except Exception as e:
             logger.exception(f"Error in STEP 10 - DataFrame Organization: {e}")
+            return
+
+    if 11 in Script:
+        try:
+            # Find the latest organized_data.csv
+            datafile = file_manager.find_latest_file(processed, prefix="organized_data", suffix=".csv")
+            if datafile is None:
+                logger.error("No organized_data.csv found in processed directory.")
+                return
+            logger.info(f"Loading latest organized data from {datafile}")
+            df = pd.read_csv(datafile, parse_dates=['timestamp'])
+            # Ensure week and month columns are present
+            df['month'] = data_editor.get_month(df)
+            df['week'] = data_editor.get_week(df)
+            #logger.debug(f"DataFrame after adding month column:\n{df[['whatsapp_group', 'author', 'year', 'month']].head().to_string()}")
+            logger.debug(f"DataFrame after adding month column:\n{df[['whatsapp_group', 'author', 'year', 'month', 'week']].head().to_string()}")
+            # Exclude 'tillies' group
+            df = df[df['whatsapp_group'] != 'tillies'].copy()
+            if df.empty:
+                logger.error("No data remains after filtering out 'tillies' group in STEP 11.")
+                return
+            logger.info(f"Filtered DataFrame excluding 'tillies': {len(df)} rows")
+            # Build feature DataFrame for non-message content
+            feature_df = data_preparation.build_visual_not_message_content(df)
+            if feature_df is None:
+                logger.error("Failed to build non-message content feature DataFrame.")
+                return
+            # Create and save visualizations for PCA and t-SNE
+            figs = plot_manager.build_visual_not_message_content(feature_df)
+            if figs is None:
+                logger.error("Failed to create non-message content visualizations.")
+                return
+            # Save all figures
+            for fig_info in figs:
+                fig = fig_info['fig']
+                filename = fig_info['filename']
+                png_file = file_manager.save_png(fig, image_dir, filename=filename)
+                if png_file is None:
+                    logger.error(f"Failed to save visualization {filename}.")
+                else:
+                    logger.info(f"Saved visualization: {png_file}")
+        except Exception as e:
+            logger.exception(f"Error in STEP 11 - Non-Message Content Visualization: {e}")
+            return
+
+    if 12 in Script:
+        try:
+            # Find the latest organized_data.csv
+            datafile = file_manager.find_latest_file(processed, prefix="organized_data", suffix=".csv")
+            if datafile is None:
+                logger.error("No organized_data.csv found in processed directory.")
+                return
+            logger.info(f"Loading latest organized data from {datafile}")
+            df = pd.read_csv(datafile, parse_dates=['timestamp'])
+            # Ensure month columns are present
+            df['month'] = data_editor.get_month(df)
+            logger.debug(f"DataFrame after adding month column:\n{df[['whatsapp_group', 'author', 'year', 'month']].head().to_string()}")
+            # Exclude 'tillies' group
+            df = df[df['whatsapp_group'] != 'tillies'].copy()
+            if df.empty:
+                logger.error("No data remains after filtering out 'tillies' group in STEP 12.")
+                return
+            logger.info(f"Filtered DataFrame excluding 'tillies': {len(df)} rows")
+            # Build feature DataFrame for non-message content
+            feature_df = data_preparation.build_visual_not_message_content(df)
+            if feature_df is None:
+                logger.error("Failed to build non-message content feature DataFrame.")
+                return
+            # Compute correlations with month
+            correlations = data_preparation.compute_month_correlations(feature_df)
+            if correlations is None:
+                logger.error("Failed to compute correlations with month.")
+                return
+            # Plot correlations
+            fig = plot_manager.plot_month_correlations(correlations)
+            if fig is None:
+                logger.error("Failed to create month correlations plot.")
+                return
+            png_file = file_manager.save_png(fig, image_dir, filename="month_correlations")
+            if png_file is None:
+                logger.error("Failed to save month correlations plot.")
+            else:
+                logger.info(f"Saved month correlations plot: {png_file}")
+        except Exception as e:
+            logger.exception(f"Error in STEP 12 - Month Correlations Analysis: {e}")
             return
 
 if __name__ == "__main__":

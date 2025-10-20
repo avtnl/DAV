@@ -1,11 +1,18 @@
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import seaborn as sns
 import numpy as np
 from collections import Counter, defaultdict
 from loguru import logger
-import re
+import warnings
+import matplotlib.font_manager as fm
+import networkx as nx
 import itertools
 import emoji
-import networkx as nx
+import re
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 
 class DataPreparation:
     """A class for preparing WhatsApp message data for visualization, including category,
@@ -984,4 +991,97 @@ class DataPreparation:
         except Exception as e:
             logger.warning(f"Failed to compute threading features for {author}: {e}")
             return features
+
+    def build_visual_not_message_content(self, df):
+        """
+        Prepare feature DataFrame for non-message content visualization by aggregating features per author-month-year-group.
+
+        Args:
+            df (pandas.DataFrame): Organized DataFrame with relevant columns including 'whatsapp_group', 'month', and 'year'.
+
+        Returns:
+            pandas.DataFrame or None: Feature matrix with 'author_month_year_group' index, 'author', 'month', 'year', 'whatsapp_group' columns, and aggregated features, or None if preparation fails.
+        """
+        if df is None or df.empty:
+            logger.error("No valid DataFrame provided for non-message content preparation")
+            return None
+
+        try:
+            feature_list = []
+            #for (author, month, year, group), sub_group in df.groupby(['author', 'month', 'year', 'whatsapp_group']):
+            for (author, week, year, group), sub_group in df.groupby(['author', 'week', 'year', 'whatsapp_group']):
+                total_messages = len(sub_group)
+                if total_messages == 0:
+                    continue
+                features = {
+                    #'author_month_year_group': f"{author}_{month:02d}_{year}_{group}",
+                    'author_week_year_group': f"{author}_{week:02d}_{year}_{group}",
+                    'author': author,
+                    'week': week,
+                    #'month': month,
+                    'year': year,
+                    'whatsapp_group': group,
+                    'total_messages': total_messages,
+                    'mean_number_of_chats_that_day': sub_group['number_of_chats_that_day'].mean(),
+                    'mean_length_chat': sub_group['length_chat'].mean(),
+                    'mean_response_time': sub_group['response_time'].mean(),
+                    'proportion_link': (sub_group['has_link'] == 'link').sum() / total_messages,
+                    'proportion_deleted': (sub_group['was_deleted'] == 'deleted').sum() / total_messages,
+                    'sum_pictures_deleted': sub_group['pictures_deleted'].sum(),
+                    'sum_videos_deleted': sub_group['videos_deleted'].sum(),
+                    'sum_audios_deleted': sub_group['audios_deleted'].sum(),
+                    'sum_gifs_deleted': sub_group['gifs_deleted'].sum(),
+                    'sum_stickers_deleted': sub_group['stickers_deleted'].sum(),
+                    'sum_documents_deleted': sub_group['documents_deleted'].sum(),
+                    'sum_videonotes_deleted': sub_group['videonotes_deleted'].sum(),
+                    'mean_number_of_emojis': sub_group['number_of_emojis'].mean(),
+                    'proportion_has_emoji': (sub_group['has_emoji'] == 'emoji(s)').sum() / total_messages,
+                    'proportion_ends_with_emoji': (sub_group['ends_with_emoji'] == 'ends_with_emoji').sum() / total_messages,
+                    'mean_number_of_punctuations': sub_group['number_of_punctuations'].mean(),
+                    'proportion_has_punctuation': (sub_group['has_punctuation'] == 'punctuation(s)').sum() / total_messages,
+                    'proportion_ends_with_punctuation': (sub_group['ends_with_punctuation'] == 'ends_with_punctuation').sum() / total_messages
+                }
+                feature_list.append(features)
+            #feature_df = pd.DataFrame(feature_list).set_index('author_month_year_group')
+            feature_df = pd.DataFrame(feature_list).set_index('author_week_year_group')
+            logger.info(f"Built non-message content feature matrix with shape {feature_df.shape}")
+            logger.debug(f"Feature matrix columns: {feature_df.columns.tolist()}")
+            logger.debug(f"Feature matrix preview:\n{feature_df.head().to_string()}")
+            return feature_df
+        except Exception as e:
+            logger.exception(f"Failed to build non-message content features: {e}")
+            return None
+
+    def compute_month_correlations(self, feature_df):
+        """
+        Compute Pearson correlations between 'month' and numerical features in the feature DataFrame.
+
+        Args:
+            feature_df (pandas.DataFrame): Feature matrix with 'author_month_year_group' index, 'month', and numerical features.
+
+        Returns:
+            pandas.Series or None: Series of correlation coefficients for numerical features against 'month', or None if computation fails.
+        """
+        if feature_df is None or feature_df.empty:
+            logger.error("No valid feature DataFrame provided for month correlations")
+            return None
+
+        try:
+            if 'month' not in feature_df.columns:
+                logger.error("Column 'month' not found in feature DataFrame")
+                return None
+            # Select numerical columns (excluding 'author', 'month', 'year', 'whatsapp_group')
+            numerical_cols = [col for col in feature_df.columns 
+                            if col not in ['author', 'month', 'year', 'whatsapp_group'] 
+                            and feature_df[col].dtype in ['int64', 'float64']]
+            if not numerical_cols:
+                logger.warning("No numerical columns found for correlation analysis")
+                return None
+            # Compute correlations
+            correlations = feature_df[numerical_cols + ['month']].corr()['month'].drop('month')
+            logger.info(f"Computed correlations with 'month':\n{correlations.to_string()}")
+            return correlations
+        except Exception as e:
+            logger.exception(f"Failed to compute month correlations: {e}")
+            return None
       

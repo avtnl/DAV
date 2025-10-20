@@ -47,6 +47,27 @@ class FileManager:
         logger.warning(f"No CSV file found in {path} with timestamp later than {timestamp}")
         return None
     
+    def find_latest_file(self, processed_dir, prefix="organized_data", suffix=".csv"):
+        """
+        Find the latest file with the given prefix and suffix in the processed directory based on timestamp in filename.
+
+        Args:
+            processed_dir (Path): Directory to search.
+            prefix (str): Filename prefix (default: "organized_data").
+            suffix (str): Filename suffix (default: ".csv").
+
+        Returns:
+            Path or None: Path to the latest file, or None if no file is found.
+        """
+        pattern = f"{prefix}-(\\d{{8}}-\\d{{6}}){suffix}"
+        files = list(processed_dir.glob(f"{prefix}-*{suffix}"))
+        if not files:
+            logger.warning(f"No files found with prefix '{prefix}' and suffix '{suffix}' in {processed_dir}")
+            return None
+        latest_file = max(files, key=lambda f: datetime.strptime(re.search(pattern, f.name).group(1), "%Y%m%d-%H%M%S") if re.search(pattern, f.name) else datetime.min)
+        logger.info(f"Found latest file: {latest_file}")
+        return latest_file
+
     def read_csv(self):
         """
         Read configuration and determine the CSV file(s) to process.

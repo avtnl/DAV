@@ -45,6 +45,20 @@ class DataEditor:
         self.punctuation_pattern = re.compile(r'(?<![\d])[!?.,;:](?![\d])')
         self.connected_emoji_pattern = re.compile(r'([' + ''.join(self.emoji_pattern.pattern[1:-2]) + r']{2,})', flags=re.UNICODE)
         self.connected_punctuation_pattern = re.compile(r'([!?.,;:]{2,})')
+        self.initials_map = {
+            'Nico Dofferhoff': 'ND',
+            'Loek van der Laan': 'LL',
+            'Herma Hollander': 'HH',
+            'Hieke van Heusden': 'HvH',
+            'Irene Bienema': 'IB',
+            'Anthony van Tilburg': 'AvT',
+            'Anja Berkemeijer': 'AB',
+            'Madeleine': 'M',
+            'Phons Berkemeijer': 'PB',
+            'Rob Haasbroek': 'RH',
+            'Hugo Brouwer': 'HB',
+            'Martin Kat': 'MK'
+        }
 
     def convert_timestamp(self, datafile):
         """
@@ -395,6 +409,39 @@ class DataEditor:
             previous_authors.extend(previous)
         return pd.Series(previous_authors, index=df.index)
 
+    def next_author(self, df):
+        """
+        Determine the author of the next message that day. If the message is the last of the day, use the author of the first message the next day. If no message the next day, return empty string.
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'timestamp' and 'author' columns.
+
+        Returns:
+            pandas.Series: Series with the next author for each row.
+        """
+        if 'timestamp' not in df.columns or 'author' not in df.columns:
+            logger.error("Required columns (timestamp, author) not found in DataFrame")
+            return pd.Series([''] * len(df), index=df.index)
+        df = df.sort_values('timestamp')
+        df['date'] = df['timestamp'].dt.date
+        next_authors = []
+        for date, group in df.groupby('date'):
+            authors = group['author'].values
+            next_a = authors[1:]
+            next_a = np.append(next_a, '')  # Last message of the day has empty next author temporarily
+            next_authors.extend(next_a)
+        # Handle last message of the day: use first message of next day if exists
+        df['next_author'] = next_authors
+        dates = df['date'].unique()
+        dates.sort()
+        for i in range(len(dates) - 1):
+            current_date = dates[i]
+            next_date = dates[i + 1]
+            last_mask = (df['date'] == current_date) & (df['next_author'] == '')
+            first_next = df[df['date'] == next_date]['author'].iloc[0] if not df[df['date'] == next_date].empty else ''
+            df.loc[last_mask, 'next_author'] = first_next
+        return df['next_author']
+
     def response_time(self, df):
         """
         Calculate the time difference in seconds since the previous message on the same day.
@@ -562,6 +609,32 @@ class DataEditor:
             return pd.Series([0] * len(df), index=df.index)
         return df['timestamp'].dt.year
 
+    def get_month(self, df):
+        """
+        Extract the month from the timestamp column.
+        Args:
+            df (pandas.DataFrame): DataFrame with 'timestamp' column.
+        Returns:
+            pandas.Series: Series with the month (1-12) for each row.
+        """
+        if 'timestamp' not in df.columns:
+            logger.error("Timestamp column not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        return df['timestamp'].dt.month
+
+    def get_week(self, df):
+        """
+        Extract the ISO week number (1-52) from the timestamp column.
+        Args:
+            df (pandas.DataFrame): DataFrame with 'timestamp' column.
+        Returns:
+            pandas.Series: Series with the week number for each row.
+        """
+        if 'timestamp' not in df.columns:
+            logger.error("Timestamp column not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        return df['timestamp'].dt.isocalendar().week
+
     def active_years(self, df):
         """
         Compute the active years (min and max) for each author in each group.
@@ -628,6 +701,230 @@ class DataEditor:
             logger.exception(f"Failed to convert boolean columns: {e}")
             return None
 
+    def calc_pct_emojis(self, df):
+        """
+        Calculate percentage of emojis as (number_of_emojis / length_chat) * 100, as integer.
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'number_of_emojis' and 'length_chat' columns.
+
+        Returns:
+            pandas.Series: Series with percentage of emojis for each row.
+        """
+        if 'number_of_emojis' not in df.columns or 'length_chat' not in df.columns:
+            logger.error("Required columns (number_of_emojis, length_chat) not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        return ((df['number_of_emojis'] / df['length_chat']) * 100).fillna(0).astype(int)
+
+    def calc_pct_punctuations(self, df):
+        """
+        Calculate percentage of punctuations as (number_of_punctuations / length_chat) * 100, as integer.
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'number_of_punctuations' and 'length_chat' columns.
+
+        Returns:
+            pandas.Series: Series with percentage of punctuations for each row.
+        """
+        if 'number_of_punctuations' not in df.columns or 'length_chat' not in df.columns:
+            logger.error("Required columns (number_of_punctuations, length_chat) not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        return ((df['number_of_punctuations'] / df['length_chat']) * 100).fillna(0).astype(int)
+
+    def calc_day_pct_length_chat(self, df):
+        """
+        Calculate percentage of length_chat as (length_chat / sum of length_chat for that day) * 100, as integer.
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'length_chat', 'timestamp' columns.
+
+        Returns:
+            pandas.Series: Series with day percentage of length_chat for each row.
+        """
+        if 'length_chat' not in df.columns or 'timestamp' not in df.columns:
+            logger.error("Required columns (length_chat, timestamp) not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        df['date'] = df['timestamp'].dt.date
+        daily_sums = df.groupby('date')['length_chat'].sum()
+        pct = (df['length_chat'] / df['date'].map(daily_sums)) * 100
+        return pct.fillna(0).astype(int)
+
+    def calc_day_pct_length_emojis(self, df):
+        """
+        Calculate percentage of number_of_emojis as (number_of_emojis / sum of number_of_emojis for that day) * 100, as integer.
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'number_of_emojis', 'timestamp' columns.
+
+        Returns:
+            pandas.Series: Series with day percentage of number_of_emojis for each row.
+        """
+        if 'number_of_emojis' not in df.columns or 'timestamp' not in df.columns:
+            logger.error("Required columns (number_of_emojis, timestamp) not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        df['date'] = df['timestamp'].dt.date
+        daily_sums = df.groupby('date')['number_of_emojis'].sum()
+        pct = (df['number_of_emojis'] / df['date'].map(daily_sums)) * 100
+        return pct.fillna(0).astype(int)
+
+    def calc_day_pct_length_punctuations(self, df):
+        """
+        Calculate percentage of number_of_punctuations as (number_of_punctuations / sum of number_of_punctuations for that day) * 100, as integer.
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'number_of_punctuations', 'timestamp' columns.
+
+        Returns:
+            pandas.Series: Series with day percentage of number_of_punctuations for each row.
+        """
+        if 'number_of_punctuations' not in df.columns or 'timestamp' not in df.columns:
+            logger.error("Required columns (number_of_punctuations, timestamp) not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        df['date'] = df['timestamp'].dt.date
+        daily_sums = df.groupby('date')['number_of_punctuations'].sum()
+        pct = (df['number_of_punctuations'] / df['date'].map(daily_sums)) * 100
+        return pct.fillna(0).astype(int)
+
+    def number_of_unique_participants_that_day(self, df):
+        """
+        Count the number of unique participants that day (excluding early_leaver == True).
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'timestamp', 'author', 'early_leaver' columns.
+
+        Returns:
+            pandas.Series: Series with number of unique participants per day for each row.
+        """
+        if 'timestamp' not in df.columns or 'author' not in df.columns or 'early_leaver' not in df.columns:
+            logger.error("Required columns (timestamp, author, early_leaver) not found in DataFrame")
+            return pd.Series([0] * len(df), index=df.index)
+        df_filtered = df[df['early_leaver'] == False]
+        df_filtered['date'] = df_filtered['timestamp'].dt.date
+        daily_unique = df_filtered.groupby('date')['author'].nunique()
+        df['date'] = df['timestamp'].dt.date
+        return df['date'].map(daily_unique).fillna(0).astype(int)
+
+    def calc_day_pct_authors(self, df):
+        """
+        Calculate list of percentages = (message count per author that day / number_of_chats_that_day) * 100, sorted alphabetically by author (excluding early_leaver == True).
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'author', 'timestamp', 'early_leaver', 'number_of_chats_that_day' columns.
+
+        Returns:
+            pandas.Series: Series with list of percentages for each row.
+        """
+        if not all(col in df.columns for col in ['author', 'timestamp', 'early_leaver', 'number_of_chats_that_day']):
+            logger.error("Required columns (author, timestamp, early_leaver, number_of_chats_that_day) not found in DataFrame")
+            return pd.Series([[]] * len(df), index=df.index)
+        df_filtered = df[df['early_leaver'] == False]
+        df_filtered['date'] = df_filtered['timestamp'].dt.date
+        daily_counts = df_filtered.groupby(['date', 'author']).size().reset_index(name='msg_count')
+        daily_pcts = []
+        for date, group in daily_counts.groupby('date'):
+            group = group.sort_values('author')
+            pcts = (group['msg_count'] / group['msg_count'].sum() * 100).astype(int).tolist()
+            daily_pcts.append((date, pcts))
+        pct_dict = dict(daily_pcts)
+        df['date'] = df['timestamp'].dt.date
+        return df['date'].map(pct_dict).fillna([])
+
+    def find_sequence_authors(self, df):
+        """
+        Create list of initials of authors in order of sequence of messages that day.
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'timestamp', 'author' columns.
+
+        Returns:
+            pandas.Series: Series with list of initials per day for each row.
+        """
+        if 'timestamp' not in df.columns or 'author' not in df.columns:
+            logger.error("Required columns (timestamp, author) not found in DataFrame")
+            return pd.Series([[]] * len(df), index=df.index)
+        df['date'] = df['timestamp'].dt.date
+        daily_sequences = []
+        for date, group in df.groupby('date'):
+            group = group.sort_values('timestamp')
+            initials = group['author'].map(self.initials_map).tolist()
+            daily_sequences.append((date, initials))
+        seq_dict = dict(daily_sequences)
+        return df['date'].map(seq_dict).fillna([])
+
+    def find_sequence_response_times(self, df):
+        """
+        Create list of response times in order of sequence of messages that day (first is 0).
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'timestamp' columns.
+
+        Returns:
+            pandas.Series: Series with list of response times per day for each row.
+        """
+        if 'timestamp' not in df.columns:
+            logger.error("Timestamp column not found in DataFrame")
+            return pd.Series([[]] * len(df), index=df.index)
+        df['date'] = df['timestamp'].dt.date
+        daily_times = []
+        for date, group in df.groupby('date'):
+            group = group.sort_values('timestamp')
+            diffs = group['timestamp'].diff().dt.total_seconds().fillna(0).astype(int).tolist()
+            daily_times.append((date, diffs))
+        time_dict = dict(daily_times)
+        return df['date'].map(time_dict).fillna([])
+
+    def replace_author_by_initials(self, df):
+        """
+        Replace 'author', 'previous_author', 'next_author' with initials (after filtering early_leaver == True).
+
+        Args:
+            df (pandas.DataFrame): DataFrame with 'author', 'previous_author', 'next_author', 'early_leaver' columns.
+
+        Returns:
+            pandas.DataFrame or None: Modified DataFrame with replaced authors, or None if processing fails.
+        """
+        if df is None or df.empty:
+            logger.error("No valid DataFrame provided for replacing authors")
+            return None
+        try:
+            df_filtered = df[df['early_leaver'] == False].copy()
+            for col in ['author', 'previous_author', 'next_author']:
+                if col in df_filtered.columns:
+                    df_filtered[col] = df_filtered[col].map(self.initials_map).fillna('')
+            logger.info("Replaced authors with initials")
+            logger.debug(f"DataFrame after replacement:\n{df_filtered[['author', 'previous_author', 'next_author']].head().to_string()}")
+            return df_filtered
+        except Exception as e:
+            logger.exception(f"Failed to replace authors with initials: {e}")
+            return None
+
+    def delete_redundant_attributes(self, df):
+        """
+        Delete specified redundant columns: 'active_years', 'early_leaver', 'number_of_chats_that_day', 'day_pct_authors', 'sequence_authors', 'sequence_response_times'.
+
+        Args:
+            df (pandas.DataFrame): Input DataFrame.
+
+        Returns:
+            pandas.DataFrame or None: Modified DataFrame with deleted columns, or None if processing fails.
+        """
+        if df is None or df.empty:
+            logger.error("No valid DataFrame provided for deleting attributes")
+            return None
+        try:
+            redundant_cols = ['active_years', 'early_leaver', 'number_of_chats_that_day', 'day_pct_authors', 'sequence_authors', 'sequence_response_times']
+            existing_cols = [col for col in redundant_cols if col in df.columns]
+            if existing_cols:
+                df = df.drop(columns=existing_cols)
+                logger.info(f"Deleted redundant columns: {existing_cols}")
+            else:
+                logger.info("No redundant columns found to delete")
+            logger.debug(f"DataFrame after deletion:\n{df.head().to_string()}")
+            return df
+        except Exception as e:
+            logger.exception(f"Failed to delete redundant attributes: {e}")
+            return None
+
     def organize_df(self, df):
         """
         Create a new DataFrame with the specified columns in the desired order, excluding rows where early_leaver is True.
@@ -645,7 +942,7 @@ class DataEditor:
                 'timestamp', 'author', 'message_cleaned', 'has_emoji', 'whatsapp_group',
                 'number_of_emojis', 'has_link', 'was_deleted', 'pictures_deleted',
                 'videos_deleted', 'audios_deleted', 'gifs_deleted', 'stickers_deleted',
-                'documents_deleted', 'videonotes_deleted', 'year', 'active_years', 'early_leaver'
+                'documents_deleted', 'videonotes_deleted', 'year', 'month', 'week', 'active_years', 'early_leaver'
             ]
             if not all(col in df.columns for col in required_columns):
                 logger.error(f"Missing required columns: {[col for col in required_columns if col not in df.columns]}")
@@ -662,6 +959,7 @@ class DataEditor:
             df['length_chat'] = df['message_cleaned'].apply(self.length_chat)
             df['previous_author'] = self.previous_author(df)
             df['response_time'] = self.response_time(df)
+            df['next_author'] = self.next_author(df)
             df['list_of_all_emojis'] = df['message_cleaned'].apply(self.list_of_all_emojis)
             df['list_of_connected_emojis'] = df['message_cleaned'].apply(self.list_of_connected_emojis)
             df['number_of_punctuations'] = df['message_cleaned'].apply(self.count_punctuations)
@@ -672,17 +970,28 @@ class DataEditor:
             df['emoji_ending_chat'] = df['message_cleaned'].apply(self.emoji_ending_chat)
             df['ends_with_punctuation'] = df['message_cleaned'].apply(self.ends_with_punctuation)
             df['punctuation_ending_chat'] = df['message_cleaned'].apply(self.punctuation_ending_chat)
+            df['pct_emojis'] = self.calc_pct_emojis(df)
+            df['pct_punctuations'] = self.calc_pct_punctuations(df)
+            df['day_pct_length_chat'] = self.calc_day_pct_length_chat(df)
+            df['day_pct_length_emojis'] = self.calc_day_pct_length_emojis(df)
+            df['day_pct_length_punctuations'] = self.calc_day_pct_length_punctuations(df)
+            df['number_of_unique_participants_that_day'] = self.number_of_unique_participants_that_day(df)
+            df['day_pct_authors'] = self.calc_day_pct_authors(df)
+            df['sequence_authors'] = self.find_sequence_authors(df)
+            df['sequence_response_times'] = self.find_sequence_response_times(df)
+            df = self.replace_author_by_initials(df)
 
             # Select and order columns (excluding number_of_changes_to_group and convert_emoji)
             organized_columns = [
-                'whatsapp_group', 'timestamp', 'year', 'author', 'active_years', 'early_leaver',
-                'number_of_chats_that_day', 'length_chat', 'previous_author', 'response_time',
+                'whatsapp_group', 'timestamp', 'year', 'month', 'week', 'author', 'active_years', 'early_leaver',
+                'number_of_chats_that_day', 'length_chat', 'previous_author', 'response_time', 'next_author',
                 'has_link', 'was_deleted', 'pictures_deleted', 'videos_deleted', 'audios_deleted',
                 'gifs_deleted', 'stickers_deleted', 'documents_deleted', 'videonotes_deleted',
                 'number_of_emojis', 'has_emoji', 'list_of_all_emojis', 'list_of_connected_emojis',
-                'ends_with_emoji', 'emoji_ending_chat', 'number_of_punctuations', 'has_punctuation',
+                'ends_with_emoji', 'emoji_ending_chat', 'pct_emojis', 'number_of_punctuations', 'has_punctuation',
                 'list_of_all_punctuations', 'list_of_connected_punctuations', 'ends_with_punctuation',
-                'punctuation_ending_chat'
+                'punctuation_ending_chat', 'pct_punctuations', 'day_pct_length_chat', 'day_pct_length_emojis', 'day_pct_length_punctuations',
+                'number_of_unique_participants_that_day', 'day_pct_authors', 'sequence_authors', 'sequence_response_times'
             ]
             df_organized = df[organized_columns]
             logger.info(f"Organized DataFrame with {len(df_organized)} rows and columns: {df_organized.columns.tolist()}")
