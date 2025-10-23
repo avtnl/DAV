@@ -1258,97 +1258,6 @@ class PlotManager:
             logger.exception(f"Failed to build interaction visualizations: {e}")
             return None, None
 
-    def build_visual_not_message_content(self, feature_df):
-        """
-        Create a single global t-SNE visualization for non-message content features across all WhatsApp groups,
-        colored by group, with Anthony having distinct colors per group, and overlay 75% confidence ellipses per group.
-
-        Args:
-            feature_df (pandas.DataFrame): Feature matrix with 'author_week_year_group' index, 'author', 'week', 'year', 'whatsapp_group', and features.
-
-        Returns:
-            list of dict: List of {'fig': Figure, 'filename': str} for the global t-SNE plot, or None if creation fails.
-        """
-        try:
-            figs = []
-            numerical_features = feature_df.drop(['author', 'week', 'year', 'whatsapp_group'], axis=1)
-
-            # Feature selection based on variance
-            variances = numerical_features.var()
-            logger.info(f"Feature variances:\n{variances.sort_values(ascending=False).to_string()}")
-            top_features = variances.nlargest(15).index  # Select top 15 features by variance
-            if len(top_features) < numerical_features.shape[1]:
-                logger.info(f"Selected top {len(top_features)} features by variance: {list(top_features)}")
-                numerical_features = numerical_features[top_features]
-            else:
-                logger.info("Using all features (less than 15 or equal variance)")
-
-            # Normalize features
-            numerical_features = StandardScaler().fit_transform(numerical_features)
-            logger.info(f"Normalized numerical features with shape {numerical_features.shape}")
-
-            # Global t-SNE reduction with adjusted parameters
-            reducer = TSNE(n_components=2, perplexity=100, random_state=42, learning_rate=200, early_exaggeration=12)
-            X_reduced = reducer.fit_transform(numerical_features)
-
-            # Log pairwise distances to diagnose cluster overlap
-            distances = pairwise_distances(X_reduced, metric='euclidean')
-            logger.info(f"Global t-SNE embedding: Mean pairwise distance: {distances.mean():.2f}, Std: {distances.std():.2f}")
-
-            # Global plot, color by group, Anthony special
-            group_color_map = {
-                'maap': 'blue',
-                'golfmaten': 'red',
-                'dac': 'green'
-            }
-            anthony_color_map = {
-                'maap': 'lightblue',
-                'golfmaten': 'lightcoral',
-                'dac': 'lightgreen'
-            }
-            fig, ax = plt.subplots(figsize=(10, 8))
-            for i in range(len(X_reduced)):
-                group = feature_df['whatsapp_group'].iloc[i]
-                auth = feature_df['author'].iloc[i]
-                if auth == 'Anthony van Tilburg':
-                    color = anthony_color_map.get(group, 'gray')
-                else:
-                    color = group_color_map.get(group, 'black')
-                ax.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[color], label=None, alpha=0.6)
-            
-            # Create legend
-            legend_elements = [patches.Patch(color=v, label=k) for k, v in group_color_map.items()]
-            legend_elements += [patches.Patch(color=v, label=f"Anthony ({k})") for k, v in anthony_color_map.items()]
-            ax.set_title("Riding the Wave of WhatsApp: Group Patterns in Messaging Behavior")
-            ax.set_xlabel('Component 1', labelpad=2)
-            ax.set_ylabel('Component 2', labelpad=2)
-            ax.legend(handles=legend_elements, title="Group / Anthony")
-            
-            # Add 60% confidence ellipses per group
-            unique_groups = ['maap', 'golfmaten', 'dac']  # Only these groups
-            group_ellipse_color_map = {
-                'maap': 'blue',
-                'golfmaten': 'red',
-                'dac': 'green'
-            }
-            for group in unique_groups:
-                mask = feature_df['whatsapp_group'] == group
-                if not mask.any() or len(X_reduced[mask]) < 2:
-                    logger.warning(f"Skipping ellipse for group {group}: insufficient points")
-                    continue
-                group_points = X_reduced[mask]
-                self.draw_confidence_ellipse(group_points, ax, alpha=0.60, facecolor=group_ellipse_color_map[group], edgecolor='black', zorder=0)
-            
-            plt.tight_layout(pad=0.5)
-            figs.append({'fig': fig, 'filename': 'not_message_content_global_tsne'})
-            plt.show()
-
-            logger.info(f"Created {len(figs)} visualizations for non-message content.")
-            return figs
-        except Exception as e:
-            logger.exception(f"Failed to build non-message content visualizations: {e}")
-            return None
-
     def draw_confidence_ellipse(self, data, ax, alpha=0.60, facecolor='none', edgecolor='black', zorder=10):
         """
         Draw a confidence ellipse covering approximately 'alpha' proportion of the data points.
@@ -1360,31 +1269,167 @@ class PlotManager:
             facecolor (str): Fill color of the ellipse.
             edgecolor (str): Edge color of the ellipse.
             zorder (int): Drawing order of the ellipse.
-
         """
         if len(data) < 2:
             return
-
         cov = np.cov(data, rowvar=False)
         pearson = cov[0, 1] / np.sqrt(cov[0, 0] * cov[1, 1])
         ell_radius_x = np.sqrt(1 + pearson)
         ell_radius_y = np.sqrt(1 - pearson)
-
         mean_x = np.mean(data[:, 0])
         mean_y = np.mean(data[:, 1])
-
         # Scale for alpha coverage (using chi2 for Gaussian assumption)
         lambda_, v = np.linalg.eig(cov)
         lambda_ = np.sqrt(lambda_)
-        scale = np.sqrt(chi2.ppf(alpha, 2))  # For 60% coverage in 2D
-
+        scale = np.sqrt(chi2.ppf(alpha, 2))  # For specified alpha coverage in 2D
         ellipse = Ellipse(xy=(mean_x, mean_y),
-                          width=lambda_[0] * scale * 2, height=lambda_[1] * scale * 2,
-                          angle=np.rad2deg(np.arccos(v[0, 0])),
-                          edgecolor=edgecolor, facecolor=facecolor, alpha=0.3, zorder=zorder)
+                        width=lambda_[0] * scale * 2, height=lambda_[1] * scale * 2,
+                        angle=np.rad2deg(np.arccos(v[0, 0])),
+                        edgecolor=edgecolor, facecolor=facecolor, alpha=0.3, zorder=zorder)
         ax.add_patch(ellipse)
-        logger.debug(f"Drew 60% confidence ellipse with center ({mean_x:.2f}, {mean_y:.2f}) and scale {scale:.2f}")
+        logger.debug(f"Drew {alpha*100:.0f}% confidence ellipse with center ({mean_x:.2f}, {mean_y:.2f}) and scale {scale:.2f}")
 
+    def build_visual_not_message_content(self, feature_df, draw_ellipse=False, alpha_per_group=0.6, alpha_global=0.6, plot_type='both', groupby_period='week'):
+        """
+        Create multiple 2D visualizations for non-message content features:
+        - Per group t-SNE and PCA, colored by author, with optional confidence ellipses.
+        - Global t-SNE and PCA, colored by group, with Anthony having distinct colors per group, with optional confidence ellipses.
+
+        Args:
+            feature_df (pandas.DataFrame): Feature matrix with 'author_period_year_group' index, 'author', period, 'year', 'whatsapp_group', and features.
+            draw_ellipse (bool): Whether to draw confidence ellipses for clusters.
+            alpha_per_group (float): Confidence level for per-group ellipses (e.g., 0.60 for 60%).
+            alpha_global (float): Confidence level for global plot ellipses (e.g., 0.60 for 60%).
+            plot_type (str): Type of plots to generate ('per_group', 'global', or 'both').
+            groupby_period (str): Period used for grouping ('week', 'month', or 'year').
+
+        Returns:
+            list of dict: List of {'fig': Figure, 'filename': str} for each plot, or None if creation fails.
+        """
+        try:
+            figs = []
+            unique_groups = feature_df['whatsapp_group'].unique()
+            drop_columns = ['author', 'year', 'whatsapp_group']
+            if groupby_period in ['week', 'month']:
+                drop_columns.append(groupby_period)
+            drop_columns = [col for col in drop_columns if col in feature_df.columns]
+            numerical_features = feature_df.drop(drop_columns, axis=1)
+
+            # Feature selection based on variance
+            variances = numerical_features.var()
+            logger.info(f"Feature variances:\n{variances.sort_values(ascending=False).to_string()}")
+            top_features = variances.nlargest(15).index  # Select top 15 features by variance
+            if len(top_features) < numerical_features.shape[1]:
+                logger.info(f"Selected top {len(top_features)} features by variance: {list(top_features)}")
+                numerical_features = numerical_features[top_features]
+            else:
+                logger.info("Using all features (less than 15 or equal variance)")
+
+            # # Normalize features
+            # numerical_features = StandardScaler().fit_transform(numerical_features)
+            # logger.info(f"Normalized numerical features with shape {numerical_features.shape}")
+
+            for method in ['pca', 'tsne']:
+                # Reduce dimensions
+                if method == 'pca':
+                    reducer = PCA(n_components=2)
+                elif method == 'tsne':
+                    reducer = TSNE(n_components=2, perplexity=min(30, len(feature_df)-1), random_state=42)
+                X_reduced = reducer.fit_transform(numerical_features)
+
+                # Log pairwise distances to diagnose cluster overlap
+                distances = pairwise_distances(X_reduced, metric='euclidean')
+                logger.info(f"{method.upper()} embedding: Mean pairwise distance: {distances.mean():.2f}, Std: {distances.std():.2f}")
+
+                # 1. Per group plots, color by author
+                if plot_type in ['per_group', 'both']:
+                    for group in unique_groups:
+                        mask = feature_df['whatsapp_group'] == group
+                        if not mask.any():
+                            continue
+                        X_group = X_reduced[mask]
+                        group_df = feature_df[mask]
+                        authors = group_df['author']
+                        unique_authors = list(set(authors))
+                        colors = sns.color_palette("husl", len(unique_authors))
+                        author_color_map = dict(zip(unique_authors, colors))
+
+                        fig, ax = plt.subplots(figsize=(10, 8))
+                        for i in range(len(X_group)):
+                            auth = authors.iloc[i]
+                            ax.scatter(X_group[i, 0], X_group[i, 1], c=[author_color_map[auth]], label=auth if list(authors).index(auth) == i else None)
+                        
+                        # Add confidence ellipses per author if draw_ellipse is True
+                        if draw_ellipse:
+                            for auth in unique_authors:
+                                auth_mask = group_df['author'] == auth
+                                if auth_mask.sum() < 2:
+                                    logger.warning(f"Skipping ellipse for {auth} in {group}: insufficient points")
+                                    continue
+                                auth_points = X_group[auth_mask]
+                                self.draw_confidence_ellipse(auth_points, ax, alpha=alpha_per_group, facecolor=author_color_map[auth], edgecolor='black', zorder=0)
+
+                        ax.set_title(f"Author Clustering in {group} ({method.upper()})")
+                        ax.set_xlabel('Component 1', labelpad=2)
+                        ax.set_ylabel('Component 2', labelpad=2)
+                        ax.legend(title="Author")
+                        plt.tight_layout(pad=0.5)
+                        figs.append({'fig': fig, 'filename': f"not_message_content_per_group_{group}_{method}"})
+                        plt.show()
+
+                # 2. Global plot, color by group, Anthony special
+                if plot_type in ['global', 'both']:
+                    group_color_map = {
+                        'maap': 'blue',
+                        'golfmaten': 'red',
+                        'dac': 'green'
+                    }
+                    anthony_color_map = {
+                        'maap': 'lightblue',
+                        'golfmaten': 'lightcoral',
+                        'dac': 'lightgreen'
+                    }
+                    group_ellipse_color_map = {
+                        'maap': 'blue',
+                        'golfmaten': 'red',
+                        'dac': 'green'
+                    }
+                    fig, ax = plt.subplots(figsize=(10, 8))
+                    for i in range(len(X_reduced)):
+                        group = feature_df['whatsapp_group'].iloc[i]
+                        auth = feature_df['author'].iloc[i]
+                        if auth == 'Anthony van Tilburg':
+                            color = anthony_color_map.get(group, 'gray')
+                        else:
+                            color = group_color_map.get(group, 'black')
+                        ax.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[color], label=None, alpha=0.6)
+
+                    # Add confidence ellipses per group if draw_ellipse is True
+                    if draw_ellipse:
+                        for group in unique_groups:
+                            mask = feature_df['whatsapp_group'] == group
+                            if not mask.any() or len(X_reduced[mask]) < 2:
+                                logger.warning(f"Skipping ellipse for group {group}: insufficient points")
+                                continue
+                            group_points = X_reduced[mask]
+                            self.draw_confidence_ellipse(group_points, ax, alpha=alpha_global, facecolor=group_ellipse_color_map[group], edgecolor='black', zorder=0)
+
+                    # Create legend
+                    legend_elements = [patches.Patch(color=v, label=k) for k, v in group_color_map.items()]
+                    legend_elements += [patches.Patch(color=v, label=f"Anthony ({k})") for k, v in anthony_color_map.items()]
+                    ax.set_title("Riding the Wave of WhatsApp: Group Patterns in Messaging Behavior")
+                    ax.set_xlabel('Component 1', labelpad=2)
+                    ax.set_ylabel('Component 2', labelpad=2)
+                    ax.legend(handles=legend_elements, title="Group / Anthony")
+                    plt.tight_layout(pad=0.5)
+                    figs.append({'fig': fig, 'filename': f"not_message_content_global_{method}"})
+                    plt.show()
+
+            logger.info(f"Created {len(figs)} visualizations for non-message content.")
+            return figs
+        except Exception as e:
+            logger.exception(f"Failed to build non-message content visualizations: {e}")
+            return None
 
     def build_visual_not_message_content_2(self, feature_df):
         """
@@ -1422,7 +1467,8 @@ class PlotManager:
                 if method == 'pca':
                     reducer = PCA(n_components=2)
                 elif method == 'tsne':
-                    reducer = TSNE(n_components=2, perplexity=100, random_state=42)  # Increased perplexity
+                    #reducer = TSNE(n_components=2, perplexity=100, random_state=42, metric='cosine')  # Increased perplexity
+                    reducer = TSNE(n_components=2, perplexity=min(30, len(feature_df)-1), random_state=42, metric='cosine')
                 X_reduced = reducer.fit_transform(numerical_features)
 
                 # Log pairwise distances to diagnose cluster overlap

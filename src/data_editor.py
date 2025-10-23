@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import re
 from loguru import logger
 import emoji
@@ -816,18 +817,22 @@ class DataEditor:
         """
         if not all(col in df.columns for col in ['author', 'timestamp', 'early_leaver', 'number_of_chats_that_day']):
             logger.error("Required columns (author, timestamp, early_leaver, number_of_chats_that_day) not found in DataFrame")
-            return pd.Series([[]] * len(df), index=df.index)
-        df_filtered = df[df['early_leaver'] == False]
+            return pd.Series([''] * len(df), index=df.index)
+        df_filtered = df[df['early_leaver'] == False].copy()
         df_filtered['date'] = df_filtered['timestamp'].dt.date
         daily_counts = df_filtered.groupby(['date', 'author']).size().reset_index(name='msg_count')
         daily_pcts = []
         for date, group in daily_counts.groupby('date'):
             group = group.sort_values('author')
-            pcts = (group['msg_count'] / group['msg_count'].sum() * 100).astype(int).tolist()
+            total_msgs = group['msg_count'].sum()
+            if total_msgs == 0:
+                pcts = ['']  # Return empty string for days with no messages
+            else:
+                pcts = (group['msg_count'] / total_msgs * 100).astype(int).tolist()
             daily_pcts.append((date, pcts))
         pct_dict = dict(daily_pcts)
         df['date'] = df['timestamp'].dt.date
-        return df['date'].map(pct_dict).fillna([])
+        return df['date'].map(pct_dict).fillna('')
 
     def find_sequence_authors(self, df):
         """
@@ -841,7 +846,7 @@ class DataEditor:
         """
         if 'timestamp' not in df.columns or 'author' not in df.columns:
             logger.error("Required columns (timestamp, author) not found in DataFrame")
-            return pd.Series([[]] * len(df), index=df.index)
+            return pd.Series([''] * len(df), index=df.index)
         df['date'] = df['timestamp'].dt.date
         daily_sequences = []
         for date, group in df.groupby('date'):
@@ -849,7 +854,7 @@ class DataEditor:
             initials = group['author'].map(self.initials_map).tolist()
             daily_sequences.append((date, initials))
         seq_dict = dict(daily_sequences)
-        return df['date'].map(seq_dict).fillna([])
+        return df['date'].map(seq_dict).fillna('')
 
     def find_sequence_response_times(self, df):
         """
@@ -863,7 +868,7 @@ class DataEditor:
         """
         if 'timestamp' not in df.columns:
             logger.error("Timestamp column not found in DataFrame")
-            return pd.Series([[]] * len(df), index=df.index)
+            return pd.Series([''] * len(df), index=df.index)
         df['date'] = df['timestamp'].dt.date
         daily_times = []
         for date, group in df.groupby('date'):
@@ -871,7 +876,7 @@ class DataEditor:
             diffs = group['timestamp'].diff().dt.total_seconds().fillna(0).astype(int).tolist()
             daily_times.append((date, diffs))
         time_dict = dict(daily_times)
-        return df['date'].map(time_dict).fillna([])
+        return df['date'].map(time_dict).fillna('')
 
     def replace_author_by_initials(self, df):
         """
@@ -925,6 +930,33 @@ class DataEditor:
             logger.exception(f"Failed to delete redundant attributes: {e}")
             return None
 
+    def delete_specific_attributes(self, df):
+        """
+        Delete specific: 'number_of_chats_that_day', 'pct_emojis', 'pct_punctuations', 'day_pct_length_chat', 'day_pct_length_emojis', 'day_pct_length_punctuations', 'number_of_unique_participants_that_day'.
+
+        Args:
+            df (pandas.DataFrame): Input DataFrame.
+
+        Returns:
+            pandas.DataFrame or None: Modified DataFrame with deleted columns, or None if processing fails.
+        """
+        if df is None or df.empty:
+            logger.error("No valid DataFrame provided for deleting attributes")
+            return None
+        try:
+            redundant_cols = ['number_of_chats_that_day', 'pct_emojis', 'pct_punctuations', 'day_pct_length_chat', 'day_pct_length_emojis', 'day_pct_length_punctuations', 'number_of_unique_participants_that_day']
+            existing_cols = [col for col in redundant_cols if col in df.columns]
+            if existing_cols:
+                df = df.drop(columns=existing_cols)
+                logger.info(f"Deleted specific columns: {existing_cols}")
+            else:
+                logger.info("No specific columns found to delete")
+            logger.debug(f"DataFrame after deletion:\n{df.head().to_string()}")
+            return df
+        except Exception as e:
+            logger.exception(f"Failed to delete specific attributes: {e}")
+            return None
+
     def organize_df(self, df):
         """
         Create a new DataFrame with the specified columns in the desired order, excluding rows where early_leaver is True.
@@ -954,32 +986,159 @@ class DataEditor:
             rows_after = len(df)
             logger.info(f"Filtered out early leavers: {rows_before} rows reduced to {rows_after} rows")
 
-            # Add new columns
-            df['number_of_chats_that_day'] = self.number_of_chats_that_day(df)
-            df['length_chat'] = df['message_cleaned'].apply(self.length_chat)
-            df['previous_author'] = self.previous_author(df)
-            df['response_time'] = self.response_time(df)
-            df['next_author'] = self.next_author(df)
-            df['list_of_all_emojis'] = df['message_cleaned'].apply(self.list_of_all_emojis)
-            df['list_of_connected_emojis'] = df['message_cleaned'].apply(self.list_of_connected_emojis)
-            df['number_of_punctuations'] = df['message_cleaned'].apply(self.count_punctuations)
-            df['has_punctuation'] = df['message_cleaned'].apply(self.has_punctuation)
-            df['list_of_all_punctuations'] = df['message_cleaned'].apply(self.list_of_all_punctuations)
-            df['list_of_connected_punctuations'] = df['message_cleaned'].apply(self.list_of_connected_punctuations)
-            df['ends_with_emoji'] = df['message_cleaned'].apply(self.ends_with_emoji)
-            df['emoji_ending_chat'] = df['message_cleaned'].apply(self.emoji_ending_chat)
-            df['ends_with_punctuation'] = df['message_cleaned'].apply(self.ends_with_punctuation)
-            df['punctuation_ending_chat'] = df['message_cleaned'].apply(self.punctuation_ending_chat)
-            df['pct_emojis'] = self.calc_pct_emojis(df)
-            df['pct_punctuations'] = self.calc_pct_punctuations(df)
-            df['day_pct_length_chat'] = self.calc_day_pct_length_chat(df)
-            df['day_pct_length_emojis'] = self.calc_day_pct_length_emojis(df)
-            df['day_pct_length_punctuations'] = self.calc_day_pct_length_punctuations(df)
-            df['number_of_unique_participants_that_day'] = self.number_of_unique_participants_that_day(df)
-            df['day_pct_authors'] = self.calc_day_pct_authors(df)
-            df['sequence_authors'] = self.find_sequence_authors(df)
-            df['sequence_response_times'] = self.find_sequence_response_times(df)
-            df = self.replace_author_by_initials(df)
+            # Add new columns with individual exception handling
+            try:
+                df['number_of_chats_that_day'] = self.number_of_chats_that_day(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign number_of_chats_that_day: {e}")
+                return None
+
+            try:
+                df['length_chat'] = df['message_cleaned'].apply(self.length_chat)
+            except Exception as e:
+                logger.exception(f"Failed to assign length_chat: {e}")
+                return None
+
+            try:
+                df['previous_author'] = self.previous_author(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign previous_author: {e}")
+                return None
+
+            try:
+                df['response_time'] = self.response_time(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign response_time: {e}")
+                return None
+
+            try:
+                df['next_author'] = self.next_author(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign next_author: {e}")
+                return None
+
+            try:
+                df['list_of_all_emojis'] = df['message_cleaned'].apply(self.list_of_all_emojis)
+            except Exception as e:
+                logger.exception(f"Failed to assign list_of_all_emojis: {e}")
+                return None
+
+            try:
+                df['list_of_connected_emojis'] = df['message_cleaned'].apply(self.list_of_connected_emojis)
+            except Exception as e:
+                logger.exception(f"Failed to assign list_of_connected_emojis: {e}")
+                return None
+
+            try:
+                df['number_of_punctuations'] = df['message_cleaned'].apply(self.count_punctuations)
+            except Exception as e:
+                logger.exception(f"Failed to assign number_of_punctuations: {e}")
+                return None
+
+            try:
+                df['has_punctuation'] = df['message_cleaned'].apply(self.has_punctuation)
+            except Exception as e:
+                logger.exception(f"Failed to assign has_punctuation: {e}")
+                return None
+
+            try:
+                df['list_of_all_punctuations'] = df['message_cleaned'].apply(self.list_of_all_punctuations)
+            except Exception as e:
+                logger.exception(f"Failed to assign list_of_all_punctuations: {e}")
+                return None
+
+            try:
+                df['list_of_connected_punctuations'] = df['message_cleaned'].apply(self.list_of_connected_punctuations)
+            except Exception as e:
+                logger.exception(f"Failed to assign list_of_connected_punctuations: {e}")
+                return None
+
+            try:
+                df['ends_with_emoji'] = df['message_cleaned'].apply(self.ends_with_emoji)
+            except Exception as e:
+                logger.exception(f"Failed to assign ends_with_emoji: {e}")
+                return None
+
+            try:
+                df['emoji_ending_chat'] = df['message_cleaned'].apply(self.emoji_ending_chat)
+            except Exception as e:
+                logger.exception(f"Failed to assign emoji_ending_chat: {e}")
+                return None
+
+            try:
+                df['ends_with_punctuation'] = df['message_cleaned'].apply(self.ends_with_punctuation)
+            except Exception as e:
+                logger.exception(f"Failed to assign ends_with_punctuation: {e}")
+                return None
+
+            try:
+                df['punctuation_ending_chat'] = self.punctuation_ending_chat(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign punctuation_ending_chat: {e}")
+                return None
+
+            try:
+                df['pct_emojis'] = self.calc_pct_emojis(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign pct_emojis: {e}")
+                return None
+
+            try:
+                df['pct_punctuations'] = self.calc_pct_punctuations(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign pct_punctuations: {e}")
+                return None
+
+            try:
+                df['day_pct_length_chat'] = self.calc_day_pct_length_chat(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign day_pct_length_chat: {e}")
+                return None
+
+            try:
+                df['day_pct_length_emojis'] = self.calc_day_pct_length_emojis(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign day_pct_length_emojis: {e}")
+                return None
+
+            try:
+                df['day_pct_length_punctuations'] = self.calc_day_pct_length_punctuations(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign day_pct_length_punctuations: {e}")
+                return None
+
+            try:
+                df['number_of_unique_participants_that_day'] = self.number_of_unique_participants_that_day(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign number_of_unique_participants_that_day: {e}")
+                return None
+
+            try:
+                df['day_pct_authors'] = self.calc_day_pct_authors(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign day_pct_authors: {e}")
+                return None
+
+            try:
+                df['sequence_authors'] = self.find_sequence_authors(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign sequence_authors: {e}")
+                return None
+
+            try:
+                df['sequence_response_times'] = self.find_sequence_response_times(df)
+            except Exception as e:
+                logger.exception(f"Failed to assign sequence_response_times: {e}")
+                return None
+
+            try:
+                df = self.replace_author_by_initials(df)
+                if df is None:
+                    logger.error("Failed to replace author initials")
+                    return None
+            except Exception as e:
+                logger.exception(f"Failed to replace author initials: {e}")
+                return None
 
             # Select and order columns (excluding number_of_changes_to_group and convert_emoji)
             organized_columns = [

@@ -992,58 +992,95 @@ class DataPreparation:
             logger.warning(f"Failed to compute threading features for {author}: {e}")
             return features
 
-    def build_visual_not_message_content(self, df):
+    def build_visual_not_message_content(self, df, groupby_period='week'):
         """
-        Prepare feature DataFrame for non-message content visualization by aggregating features per author-month-year-group.
+        Prepare feature DataFrame for non-message content visualization by aggregating features per author-period-year-group.
 
         Args:
-            df (pandas.DataFrame): Organized DataFrame with relevant columns including 'whatsapp_group', 'month', and 'year'.
+            df (pandas.DataFrame): Organized DataFrame with relevant columns including 'whatsapp_group', 'month', 'week', and 'year'.
+            groupby_period (str): Period for grouping ('week', 'month', or 'year').
 
         Returns:
-            pandas.DataFrame or None: Feature matrix with 'author_month_year_group' index, 'author', 'month', 'year', 'whatsapp_group' columns, and aggregated features, or None if preparation fails.
+            pandas.DataFrame or None: Feature matrix with 'author_period_year_group' index, 'author', period, 'year', 'whatsapp_group' columns, and aggregated features, or None if preparation fails.
         """
         if df is None or df.empty:
             logger.error("No valid DataFrame provided for non-message content preparation")
             return None
 
         try:
+            if groupby_period not in ['week', 'month', 'year']:
+                logger.error("Invalid groupby_period. Must be 'week', 'month', or 'year'.")
+                return None
+
+            if groupby_period not in df.columns:
+                logger.error(f"Column '{groupby_period}' not found in DataFrame")
+                return None
+
+            required_columns = ['author', 'year', 'whatsapp_group']
+            if not all(col in df.columns for col in required_columns):
+                logger.error(f"Missing required columns: {[col for col in required_columns if col not in df.columns]}")
+                return None
+
+            numerical_columns = [
+                'length_chat', 'response_time', 'number_of_emojis', 'number_of_punctuations',
+                'pct_emojis'
+            ]
+            binary_columns = [
+                'has_link', 'was_deleted', 'has_emoji', 'ends_with_emoji',
+                'has_punctuation', 'ends_with_punctuation'
+            ]
+            sum_columns = [
+                'pictures_deleted', 'videos_deleted', 'audios_deleted', 'gifs_deleted',
+                'stickers_deleted', 'documents_deleted', 'videonotes_deleted'
+            ]
+            optional_columns = ['number_of_chats_that_day', 'day_pct_length_chat', 'day_pct_length_emojis',
+                            'day_pct_length_punctuations', 'number_of_unique_participants_that_day']
+
+            # Identify available columns
+            available_numerical = [col for col in numerical_columns if col in df.columns]
+            available_binary = [col for col in binary_columns if col in df.columns]
+            available_sum = [col for col in sum_columns if col in df.columns]
+            available_optional = [col for col in optional_columns if col in df.columns]
+
+            if not (available_numerical or available_binary or available_sum or available_optional):
+                logger.error("No feature columns available for aggregation")
+                return None
+
             feature_list = []
-            #for (author, month, year, group), sub_group in df.groupby(['author', 'month', 'year', 'whatsapp_group']):
-            for (author, week, year, group), sub_group in df.groupby(['author', 'week', 'year', 'whatsapp_group']):
+            groupby_cols = ['author', groupby_period, 'year', 'whatsapp_group'] if groupby_period != 'year' else ['author', 'year', 'whatsapp_group']
+            for group_values, sub_group in df.groupby(groupby_cols):
                 total_messages = len(sub_group)
                 if total_messages == 0:
                     continue
+                if groupby_period == 'year':
+                    author, year, group = group_values
+                    period_value = year
+                else:
+                    author, period_value, year, group = group_values
                 features = {
-                    #'author_month_year_group': f"{author}_{month:02d}_{year}_{group}",
-                    'author_week_year_group': f"{author}_{week:02d}_{year}_{group}",
+                    'author_period_year_group': f"{author}_{period_value:02d}_{year}_{group}",
                     'author': author,
-                    'week': week,
-                    #'month': month,
+                    groupby_period: period_value,
                     'year': year,
                     'whatsapp_group': group,
-                    'total_messages': total_messages,
-                    'mean_number_of_chats_that_day': sub_group['number_of_chats_that_day'].mean(),
-                    'mean_length_chat': sub_group['length_chat'].mean(),
-                    'mean_response_time': sub_group['response_time'].mean(),
-                    'proportion_link': (sub_group['has_link'] == 'link').sum() / total_messages,
-                    'proportion_deleted': (sub_group['was_deleted'] == 'deleted').sum() / total_messages,
-                    'sum_pictures_deleted': sub_group['pictures_deleted'].sum(),
-                    'sum_videos_deleted': sub_group['videos_deleted'].sum(),
-                    'sum_audios_deleted': sub_group['audios_deleted'].sum(),
-                    'sum_gifs_deleted': sub_group['gifs_deleted'].sum(),
-                    'sum_stickers_deleted': sub_group['stickers_deleted'].sum(),
-                    'sum_documents_deleted': sub_group['documents_deleted'].sum(),
-                    'sum_videonotes_deleted': sub_group['videonotes_deleted'].sum(),
-                    'mean_number_of_emojis': sub_group['number_of_emojis'].mean(),
-                    'proportion_has_emoji': (sub_group['has_emoji'] == 'emoji(s)').sum() / total_messages,
-                    'proportion_ends_with_emoji': (sub_group['ends_with_emoji'] == 'ends_with_emoji').sum() / total_messages,
-                    'mean_number_of_punctuations': sub_group['number_of_punctuations'].mean(),
-                    'proportion_has_punctuation': (sub_group['has_punctuation'] == 'punctuation(s)').sum() / total_messages,
-                    'proportion_ends_with_punctuation': (sub_group['ends_with_punctuation'] == 'ends_with_punctuation').sum() / total_messages
+                    'total_messages': total_messages
                 }
+                # Aggregate numerical columns (mean)
+                for col in available_numerical:
+                    features[f'mean_{col}'] = sub_group[col].mean()
+                # Aggregate binary columns (proportion)
+                for col in available_binary:
+                    # Adjust for string-based boolean columns (from convert_booleans)
+                    features[f'proportion_{col}'] = (sub_group[col] == col).sum() / total_messages
+                # Aggregate sum columns
+                for col in available_sum:
+                    features[f'sum_{col}'] = sub_group[col].sum()
+                # Aggregate optional columns (mean, if present)
+                for col in available_optional:
+                    features[f'mean_{col}'] = sub_group[col].mean() if col in sub_group.columns else 0.0
                 feature_list.append(features)
-            #feature_df = pd.DataFrame(feature_list).set_index('author_month_year_group')
-            feature_df = pd.DataFrame(feature_list).set_index('author_week_year_group')
+
+            feature_df = pd.DataFrame(feature_list).set_index('author_period_year_group')
             logger.info(f"Built non-message content feature matrix with shape {feature_df.shape}")
             logger.debug(f"Feature matrix columns: {feature_df.columns.tolist()}")
             logger.debug(f"Feature matrix preview:\n{feature_df.head().to_string()}")

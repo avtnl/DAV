@@ -315,8 +315,6 @@ def main():
             df['week'] = data_editor.get_week(df)
             df['active_years'] = data_editor.active_years(df)
             df['early_leaver'] = data_editor.early_leaver(df)
-            #logger.info(f"Added columns: year, month, active_years, early_leaver")
-            #logger.debug(f"DataFrame with new columns:\n{df[['whatsapp_group', 'author', 'year', 'month', 'active_years', 'early_leaver']].head().to_string()}")
             logger.info(f"Added columns: year, month, week, active_years, early_leaver")
             logger.debug(f"DataFrame with new columns:\n{df[['whatsapp_group', 'author', 'year', 'month', 'week', 'active_years', 'early_leaver']].head().to_string()}")
             
@@ -331,13 +329,27 @@ def main():
                 logger.error("Failed to convert boolean columns in STEP 10.")
                 return
             
-            csv_file = file_manager.save_csv(df_organized, processed, prefix="organized_data")
-            parq_file = file_manager.save_parq(df_organized, processed, prefix="organized_data")
-            if csv_file is None or parq_file is None:
-                logger.error("Failed to save organized DataFrame.")
+            # Save DataFrame with redundant columns
+            csv_file_with_redundancy = file_manager.save_csv(df_organized, processed, prefix="organized_data_with_redundancy")
+            parq_file_with_redundancy = file_manager.save_parq(df_organized, processed, prefix="organized_data_with_redundancy")
+            if csv_file_with_redundancy is None or parq_file_with_redundancy is None:
+                logger.error("Failed to save organized DataFrame with redundancy.")
                 return
-            logger.info(f"Saved organized DataFrame: CSV={csv_file}, Parquet={parq_file}")
-            logger.debug(f"Organized DataFrame preview:\n{df_organized.head().to_string()}")
+            logger.info(f"Saved organized DataFrame with redundancy: CSV={csv_file_with_redundancy}, Parquet={parq_file_with_redundancy}")
+            
+            # Delete redundant attributes and save no redundancy version
+            df_no_redundancy = data_editor.delete_redundant_attributes(df_organized)
+            if df_no_redundancy is None:
+                logger.error("Failed to delete redundant attributes in STEP 10.")
+                return
+            
+            csv_file_no_redundancy = file_manager.save_csv(df_no_redundancy, processed, prefix="organized_data_no_redundancy")
+            parq_file_no_redundancy = file_manager.save_parq(df_no_redundancy, processed, prefix="organized_data_no_redundancy")
+            if csv_file_no_redundancy is None or parq_file_no_redundancy is None:
+                logger.error("Failed to save organized DataFrame no redundancy.")
+                return
+            logger.info(f"Saved organized DataFrame no redundancy: CSV={csv_file_no_redundancy}, Parquet={parq_file_no_redundancy}")
+            logger.debug(f"Organized DataFrame preview:\n{df_no_redundancy.head().to_string()}")
             # Save active years table
             active_years = df.groupby(['whatsapp_group', 'author'])['year'].agg(['min', 'max']).reset_index()
             active_years['active_years'] = active_years.apply(lambda x: f"{x['min']}-{x['max']}", axis=1)
@@ -352,31 +364,128 @@ def main():
 
     if 11 in Script:
         try:
-            # Find the latest organized_data.csv
-            datafile = file_manager.find_latest_file(processed, prefix="organized_data", suffix=".csv")
-            if datafile is None:
-                logger.error("No organized_data.csv found in processed directory.")
+            data_feed = 'non_redundant'  # 'non_redundant' or 'redundant'
+            plot_feed = 'both'  # 'both' or 'per_group', 'global'
+            groupby_period = 'month'  # 'week' or 'month', 'year'
+            delete_specific_attributes = False  # or True
+            
+            # Validate data_feed and plot_feed combinations
+            if data_feed == 'non_redundant':
+                if plot_feed not in ['per_group', 'global', 'both']:
+                    logger.error("Invalid plot_feed for non_redundant data_feed. Must be 'per_group', 'global', or 'both'.")
+                    return
+            elif data_feed == 'redundant':
+                if plot_feed != 'per_group':
+                    logger.error("Invalid plot_feed for redundant data_feed. Can only be 'per_group'.")
+                    return
+            else:
+                logger.error("Invalid data_feed. Must be 'non_redundant' or 'redundant'.")
                 return
-            logger.info(f"Loading latest organized data from {datafile}")
+            
+            # Validate groupby_period
+            if groupby_period not in ['week', 'month', 'year']:
+                logger.error("Invalid groupby_period. Must be 'week', 'month', or 'year'.")
+                return
+            
+            # Validate delete_specific_attributes
+            if delete_specific_attributes and (data_feed != 'non_redundant' or groupby_period != 'month'):
+                logger.error("delete_specific_attributes can only be True when data_feed='non_redundant' and groupby_period='month'.")
+                return
+            
+            # Find the latest appropriate organized_data csv based on data_feed
+            prefix = f"organized_data_{'no_redundancy' if data_feed == 'non_redundant' else 'with_redundancy'}"
+            datafile = file_manager.find_latest_file(processed, prefix=prefix, suffix=".csv")
+            if datafile is None:
+                logger.error(f"No {prefix}.csv found in processed directory.")
+                return
+            logger.info(f"Loading latest {prefix} data from {datafile}")
             df = pd.read_csv(datafile, parse_dates=['timestamp'])
             # Ensure week and month columns are present
             df['month'] = data_editor.get_month(df)
             df['week'] = data_editor.get_week(df)
-            #logger.debug(f"DataFrame after adding month column:\n{df[['whatsapp_group', 'author', 'year', 'month']].head().to_string()}")
-            logger.debug(f"DataFrame after adding month column:\n{df[['whatsapp_group', 'author', 'year', 'month', 'week']].head().to_string()}")
+            logger.debug(f"DataFrame after adding month and week columns:\n{df[['whatsapp_group', 'author', 'year', 'month', 'week']].head().to_string()}")
             # Exclude 'tillies' group
             df = df[df['whatsapp_group'] != 'tillies'].copy()
             if df.empty:
                 logger.error("No data remains after filtering out 'tillies' group in STEP 11.")
                 return
             logger.info(f"Filtered DataFrame excluding 'tillies': {len(df)} rows")
+            
+            # Apply delete_specific_attributes if conditions are met
+            if delete_specific_attributes:
+                df = data_editor.delete_specific_attributes(df)
+                if df is None:
+                    logger.error("Failed to delete specific attributes.")
+                    return
+                # Save the modified DataFrame
+                csv_file_specific = file_manager.save_csv(df, processed, prefix="organized_data_specific")
+                parq_file_specific = file_manager.save_parq(df, processed, prefix="organized_data_specific")
+                if csv_file_specific is None or parq_file_specific is None:
+                    logger.error("Failed to save organized DataFrame with specific attributes deleted.")
+                    return
+                logger.info(f"Saved organized DataFrame with specific attributes deleted: CSV={csv_file_specific}, Parquet={parq_file_specific}")
+            
             # Build feature DataFrame for non-message content
-            feature_df = data_preparation.build_visual_not_message_content(df)
+            feature_df = data_preparation.build_visual_not_message_content(df, groupby_period=groupby_period)
             if feature_df is None:
                 logger.error("Failed to build non-message content feature DataFrame.")
                 return
-            # Create and save visualizations for PCA and t-SNE
-            figs = plot_manager.build_visual_not_message_content(feature_df)
+            
+            # Create and save visualizations for PCA and t-SNE based on plot_feed
+            figs = plot_manager.build_visual_not_message_content(feature_df, draw_ellipse=True, alpha_per_group=0.6, alpha_global=0.6, plot_type=plot_feed, groupby_period=groupby_period)
+            if figs is None:
+                logger.error("Failed to create non-message content visualizations.")
+                return
+            # Save all figures
+            for fig_info in figs:
+                fig = fig_info['fig']
+                filename = fig_info['filename']
+                png_file = file_manager.save_png(fig, image_dir, filename=filename)
+                if png_file is None:
+                    logger.error(f"Failed to save visualization {filename}.")
+                else:
+                    logger.info(f"Saved visualization: {png_file}")
+            
+            # Plot month correlations if groupby_period is 'month'
+            if groupby_period == 'month':
+                correlations = data_preparation.compute_month_correlations(feature_df)
+                if correlations is None:
+                    logger.error("Failed to compute month correlations.")
+                    return
+                fig_correlations = plot_manager.plot_month_correlations(correlations)
+                if fig_correlations is None:
+                    logger.error("Failed to create month correlations plot.")
+                    return
+                png_file_correlations = file_manager.save_png(fig_correlations, image_dir, filename="month_correlations")
+                if png_file_correlations is None:
+                    logger.error("Failed to save month correlations plot.")
+                    return
+                logger.info(f"Saved month correlations plot: {png_file_correlations}")
+        except Exception as e:
+            logger.exception(f"Error in STEP 11 - Non-Message Content Visualization: {e}")
+            return
+            
+            # Apply delete_specific_attributes if conditions are met
+            if delete_specific_attributes:
+                df = data_editor.delete_specific_attributes(df)
+                if df is None:
+                    logger.error("Failed to delete specific attributes.")
+                    return
+                # Save the modified DataFrame
+                csv_file_specific = file_manager.save_csv(df, processed, prefix="organized_data_specific")
+                parq_file_specific = file_manager.save_parq(df, processed, prefix="organized_data_specific")
+                if csv_file_specific is None or parq_file_specific is None:
+                    logger.error("Failed to save organized DataFrame with specific attributes deleted.")
+                    return
+                logger.info(f"Saved organized DataFrame with specific attributes deleted: CSV={csv_file_specific}, Parquet={parq_file_specific}")
+            
+            # Build feature DataFrame for non-message content
+            feature_df = data_preparation.build_visual_not_message_content(df, groupby_period=groupby_period)
+            if feature_df is None:
+                logger.error("Failed to build non-message content feature DataFrame.")
+                return
+            # Create and save visualizations for PCA and t-SNE based on plot_feed
+            figs = plot_manager.build_visual_not_message_content(feature_df, draw_ellipse=True, alpha_per_group=0.6, alpha_global=0.6, plot_type=plot_feed, groupby_period=groupby_period)
             if figs is None:
                 logger.error("Failed to create non-message content visualizations.")
                 return
