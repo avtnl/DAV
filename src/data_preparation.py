@@ -76,51 +76,101 @@ class BaseHandler:
             return pd.DataFrame()
         return df
 
-class DataPreparation:
-    """A class for preparing WhatsApp message data for visualization."""
-
-    def __init__(self, data_editor=None, seq_settings: SequenceSettings = SequenceSettings(), int_settings: InteractionSettings = InteractionSettings(), nmc_settings: NonMessageContentSettings = NonMessageContentSettings(), vis_settings: VisualSettings = VisualSettings()):
+class DataPreparation(BaseHandler):
+    """A class for preparing WhatsApp message data for visualization, inheriting from BaseHandler."""
+    
+    def __init__(self, data_editor=None, seq_settings: SequenceSettings = SequenceSettings(), 
+                 int_settings: InteractionSettings = InteractionSettings(), 
+                 nmc_settings: NonMessageContentSettings = NonMessageContentSettings(), 
+                 vis_settings: VisualSettings = VisualSettings()):
+        # Initialize BaseHandler with vis_settings
+        super().__init__(settings=vis_settings)
         self.data_editor = data_editor
         self.seq_settings = seq_settings
         self.int_settings = int_settings
         self.nmc_settings = nmc_settings
         self.vis_settings = vis_settings
-        self.df = None  # Added to store the DataFrame for use in scripts
+        self.df = None  # Store the DataFrame for use in scripts
 
-    def build_visual_categories(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, List[str]], pd.DataFrame, pd.DataFrame, List[str]]:
-        """Prepare data categories for visualization, including group authors, non-Anthony averages, Anthony's counts, and sorted groups."""
+    def build_visual_categories(self, df: pd.DataFrame, settings: VisualSettings = None) -> Tuple[pd.DataFrame, Dict[str, List[str]], pd.DataFrame, pd.DataFrame, List[str]]:
+        """
+        Prepare DataFrame for visualization by adding year, active years, and early leaver columns,
+        computing group authors, non-Anthony averages, Anthony's message counts, and sorted groups.
+
+        Args:
+            df (pandas.DataFrame): Input DataFrame with 'timestamp', 'author', and 'whatsapp_group' columns.
+            settings (VisualSettings, optional): Visualization settings (defaults to self.vis_settings).
+
+        Returns:
+            tuple: (pandas.DataFrame, dict, pandas.DataFrame, pandas.DataFrame, list) -
+                Modified DataFrame with added columns, group authors dict, non-Anthony average DataFrame,
+                Anthony messages DataFrame, sorted groups list.
+        """
+        # Use BaseHandler's empty DataFrame check
+        df = self._handle_empty_df(df, "visual categories preparation")
         if df.empty:
-            logger.error("Empty DataFrame provided for visual categories.")
             return df, None, None, None, None
+
+        # Use provided settings or default to self.vis_settings
+        settings = settings or self.vis_settings
+
         try:
-            self.df = df  # Store the DataFrame
-            # Group by whatsapp_group to get authors
-            group_authors = df.groupby('whatsapp_group')['author'].apply(list).to_dict()
-            logger.debug(f"Group authors: {group_authors}")
+            self.df = df.copy()  # Store a copy of the DataFrame
+            # Ensure timestamp is datetime
+            self.df["timestamp"] = pd.to_datetime(self.df["timestamp"])
 
-            # Calculate non-Anthony averages and Anthony's counts
-            non_anthony_df = df[df['author'] != 'Anthony van Tilburg'].groupby('whatsapp_group').agg(
-                non_anthony_avg=('message', 'count'),
-                num_authors=('author', 'nunique')
-            ).reset_index()
-            anthony_df = df[df['author'] == 'Anthony van Tilburg'].groupby('whatsapp_group').agg(
-                anthony_messages=('message', 'count')
-            ).reset_index().fillna(0)
+            # Add year, active_years, and early_leaver columns using data_editor
+            self.df["year"] = self.data_editor.get_year(self.df)
+            self.df["active_years"] = self.data_editor.active_years(self.df)
+            self.df["early_leaver"] = self.data_editor.early_leaver(self.df)
+            logger.debug(f"Added year, active_years, and early_leaver columns. DataFrame columns: {self.df.columns.tolist()}")
 
-            # Merge to align groups
-            merged_df = non_anthony_df.merge(anthony_df, on='whatsapp_group', how='left').fillna({'anthony_messages': 0})
-            # Compute total messages and sort
-            merged_df['total_messages'] = merged_df['non_anthony_avg'] + merged_df['anthony_messages']
-            sorted_df = merged_df.sort_values(by='total_messages', ascending=False)
-            non_anthony_group = sorted_df[['whatsapp_group', 'non_anthony_avg', 'num_authors', 'anthony_messages']]
-            anthony_group = sorted_df[['whatsapp_group', 'anthony_messages', 'non_anthony_avg', 'num_authors']]
-            sorted_groups = sorted_df['whatsapp_group'].tolist()
+            # Log active years per author per group
+            active_years = self.df.groupby(['whatsapp_group', 'author'])['year'].agg(['min', 'max']).reset_index()
+            active_years['active_years'] = active_years.apply(lambda x: f"{x['min']}-{x['max']}", axis=1)
+            logger.info("Active years per author per group:")
+            logger.info(active_years[['whatsapp_group', 'author', 'active_years']].to_string())
 
+            # Log early leavers
+            early_leavers = self.df[self.df['early_leaver'] == True][['whatsapp_group', 'author']].drop_duplicates()
+            logger.info("Authors who left early (max year < 2025 in July 2015 - July 2025):")
+            logger.info(early_leavers.to_string() if not early_leavers.empty else "No authors left early.")
+
+            # Get authors per group
+            group_authors = self.df.groupby("whatsapp_group")["author"].unique().to_dict()
+            group_authors = {group: sorted(auths.tolist()) for group, auths in group_authors.items()}  # Sort for consistency
+            logger.info("Authors per WhatsApp group:")
+            for group, auths in group_authors.items():
+                logger.info(f"{group}: {auths}")
+
+            # Filter data for July 2015 - July 2025
+            filter_df = self.df[(self.df['timestamp'] >= '2015-07-01') & (self.df['timestamp'] <= '2025-07-31')]
+            logger.info(f"Filtered DataFrame for July 2015 - July 2025: {len(filter_df)} rows")
+
+            # Calculate total messages per group for sorting
+            group_total = filter_df.groupby('whatsapp_group').size().reset_index(name='total_messages')
+            sorted_groups = group_total.sort_values('total_messages', ascending=False)['whatsapp_group'].tolist()
             logger.info(f"Sorted groups by total messages: {sorted_groups}")
-            return df, group_authors, non_anthony_group, anthony_group, sorted_groups
+
+            # Calculate average messages per non-Anthony author per group
+            non_anthony = filter_df[filter_df['author'] != "Anthony van Tilburg"]
+            non_anthony_counts = non_anthony.groupby(['whatsapp_group', 'author']).size().reset_index(name='messages')
+            non_anthony_group = non_anthony_counts.groupby('whatsapp_group')['messages'].mean().reset_index(name='non_anthony_avg')
+            non_anthony_authors_count = non_anthony_counts.groupby('whatsapp_group')['author'].nunique().reset_index(name='num_authors')
+            non_anthony_group = non_anthony_group.merge(non_anthony_authors_count, on='whatsapp_group', how='left').fillna({'num_authors': 0, 'non_anthony_avg': 0})
+            non_anthony_group = non_anthony_group.set_index('whatsapp_group').reindex(sorted_groups).reset_index().fillna({'non_anthony_avg': 0, 'num_authors': 0})
+            logger.info(f"Non-Anthony average messages and author counts per group:\n{non_anthony_group.to_string()}")
+
+            # Anthony messages per group
+            anthony = filter_df[filter_df['author'] == "Anthony van Tilburg"]
+            anthony_group = anthony.groupby('whatsapp_group').size().reset_index(name='anthony_messages')
+            anthony_group = anthony_group.set_index('whatsapp_group').reindex(sorted_groups).reset_index().fillna({'anthony_messages': 0})
+            logger.info(f"Anthony messages per group:\n{anthony_group.to_string()}")
+
+            return self.df, group_authors, non_anthony_group, anthony_group, sorted_groups
         except Exception as e:
             logger.exception(f"Failed to build visual categories: {e}")
-            return df, None, None, None, None
+            return self.df, None, None, None, None
 
     def build_visual_time(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Prepare time-based data for visualization (e.g., average messages per week for 'dac' group)."""

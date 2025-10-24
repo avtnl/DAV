@@ -130,14 +130,14 @@ def main():
 
     # Execute steps based on Script list
     steps = {
-        1: scripts.Step1Script(file_manager, plot_manager, image_dir, group_authors, non_anthony_group, anthony_group, sorted_groups),
-        2: scripts.Step2Script(file_manager, data_preparation, plot_manager, image_dir, df),
-        3: scripts.Step3Script(file_manager, data_editor, data_preparation, plot_manager, image_dir, df),
-        4: scripts.Step4Script(file_manager, data_preparation, plot_manager, image_dir, tables_dir, group_authors),
-        5: scripts.Step5Script(file_manager, data_preparation, plot_manager, image_dir, df),
-        7: scripts.Step7Script(file_manager, data_preparation, plot_manager, image_dir, group_authors),
-        10: scripts.Step10Script(file_manager, data_editor, data_preparation, processed, tables_dir),
-        11: scripts.Step11Script(file_manager, data_editor, data_preparation, plot_manager, processed, image_dir)
+        1: scripts.Script1(file_manager, plot_manager, image_dir, group_authors, non_anthony_group, anthony_group, sorted_groups),
+        2: scripts.Script2(file_manager, data_preparation, plot_manager, image_dir, df),
+        3: scripts.Script3(file_manager, data_editor, data_preparation, plot_manager, image_dir, df),
+        4: scripts.Script4(file_manager, data_preparation, plot_manager, image_dir, tables_dir, group_authors),
+        5: scripts.Script5(file_manager, data_preparation, plot_manager, image_dir, df),
+        7: scripts.Script7(file_manager, data_preparation, plot_manager, image_dir, group_authors),
+        10: scripts.Script10(file_manager, data_editor, data_preparation, processed, tables_dir),
+        11: scripts.Script11(file_manager, data_editor, data_preparation, plot_manager, processed, image_dir)
     }
     for step in Script:
         if step in steps:

@@ -171,8 +171,27 @@ class PlotManager:
             logger.warning("Segoe UI Emoji font not found. Falling back to default font. Some emojis may not render correctly.")
             plt.rcParams['font.family'] = 'DejaVu Sans'
 
+    # def _prepare_features(self, feature_df, groupby_period=None, settings: DimensionalityReductionSettings = DimensionalityReductionSettings()):
+    #     """Prepare features: drop non-numeric, select top by variance, normalize."""
+    #     drop_columns = ['author', 'year', 'whatsapp_group']
+    #     if groupby_period and groupby_period in ['week', 'month', 'year']:
+    #         drop_columns.append(groupby_period)
+    #     drop_columns = [col for col in drop_columns if col in feature_df.columns]
+    #     numerical_features = feature_df.drop(drop_columns, axis=1)
+    #     variances = numerical_features.var()
+    #     logger.info(f"Feature variances:\n{variances.sort_values(ascending=False).to_string()}")
+    #     top_features = variances.nlargest(settings.n_top_features).index
+    #     if len(top_features) < numerical_features.shape[1]:
+    #         logger.info(f"Selected top {len(top_features)} features by variance: {list(top_features)}")
+    #     else:
+    #         logger.info("Using all features")
+    #     numerical_features = numerical_features[top_features]
+    #     scaled_features = StandardScaler().fit_transform(numerical_features)
+    #     logger.info(f"Normalized numerical features with shape {scaled_features.shape}")
+    #     return scaled_features
+
     def _prepare_features(self, feature_df, groupby_period=None, settings: DimensionalityReductionSettings = DimensionalityReductionSettings()):
-        """Prepare features: drop non-numeric, select top by variance, normalize."""
+        """Prepare features: drop non-numeric, select top by variance, no normalization."""
         drop_columns = ['author', 'year', 'whatsapp_group']
         if groupby_period and groupby_period in ['week', 'month', 'year']:
             drop_columns.append(groupby_period)
@@ -186,9 +205,8 @@ class PlotManager:
         else:
             logger.info("Using all features")
         numerical_features = numerical_features[top_features]
-        scaled_features = StandardScaler().fit_transform(numerical_features)
-        logger.info(f"Normalized numerical features with shape {scaled_features.shape}")
-        return scaled_features
+        logger.info(f"Prepared numerical features (no scaling) with shape {numerical_features.shape}")
+        return numerical_features.values  # Convert to NumPy array for compatibility
 
     def _get_reducer(self, method, n_samples, settings: DimensionalityReductionSettings = DimensionalityReductionSettings()):
         """Get reducer based on method and settings."""
@@ -674,7 +692,8 @@ class PlotManager:
         try:
             figs = []
             numerical_features = self._prepare_features(feature_df, settings=dr_settings)
-            for method in ['pca', 'tsne']:
+            #for method in ['pca', 'tsne']:
+            for method in ['tsne']:
                 reducer = self._get_reducer(method, len(feature_df), dr_settings)
                 X_reduced = reducer.fit_transform(numerical_features)
                 distances = pairwise_distances(X_reduced, metric=dr_settings.metric)
@@ -689,26 +708,41 @@ class PlotManager:
             logger.exception(f"Failed to build non-message content visualizations: {e}")
             return None
 
-    def plot_month_correlations(self, correlations, settings: PlotSettings = PlotSettings()):
-        """Month correlations bar plot using config."""
+    def plot_month_correlations(self, correlations):
+        """
+        Create a bar plot visualizing correlations between 'month' and numerical features.
+
+        Args:
+            correlations (pandas.Series): Series of correlation coefficients with feature names as index.
+
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the bar plot, or None if creation fails.
+        """
         if correlations is None or correlations.empty:
             logger.error("No valid correlations provided for plotting")
             return None
+
         try:
-            fig, ax = plt.subplots(figsize=settings.figsize)
+            fig, ax = plt.subplots(figsize=(12, 6))
             bars = ax.bar(correlations.index, correlations.values, color='skyblue')
-            ax.set_title(settings.title)
-            ax.set_xlabel(settings.xlabel)
-            ax.set_ylabel(settings.ylabel)
+            ax.set_title("Correlation of Features with Month")
+            ax.set_xlabel("Features")
+            ax.set_ylabel("Pearson Correlation Coefficient")
             ax.set_ylim(-1, 1)
             ax.axhline(0, color='black', linestyle='--', linewidth=0.5)
             ax.grid(True, axis='y', linestyle='--', alpha=0.7)
+
+            # Add correlation values on top of bars
             for bar in bars:
                 height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.3f}', ha='center', va='bottom' if height >= 0 else 'top')
-            plt.xticks(rotation=settings.rotation, ha='right')
+                ax.text(bar.get_x() + bar.get_width() / 2, height,
+                        f'{height:.3f}', ha='center', va='bottom' if height >= 0 else 'top')
+
+            # Rotate x-axis labels for readability
+            plt.xticks(rotation=45, ha='right')
             plt.tight_layout()
             plt.show()
+
             logger.info("Created month correlations bar plot")
             return fig
         except Exception as e:

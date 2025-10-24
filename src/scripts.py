@@ -44,7 +44,7 @@ class BaseScript:
         """Abstract method to be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement run()")
 
-class Step1Script(BaseScript):
+class Script1(BaseScript):
     """Script for Step 1: Build yearly bar chart."""
     def __init__(self, file_manager, plot_manager, image_dir, group_authors, non_anthony_group, anthony_group, sorted_groups, settings: Optional[CategoriesPlotSettings] = None):
         super().__init__(file_manager, plot_manager=plot_manager, settings=settings or CategoriesPlotSettings())
@@ -60,7 +60,7 @@ class Step1Script(BaseScript):
             return self.log_error("Failed to create yearly bar chart.")
         return self.save_figure(fig, self.image_dir, "yearly_bar_chart_combined")
 
-class Step2Script(BaseScript):
+class Script2(BaseScript):
     """Script for Step 2: Build time-based visualization."""
     def __init__(self, file_manager, data_preparation, plot_manager, image_dir, df, settings: Optional[TimePlotSettings] = None):
         super().__init__(file_manager, data_preparation=data_preparation, plot_manager=plot_manager, settings=settings or TimePlotSettings())
@@ -79,7 +79,7 @@ class Step2Script(BaseScript):
             return self.log_error("Failed to create time-based plot.")
         return self.save_figure(fig_time, self.image_dir, "golf_decode_by_wa_heartbeat")
 
-class Step3Script(BaseScript):
+class Script3(BaseScript):
     """Script for Step 3: Build emoji distribution visualization."""
     def __init__(self, file_manager, data_editor, data_preparation, plot_manager, image_dir, df, settings: Optional[DistributionPlotSettings] = None):
         super().__init__(file_manager, data_editor=data_editor, data_preparation=data_preparation, plot_manager=plot_manager, settings=settings or DistributionPlotSettings())
@@ -102,7 +102,7 @@ class Step3Script(BaseScript):
             return self.log_error("Failed to create distribution bar chart.")
         return self.save_figure(fig_dist, self.image_dir, "emoji_counts_once")
 
-class Step4Script(BaseScript):
+class Script4(BaseScript):
     """Script for Step 4: Build relationships arc diagram."""
     def __init__(self, file_manager, data_preparation, plot_manager,
                  image_dir, tables_dir, group_authors,
@@ -146,7 +146,7 @@ class Step4Script(BaseScript):
                                 self.image_dir,
                                 f"network_interactions_{group}")
 
-class Step5Script(BaseScript):
+class Script5(BaseScript):
     """Script for Step 5: Build bubble plot visualization."""
     def __init__(self, file_manager, data_preparation, plot_manager, image_dir, df, settings: Optional[BubbleNewPlotSettings] = None):
         super().__init__(file_manager, data_preparation=data_preparation, plot_manager=plot_manager, settings=settings or BubbleNewPlotSettings())
@@ -170,7 +170,7 @@ class Step5Script(BaseScript):
             logger.exception(f"Error in STEP 5 - Relationship Visualizations: {e}")
             return None
 
-class Step7Script(BaseScript):
+class Script7(BaseScript):
     """Script for Step 7: Interaction dynamics visualization."""
     def __init__(self, file_manager, data_preparation, plot_manager, image_dir, group_authors, settings: Optional[PlotSettings] = None):
         super().__init__(file_manager, data_preparation=data_preparation, plot_manager=plot_manager, settings=settings or PlotSettings())
@@ -199,7 +199,7 @@ class Step7Script(BaseScript):
             return self.save_figure(fig_groups, self.image_dir, "interaction_dynamics_groups_pca")
         return None
 
-class Step10Script(BaseScript):
+class Script10(BaseScript):
     """Script for Step 10: Organize DataFrame with additional features."""
     def __init__(self, file_manager, data_editor, data_preparation, processed, tables_dir, settings: Optional[PlotSettings] = None):
         super().__init__(file_manager, data_editor=data_editor, data_preparation=data_preparation, settings=settings or PlotSettings())
@@ -230,7 +230,7 @@ class Step10Script(BaseScript):
             logger.exception(f"Error in STEP 10 - DataFrame Organization: {e}")
             return None
 
-class Step11Script(BaseScript):
+class Script11(BaseScript):
     """Script for Step 11: Non-message content visualization."""
     def __init__(self, file_manager, data_editor, data_preparation, plot_manager, processed, image_dir, settings: Optional[PlotSettings] = None):
         super().__init__(file_manager, data_editor=data_editor, data_preparation=data_preparation, plot_manager=plot_manager, settings=settings or PlotSettings())
@@ -239,10 +239,10 @@ class Step11Script(BaseScript):
 
     def run(self):
         try:
-            data_feed = 'non_redundant'
-            plot_feed = 'both'
-            groupby_period = 'month'
-            delete_specific_attributes = False
+            data_feed = 'non_redundant'  # 'non_redundant' or 'redundant'
+            plot_feed = 'global'  # 'both' or 'per_group', 'global'
+            groupby_period = 'month'  # 'week' or 'month', 'year'
+            delete_specific_attributes = False  # or True
 
             if data_feed == 'non_redundant':
                 if plot_feed not in ['per_group', 'global', 'both']:
@@ -294,7 +294,7 @@ class Step11Script(BaseScript):
                 correlations = self.data_preparation.compute_month_correlations(feature_df)
                 if correlations is None:
                     return self.log_error("Failed to compute month correlations.")
-                fig_correlations = self.plot_manager.plot_month_correlations(correlations, self.settings)
+                fig_correlations = self.plot_manager.plot_month_correlations(correlations)
                 if fig_correlations is None:
                     return self.log_error("Failed to create month correlations plot.")
                 return self.save_figure(fig_correlations, self.image_dir, "month_correlations")
