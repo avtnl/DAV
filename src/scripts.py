@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from loguru import logger
 from sklearn.feature_extraction.text import CountVectorizer
-from plot_manager import PlotSettings, CategoriesPlotSettings, TimePlotSettings, DistributionPlotSettings, NonMessageContentSettings as PMNonMessageContentSettings, DimensionalityReductionSettings
+from plot_manager import PlotSettings, CategoriesPlotSettings, TimePlotSettings, DistributionPlotSettings, NonMessageContentSettings as PMNonMessageContentSettings, DimensionalityReductionSettings, ArcPlotSettings, BubbleNewPlotSettings
 from data_preparation import SequenceSettings
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Tuple
@@ -106,11 +106,11 @@ class Step4Script(BaseScript):
     """Script for Step 4: Build relationships arc diagram."""
     def __init__(self, file_manager, data_preparation, plot_manager,
                  image_dir, tables_dir, group_authors,
-                 settings: Optional[PlotSettings] = None):
+                 settings: Optional[ArcPlotSettings] = None):
         super().__init__(file_manager,
                          data_preparation=data_preparation,
                          plot_manager=plot_manager,
-                         settings=settings or PlotSettings())
+                         settings=settings or ArcPlotSettings())
         self.image_dir   = image_dir
         self.tables_dir  = tables_dir
         self.group_authors = group_authors
@@ -142,15 +142,14 @@ class Step4Script(BaseScript):
         )
         if fig is None:
             return self.log_error("Plot manager returned no figure for arc diagram.")
-        # ← correct log message (no “bar chart”)
         return self.save_figure(fig,
                                 self.image_dir,
                                 f"network_interactions_{group}")
 
 class Step5Script(BaseScript):
     """Script for Step 5: Build bubble plot visualization."""
-    def __init__(self, file_manager, data_preparation, plot_manager, image_dir, df, settings: Optional[PlotSettings] = None):
-        super().__init__(file_manager, data_preparation=data_preparation, plot_manager=plot_manager, settings=settings or PlotSettings())
+    def __init__(self, file_manager, data_preparation, plot_manager, image_dir, df, settings: Optional[BubbleNewPlotSettings] = None):
+        super().__init__(file_manager, data_preparation=data_preparation, plot_manager=plot_manager, settings=settings or BubbleNewPlotSettings())
         self.image_dir = image_dir
         self.df = df
 
@@ -160,10 +159,10 @@ class Step5Script(BaseScript):
         if df_groups.empty:
             return self.log_error(f"No data found for WhatsApp groups {groups}. Skipping bubble plot visualization.")
         try:
-            bubble_df = self.data_preparation.build_visual_relationships_bubble(df_groups, groups)
+            bubble_df = self.data_preparation.build_visual_relationships_bubble_new(df_groups, groups)
             if bubble_df is None or bubble_df.empty:
                 return self.log_error("Failed to prepare bubble plot data.")
-            fig_bubble = self.plot_manager.build_visual_relationships_bubble(bubble_df, self.settings)
+            fig_bubble = self.plot_manager.build_visual_relationships_bubble_new(bubble_df, self.settings)
             if fig_bubble is None:
                 return self.log_error("Failed to create bubble plot.")
             return self.save_figure(fig_bubble, self.image_dir, "bubble_plot_words_vs_punct")

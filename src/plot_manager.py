@@ -18,7 +18,7 @@ from sklearn.metrics import pairwise_distances
 from sklearn.cluster import KMeans
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Tuple, Dict
 
 # Suppress FutureWarning from seaborn/pandas
@@ -95,6 +95,47 @@ class BubblePlotSettings(ColoredPlotSettings):
     xlabel: str = "Average Number of Words per Message"
     ylabel: str = "Average Number of Punctuations per Message"
     figsize: Tuple[int, int] = (12, 8)
+
+class BubbleNewPlotSettings(PlotSettings):
+    """Settings for the new bubble plot."""
+    group_colors: Dict[str, str] = Field(default_factory=lambda: {
+        'maap': 'lightblue',
+        'dac': 'lightgreen',
+        'golfmaten': 'orange',
+        'tillies': 'gray'
+    })
+    trendline_color: str = 'red'
+    bubble_alpha: float = 0.6
+    trendline_alpha: float = 0.8
+    min_bubble_size: int = 50
+    max_bubble_size: int = 500
+    legend_scale_factor: float = 1.0 / 3.0  # Scale legend sizes to 1/3 of plot bubble sizes
+
+class ArcPlotSettings(ColoredPlotSettings):
+    amplifier: int = 3
+    married_couples: List[Tuple[str, str]] = Field(default_factory=lambda: [("Anja Berkemeijer", "Phons Berkemeijer"), ("Madeleine", "Anthony van Tilburg")])
+    arc_types: List[Tuple[str, str | None, float, int]] = Field(default_factory=lambda: [
+        ("triple", "lightgray", 0.4, 1),
+        ("pair", "gray", 0.55, 2),
+        ("total", None, 0.7, 3)
+    ])
+    total_colors: Dict[str, str] = Field(default_factory=lambda: {"married": "red", "other": "blue"})
+    special_x_offsets: Dict[Tuple[str, str, str], float] = Field(default_factory=lambda: {
+        ("Anthony van Tilburg", "Phons Berkemeijer", "triple"): -0.1,
+        ("Anthony van Tilburg", "Phons Berkemeijer", "pair"): -0.2
+    })
+    special_label_y_offsets: Dict[Tuple[str, str], float] = Field(default_factory=lambda: {
+        ("Anthony van Tilburg", "Phons Berkemeijer"): -0.5
+    })
+    excluded_columns: List[str] = Field(default_factory=lambda: ['type', 'author', 'num_days', 'total_messages', '#participants'])
+    node_size: int = 2000
+    node_color: str = 'lightblue'
+    node_edge_color: str = 'black'
+    node_fontsize: int = 10
+    node_fontweight: str = 'bold'
+    label_fontsize: int = 8
+    label_bbox: Dict = Field(default_factory=lambda: dict(facecolor='white', alpha=0.8, edgecolor='none'))
+    title_template: str = "Messaging Interactions in {group} Group\n(Red: Married Couples, Blue: Others, Gray: Pairs, Lightgray: Triples)"
 
 class BasePlot:
     """Base class for creating plots with common behavior."""
@@ -405,16 +446,108 @@ class PlotManager:
             logger.exception(f"Failed to build distribution plot: {e}")
             return None
 
-    def build_visual_relationships_arc(self, combined_df, group, settings: PlotSettings = PlotSettings()):
-        """Arc diagram for relationships (assuming original logic; abstracted settings)."""
+    def build_visual_relationships_arc(self, combined_df, group, settings: ArcPlotSettings = ArcPlotSettings()):
+        """Arc diagram for relationships."""
         if combined_df is None or combined_df.empty:
             logger.error("No valid DataFrame provided for building visual relationships_4 plot.")
             return None
         try:
+            # Extract authors
+            participant_cols = [col for col in combined_df.columns if col not in settings.excluded_columns]
+            authors = sorted(set(participant_cols))
+            # Create figure
             fig, ax = plt.subplots(figsize=settings.figsize)
-            # Original arc diagram logic here, using settings for title, etc.
-            ax.set_title(settings.title)
-            # ... (implement arc logic with abstracted params if needed)
+            ax.set_aspect('equal')
+            # Position authors around a circle
+            n = len(authors)
+            angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
+            radius = 1.0
+            pos = {author: (radius * np.cos(angle), radius * np.sin(angle)) for author, angle in zip(authors, angles)}
+            # Initialize weights
+            pair_weights = {}
+            triple_weights = {}
+            total_weights = {}
+            # Process Pairs
+            pairs_df = combined_df[combined_df['type'] == 'Pairs']
+            for _, row in pairs_df.iterrows():
+                a1, a2 = [a.strip() for a in row['author'].split(' & ')]
+                key = frozenset([a1, a2])
+                weight = row['total_messages']
+                pair_weights[key] = weight
+                total_weights[key] = total_weights.get(key, 0) + weight
+            # Process Non-participant (triples)
+            triples_df = combined_df[combined_df['type'] == 'Non-participant']
+            for _, row in triples_df.iterrows():
+                participants = [col for col in participant_cols if row[col] != 0]
+                if len(participants) != len(authors) - 1:
+                    logger.warning(f"Unexpected number of participants in row: {len(participants)}. Skipping.")
+                    continue
+                total_msg = row['total_messages']
+                pct_dict = {}
+                for p in participants:
+                    val_str = row[p]
+                    if isinstance(val_str, str):
+                        try:
+                            msg_pct_str = val_str.split('%')[0]
+                            pct_dict[p] = int(msg_pct_str) / 100
+                        except (ValueError, IndexError):
+                            logger.warning(f"Invalid percentage format for {p}: {val_str}. Skipping.")
+                            continue
+                for i, j in itertools.combinations(participants, 2):
+                    if i in pct_dict and j in pct_dict:
+                        pair_weight = (pct_dict[i] + pct_dict[j]) * total_msg
+                        key = frozenset([i, j])
+                        triple_weights[key] = triple_weights.get(key, 0) + pair_weight
+                        total_weights[key] = total_weights.get(key, 0) + pair_weight
+            if not total_weights:
+                logger.error("No edges found after processing pairs and triples.")
+                return None
+            # Get max weight for scaling linewidths
+            max_weight = max(total_weights.values(), default=1)
+            # Weights dict
+            weights_dict = {'pair': pair_weights, 'triple': triple_weights, 'total': total_weights}
+            # Draw arcs
+            for arc_type, color, height_offset, zorder in settings.arc_types:
+                weights = weights_dict.get(arc_type, {})
+                for key, weight in weights.items():
+                    a1, a2 = list(key)
+                    x1, y1 = pos[a1]
+                    x2, y2 = pos[a2]
+                    xm = (x1 + x2) / 2
+                    ym = (y1 + y2) / 2
+                    dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+                    height = dist * height_offset
+                    # Set color for total
+                    if arc_type == 'total':
+                        pair_tuple = (a1, a2) if a1 < a2 else (a2, a1)
+                        is_married = pair_tuple in settings.married_couples or (a2, a1) in settings.married_couples
+                        color = settings.total_colors['married'] if is_married else settings.total_colors['other']
+                    # X offset
+                    sorted_pair = tuple(sorted([a1, a2]))
+                    offset_key = (*sorted_pair, arc_type)
+                    x_offset = settings.special_x_offsets.get(offset_key, 0)
+                    # Scale line width
+                    width = (1 + 5 * (weight / max_weight)) * settings.amplifier
+                    # Draw arc
+                    t = np.linspace(0, 1, 100)
+                    x = (1 - t)**2 * x1 + 2 * (1 - t) * t * (xm + x_offset) + t**2 * x2
+                    y = (1 - t)**2 * y1 + 2 * (1 - t) * t * (ym + height) + t**2 * y2
+                    ax.plot(x, y, color=color, linewidth=width, zorder=zorder)
+                    # Add label only for total arcs
+                    if arc_type == 'total':
+                        label_x = (x1 + x2) / 2
+                        label_y = (y1 + y2) / 2 + height * 0.5
+                        label_offset_key = tuple(sorted([a1, a2]))
+                        label_y += settings.special_label_y_offsets.get(label_offset_key, 0)
+                        ax.text(label_x, label_y, f"{int(round(weight))}", ha='center', va='center', fontsize=settings.label_fontsize,
+                                bbox=settings.label_bbox, zorder=zorder + 1)
+            # Draw nodes
+            for author, (x, y) in pos.items():
+                ax.scatter([x], [y], s=settings.node_size, color=settings.node_color, edgecolors=settings.node_edge_color, zorder=4)
+                ax.text(x, y, author, ha='center', va='center', fontsize=settings.node_fontsize, fontweight=settings.node_fontweight, zorder=5)
+            ax.set_title(settings.title_template.format(group=group))
+            ax.axis('off')
+            plt.tight_layout()
             plt.show()
             return fig
         except Exception as e:
@@ -472,6 +605,88 @@ class PlotManager:
             return figs
         except Exception as e:
             logger.exception(f"Failed to build non-message content visualizations: {e}")
+            return None
+
+    def build_visual_relationships_bubble_new(self, feature_df, settings: BubbleNewPlotSettings = BubbleNewPlotSettings()):
+        """
+        Create a bubble plot of average words vs average punctuation, with bubble size as message count,
+        one bubble per author per WhatsApp group, and a single red trendline. Legend bubble sizes are scaled
+        to match the original scale, while plot bubbles are three times larger.
+        
+        Args:
+            feature_df (pandas.DataFrame): DataFrame with 'whatsapp_group', 'author', 'avg_words', 'avg_punct', 'message_count' columns.
+            settings (BubbleNewPlotSettings): Plot settings including group colors and trendline style.
+        
+        Returns:
+            matplotlib.figure.Figure or None: Figure object for the bubble plot, or None if creation fails.
+        """
+        if feature_df is None or feature_df.empty:
+            logger.error("No valid DataFrame provided for building bubble plot.")
+            return None
+        try:
+            # Check required columns with aliases
+            required_cols = {
+                'whatsapp_group': 'whatsapp_group',
+                'author': 'author',
+                'avg_words': ['avg_words'],
+                'avg_punct': ['avg_punct'],
+                'message_count': ['message_count']
+            }
+            missing_cols = []
+            for expected, aliases in required_cols.items():
+                if isinstance(aliases, list):
+                    if not any(alias in feature_df.columns for alias in aliases):
+                        missing_cols.append(expected)
+                elif aliases not in feature_df.columns:
+                    missing_cols.append(expected)
+            if missing_cols:
+                logger.error(f"Missing required columns. Expected {list(required_cols.keys())}, found {feature_df.columns.tolist()}")
+                return None
+
+            # Map aliases to actual columns
+            x_col = next(col for col in required_cols['avg_words'] if col in feature_df.columns)
+            y_col = next(col for col in required_cols['avg_punct'] if col in feature_df.columns)
+            size_col = next(col for col in required_cols['message_count'] if col in feature_df.columns)
+
+            # Create figure
+            fig, ax = plt.subplots(figsize=settings.figsize)
+            
+            # Normalize bubble sizes based on message_count and scale by 3 for plot
+            min_size, max_size = settings.min_bubble_size, settings.max_bubble_size
+            message_counts = feature_df[size_col]
+            size_scale = (message_counts - message_counts.min()) / (message_counts.max() - message_counts.min()) if message_counts.max() != message_counts.min() else 1.0
+            bubble_sizes = (min_size + (max_size - min_size) * size_scale) * 3  # Three times larger for plot
+
+            # Plot bubbles for each author per group
+            for group in settings.group_colors.keys():
+                group_df = feature_df[feature_df['whatsapp_group'] == group]
+                if not group_df.empty:
+                    scatter = ax.scatter(group_df[x_col], group_df[y_col],
+                                        s=bubble_sizes[group_df.index], alpha=settings.bubble_alpha,
+                                        color=settings.group_colors[group], label=group)
+
+            # Add trendline (linear fit) across all data
+            x = feature_df[x_col]
+            y = feature_df[y_col]
+            coefficients = np.polyfit(x, y, 1)  # Linear fit (degree 1)
+            trendline = np.poly1d(coefficients)
+            ax.plot(x, trendline(x), color=settings.trendline_color, alpha=settings.trendline_alpha)
+
+            # Customize plot and legend
+            ax.set_title(settings.title or "Average Words vs Punctuation by Author per Group")
+            ax.set_xlabel(settings.xlabel or "Average Words per Message")
+            ax.set_ylabel(settings.ylabel or "Average Punctuation per Message")
+            # Create legend with scaled sizes
+            legend_handles = [plt.scatter([], [], s=min_size * settings.legend_scale_factor, c=color, alpha=settings.bubble_alpha, label=group)
+                            for group, color in settings.group_colors.items()]
+            ax.legend(handles=legend_handles, title="WhatsApp Group", bbox_to_anchor=(1.05, 1), loc='upper left')
+            ax.grid(True, linestyle='--', alpha=0.7)
+
+            plt.tight_layout()
+            plt.show()
+            return fig
+        except Exception as e:
+            logger.exception(f"Failed to build bubble plot: {e}")
             return None
 
     def _build_bubble_common(self, agg_df, settings: BubblePlotSettings = BubblePlotSettings()):

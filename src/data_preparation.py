@@ -163,47 +163,234 @@ class DataPreparation:
             logger.exception(f"Failed to build visual distribution data: {e}")
             return df, None
 
-    def build_visual_relationships_arc(self,
-                                    df: pd.DataFrame,
-                                    group_authors: List[str]) -> pd.DataFrame:
-        """Prepare participation table **and** return the network figure."""
-        if df.empty:
-            logger.error("Empty DataFrame supplied to build_visual_relationships_arc.")
+    def build_visual_relationships_arc(self, df_group: pd.DataFrame, authors: List[str]) -> pd.DataFrame:
+        """
+        Analyze daily participation in a WhatsApp group and combine results into a single table.
+        
+        Args:
+            df_group (pandas.DataFrame): Filtered DataFrame for the group with 'timestamp', 'author', 'message_cleaned', 'early_leaver' columns.
+            authors (list): List of unique authors in the group.
+        
+        Returns:
+            pd.DataFrame or None: Combined DataFrame with columns 'type', 'author', 'num_days', 'total_messages', '#participants', and author-specific columns.
+        """
+        if df_group.empty:
+            logger.error("No valid DataFrame provided for relationships arc preparation")
+            return None
+        try:
+            # Ensure timestamp is datetime and extract date
+            df_group["timestamp"] = pd.to_datetime(df_group["timestamp"])
+            df_group["date"] = df_group["timestamp"].dt.date
+            # Compute message_length once
+            df_group['message_length'] = df_group['message_cleaned'].apply(lambda x: len(str(x)) if isinstance(x, str) else 0)
+            # Get sorted unique authors
+            authors = sorted(set(df_group['author']))
+            # Calculate overall totals
+            total_messages = len(df_group)
+            message_counts = df_group.groupby('author').size()
+            message_percentages = (message_counts / total_messages * 100).round(0).astype(int)
+            total_length = df_group['message_length'].sum()
+            length_counts = df_group.groupby('author')['message_length'].sum()
+            length_percentages = (length_counts / total_length * 100).round(0).astype(int)
+            avg_message_length = (length_counts / message_counts).round(0).astype(int).fillna(0)
+            # Daily message counts per author
+            daily_counts = df_group.groupby(["date", "author"]).size().unstack(fill_value=0).reindex(columns=authors, fill_value=0)
+            # Total messages per day
+            daily_total = daily_counts.sum(axis=1)
+            # Number of participants per day using the helper method
+            num_unique_series = self.data_editor.number_of_unique_participants_that_day(df_group)
+            daily_participants = num_unique_series.groupby(df_group['date']).first()
+            # Overall period
+            min_date = df_group["date"].min()
+            max_date = df_group["date"].max()
+            total_days = (max_date - min_date).days + 1 if min_date and max_date else 0
+            days_with_messages = len(daily_counts)
+            days_no_messages = total_days - days_with_messages
+            # Helper function to compute author values
+            def _compute_author_values(active_df: pd.DataFrame, active_authors: List[str]) -> Dict[str, str]:
+                active_message_counts = active_df[active_df['author'].isin(active_authors)].groupby('author').size()
+                active_total_messages = active_message_counts.sum()
+                message_pct = (active_message_counts / active_total_messages * 100).round(0).astype(int) if active_total_messages > 0 else pd.Series()
+                active_length_counts = active_df[active_df['author'].isin(active_authors)].groupby('author')['message_length'].sum()
+                active_total_length = active_length_counts.sum()
+                length_pct = (active_length_counts / active_total_length * 100).round(0).astype(int) if active_total_length > 0 else pd.Series()
+                active_avg_length = (active_length_counts / active_message_counts).round(0).astype(int).fillna(0)
+                author_values = {author: 0 for author in authors}
+                for p in active_authors:
+                    msg_pct = message_pct.get(p, 0)
+                    len_pct = length_pct.get(p, 0)
+                    avg_len = active_avg_length.get(p, 0)
+                    author_values[p] = f"{msg_pct}%/{len_pct}%({avg_len})"
+                return author_values
+            # Initialize list for combined table
+            combined_data = []
+            # Messages (%) row
+            msg_row = {
+                "type": "Messages (%)",
+                "author": None,
+                "num_days": 0,
+                "total_messages": 0,
+                "#participants": 0
+            }
+            for author in authors:
+                msg_pct = message_percentages.get(author, 0)
+                avg_len = avg_message_length.get(author, 0)
+                msg_row[author] = f"{msg_pct}%/{avg_len}"
+            combined_data.append(msg_row)
+            # Message Length (%) row
+            len_row = {
+                "type": "Message Length (%)",
+                "author": None,
+                "num_days": 0,
+                "total_messages": 0,
+                "#participants": 0
+            }
+            for author in authors:
+                len_pct = length_percentages.get(author, 0)
+                avg_len = avg_message_length.get(author, 0)
+                len_row[author] = f"{len_pct}%/{avg_len}"
+            combined_data.append(len_row)
+            # Period (overall)
+            combined_data.append({
+                "type": "Period",
+                "author": None,
+                "num_days": total_days,
+                "total_messages": 0,
+                "#participants": 0,
+                **{author: 0 for author in authors}
+            })
+            combined_data.append({
+                "type": "Period",
+                "author": "None",
+                "num_days": days_no_messages,
+                "total_messages": 0,
+                "#participants": 0,
+                **{author: 0 for author in authors}
+            })
+            # Days with only 1 participant, details per author
+            for author in authors:
+                other_authors = [a for a in authors if a != author]
+                mask = (daily_counts[author] > 0) & (daily_counts[other_authors] == 0).all(axis=1)
+                num_days = mask.sum()
+                total_msg = daily_total[mask].sum() if num_days > 0 else 0
+                if num_days > 0:
+                    active_dates = daily_counts[mask].index
+                    active_df = df_group[df_group['date'].isin(active_dates)]
+                    author_values = _compute_author_values(active_df, [author])
+                else:
+                    author_values = {a: 0 for a in authors}
+                combined_data.append({
+                    "type": "Single",
+                    "author": author,
+                    "num_days": num_days,
+                    "total_messages": total_msg,
+                    "#participants": 1,
+                    **author_values
+                })
+            # Days with only 2 participants, details per combination
+            for comb in itertools.combinations(authors, 2):
+                pair_str = " & ".join(sorted(comb))
+                other_authors = [a for a in authors if a not in comb]
+                mask = (daily_counts[list(comb)] > 0).all(axis=1) & (daily_counts[other_authors] == 0).all(axis=1)
+                num_days = mask.sum()
+                total_msg = daily_total[mask].sum() if num_days > 0 else 0
+                if num_days > 0:
+                    active_dates = daily_counts[mask].index
+                    active_df = df_group[df_group['date'].isin(active_dates)]
+                    author_values = _compute_author_values(active_df, list(comb))
+                else:
+                    author_values = {a: 0 for a in authors}
+                combined_data.append({
+                    "type": "Pairs",
+                    "author": pair_str,
+                    "num_days": num_days,
+                    "total_messages": total_msg,
+                    "#participants": 2,
+                    **author_values
+                })
+            # Days with N-1 participants, details per non-participant
+            for non_part in authors:
+                participants = [a for a in authors if a != non_part]
+                mask = (daily_counts[participants] > 0).all(axis=1) & (daily_counts[non_part] == 0)
+                num_days = mask.sum()
+                total_msg = daily_total[mask].sum() if num_days > 0 else 0
+                if num_days > 0:
+                    active_dates = daily_counts[mask].index
+                    active_df = df_group[df_group['date'].isin(active_dates)]
+                    author_values = _compute_author_values(active_df, participants)
+                else:
+                    author_values = {a: 0 for a in authors}
+                combined_data.append({
+                    "type": "Non-participant",
+                    "author": non_part,
+                    "num_days": num_days,
+                    "total_messages": total_msg,
+                    "#participants": len(authors) - 1,
+                    **author_values
+                })
+            # Days with all participants
+            mask = (daily_counts > 0).all(axis=1)
+            num_days = mask.sum()
+            total_msg = daily_total[mask].sum() if num_days > 0 else 0
+            if num_days > 0:
+                active_dates = daily_counts[mask].index
+                active_df = df_group[df_group['date'].isin(active_dates)]
+                author_values = _compute_author_values(active_df, authors)
+            else:
+                author_values = {a: 0 for a in authors}
+            combined_data.append({
+                "type": "All",
+                "author": "All",
+                "num_days": num_days,
+                "total_messages": total_msg,
+                "#participants": len(authors),
+                **author_values
+            })
+            # Create combined DataFrame
+            combined_df = pd.DataFrame(combined_data)
+            combined_df = combined_df.sort_values(by=["#participants", "num_days"], ascending=[True, False])
+            logger.info(f"Combined participation table for group {df_group['whatsapp_group'].iloc[0]}:\n{combined_df.to_string(index=False)}")
+            return combined_df
+        except Exception as e:
+            logger.exception(f"Failed to prepare relationships arc data: {e}")
             return None
 
+    def build_visual_relationships_bubble_new(self, df_groups: pd.DataFrame, groups: List[str]) -> pd.DataFrame:
+        """
+        Prepare data for the new bubble plot with average words, average punctuation, and message count per author within each group.
+        
+        Args:
+            df_groups (pandas.DataFrame): Filtered DataFrame with 'whatsapp_group', 'author', 'message_cleaned' columns.
+            groups (List[str]): List of WhatsApp groups to process.
+        
+        Returns:
+            pd.DataFrame or None: DataFrame with 'whatsapp_group', 'author', 'avg_words', 'avg_punct', 'message_count' columns.
+        """
+        if df_groups.empty or not any(df_groups['whatsapp_group'].isin(groups)):
+            logger.error("No valid data provided for bubble plot preparation.")
+            return None
         try:
-            # -------------------------------------------------
-            # 1. Build the participation table (same as before)
-            # -------------------------------------------------
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            df = df.sort_values('timestamp')
-
-            # count transitions between every pair of consecutive authors
-            transitions = Counter(zip(df['author'].shift(-1), df['author']))
-            participation_df = pd.DataFrame({
-                'Pairs': [f"{prev}-{next}" for prev, next in transitions.keys()],
-                'Count': list(transitions.values())
-            })
-            logger.info(
-                f"Prepared relationships arc data with {len(participation_df)} pairs."
-            )
-
-            # -------------------------------------------------
-            # 2. **Create the network figure** (the plot manager does the drawing)
-            # -------------------------------------------------
-            # The PlotManager already knows how to turn the table into a figure.
-            # We simply forward the call and return the figure together with the table.
-            fig = self.plot_manager.build_visual_relationships_arc(
-                participation_df,
-                df['whatsapp_group'].iloc[0],   # group name
-                PlotSettings()                  # default settings – can be overridden later
-            )
-
-            # Return **both** the table (for saving) and the figure (for saving the PNG)
-            return participation_df, fig
-
+            # Compute message length and punctuation count per message
+            df_groups['message_length'] = df_groups['message_cleaned'].apply(lambda x: len(str(x).split()) if isinstance(x, str) else 0)
+            df_groups['punctuation_count'] = df_groups['message_cleaned'].apply(lambda x: len(re.findall(r'[.!?]', str(x))) if isinstance(x, str) else 0)
+            
+            # Aggregate per whatsapp_group and author
+            result_df = df_groups.groupby(['whatsapp_group', 'author']).agg({
+                'message_length': 'mean',
+                'punctuation_count': 'mean',
+                'message_cleaned': 'count'
+            }).rename(columns={
+                'message_length': 'avg_words',
+                'punctuation_count': 'avg_punct',
+                'message_cleaned': 'message_count'
+            }).reset_index()
+            
+            # Filter to requested groups
+            result_df = result_df[result_df['whatsapp_group'].isin(groups)]
+            logger.info(f"Prepared bubble plot data with shape {result_df.shape}: {result_df.columns.tolist()}")
+            return result_df
         except Exception as e:
-            logger.exception(f"Failed to build visual relationships arc data: {e}")
+            logger.exception(f"Failed to prepare bubble plot data: {e}")
             return None
 
     def build_visual_relationships_bubble(self, df: pd.DataFrame, groups: List[str] = None) -> pd.DataFrame:
