@@ -496,6 +496,26 @@ class DataEditor:
                 connected_emojis.append(''.join(emoji_seq))
         return ','.join(connected_emojis)
 
+    def count_words(self, message):
+        """
+        Count the number of words in the message, treating emoji sequences and currency amounts as single words.
+        Args:
+            message (str): Input message text.
+        Returns:
+            int: Number of words in the message.
+        """
+        if not isinstance(message, str):
+            return 0
+        # Add space before emoji sequences if not preceded by space
+        message = re.sub(r'([^\s])(' + self.emoji_pattern.pattern + r')', r'\1 \2', message)
+        # Replace sequences of emojis with a single 'EMOJI'
+        message = self.emoji_pattern.sub('EMOJI', message)
+        # Handle currency with decimals as one word (e.g., €5.50 or $5.50)
+        message = re.sub(r'([€$]\s*\d+[.,]\d+)', lambda m: m.group(0).replace(' ', ''), message)
+        # Split on spaces
+        words = re.split(r'\s+', message.strip())
+        return len([w for w in words if w])
+
     def count_punctuations(self, message):
         """
         Count the number of punctuation marks in the message, excluding decimals in numbers.
