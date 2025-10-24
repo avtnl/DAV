@@ -355,7 +355,7 @@ class DataPreparation:
             logger.exception(f"Failed to prepare relationships arc data: {e}")
             return None
 
-    def build_visual_relationships_bubble_new(self, df_groups: pd.DataFrame, groups: List[str]) -> pd.DataFrame:
+    def build_visual_relationships_bubble(self, df_groups: pd.DataFrame, groups: List[str]) -> pd.DataFrame:
         """
         Prepare data for the new bubble plot with average words, average punctuation, and message count per author within each group.
         
@@ -389,44 +389,6 @@ class DataPreparation:
             result_df = result_df[result_df['whatsapp_group'].isin(groups)]
             logger.info(f"Prepared bubble plot data with shape {result_df.shape}: {result_df.columns.tolist()}")
             return result_df
-        except Exception as e:
-            logger.exception(f"Failed to prepare bubble plot data: {e}")
-            return None
-
-    def build_visual_relationships_bubble(self, df: pd.DataFrame, groups: List[str] = None) -> pd.DataFrame:
-        """
-        Prepare data for a bubble plot: average words vs average punctuations per message,
-        with bubble size as number of messages, split by group and has_emoji.
-       
-        Args:
-            df (pandas.DataFrame): The full DataFrame with WhatsApp data.
-            groups (list, optional): List of 2 group names to include. Defaults to first 2 unique groups.
-       
-        Returns:
-            pandas.DataFrame: Aggregated data with columns: whatsapp_group, author, has_emoji,
-                            message_count, avg_words, avg_punct.
-        """
-        try:
-            if df.empty:
-                logger.error("Empty DataFrame provided for visual relationships bubble preparation.")
-                return None
-            self.df = df  # Store the DataFrame
-            if groups is None:
-                groups = df['whatsapp_group'].unique()[:2]
-            df_filtered = df[df['whatsapp_group'].isin(groups)].copy()
-            
-            # Use data_editor methods for word and punctuation counting
-            df_filtered['word_count'] = df_filtered['message_cleaned'].apply(self.data_editor.count_words)
-            df_filtered['punct_count'] = df_filtered['message_cleaned'].apply(self.data_editor.count_punctuations)
-            
-            agg_df = df_filtered.groupby(['whatsapp_group', 'author', 'has_emoji']).agg(
-                message_count=('message_cleaned', 'count'),
-                avg_words=('word_count', 'mean'),
-                avg_punct=('punct_count', 'mean')
-            ).reset_index()
-            
-            logger.info(f"Prepared bubble plot data for groups {groups}:\n{agg_df.to_string(index=False)}")
-            return agg_df
         except Exception as e:
             logger.exception(f"Failed to prepare bubble plot data: {e}")
             return None
@@ -613,7 +575,7 @@ class DataPreparation:
             logger.warning(f"Failed to compute threading features for {author}: {e}")
             return features
 
-    def build_visual_not_message_content(self, df: pd.DataFrame, groupby_period: str = 'week') -> pd.DataFrame:
+    def build_visual_no_message_content(self, df: pd.DataFrame, groupby_period: str = 'week') -> pd.DataFrame:
         if df.empty:
             logger.error("No valid DataFrame provided for non-message content preparation")
             return None

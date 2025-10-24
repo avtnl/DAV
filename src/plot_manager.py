@@ -231,7 +231,7 @@ class PlotManager:
             ax.set_ylabel('Component 2', labelpad=2)
             ax.legend(title="Author")
             plt.tight_layout(pad=0.5)
-            figs.append({'fig': fig, 'filename': f"not_message_content_per_group_{group}_{method}"})
+            figs.append({'fig': fig, 'filename': f"no_message_content_per_group_{group}_{method}"})
             plt.show()
         return figs
 
@@ -263,7 +263,7 @@ class PlotManager:
         ax.legend(handles=legend_elements, title="Group / Anthony")
         plt.tight_layout(pad=0.5)
         plt.show()
-        return {'fig': fig, 'filename': f"not_message_content_global_{method}"}
+        return {'fig': fig, 'filename': f"no_message_content_global_{method}"}
 
     def build_visual_categories(self, group_authors, non_anthony_group, anthony_group, sorted_groups, settings: CategoriesPlotSettings = CategoriesPlotSettings()):
         """
@@ -554,60 +554,7 @@ class PlotManager:
             logger.exception(f"Failed to build arc diagram: {e}")
             return None
 
-    def draw_confidence_ellipse(self, data, ax, alpha=0.95, facecolor='none', edgecolor='black', zorder=0):
-        """Draw confidence ellipse (unchanged, as it's already abstract)."""
-        if len(data) < 2:
-            return
-        cov = np.cov(data, rowvar=False)
-        mean_x = np.mean(data[:, 0])
-        mean_y = np.mean(data[:, 1])
-        lambda_, v = np.linalg.eig(cov)
-        lambda_ = np.sqrt(lambda_)
-        scale = np.sqrt(chi2.ppf(alpha, 2))
-        ellipse = Ellipse(xy=(mean_x, mean_y),
-                          width=lambda_[0] * scale * 2, height=lambda_[1] * scale * 2,
-                          angle=np.rad2deg(np.arccos(v[0, 0])),
-                          edgecolor=edgecolor, facecolor=facecolor, alpha=0.3, zorder=zorder)
-        ax.add_patch(ellipse)
-        logger.debug(f"Drew {alpha*100:.0f}% confidence ellipse with center ({mean_x:.2f}, {mean_y:.2f}) and scale {scale:.2f}")
-
-    def build_visual_not_message_content(self, feature_df, dr_settings: DimensionalityReductionSettings = DimensionalityReductionSettings(), nmc_settings: NonMessageContentSettings = NonMessageContentSettings(), settings: Optional[PlotSettings] = None):
-        """
-        Non-message content visualizations using configs.
-        
-        Args:
-            feature_df (pandas.DataFrame): Feature matrix with relevant columns.
-            dr_settings (DimensionalityReductionSettings): Dimensionality reduction settings.
-            nmc_settings (NonMessageContentSettings): Settings for group and Anthony color maps.
-            settings (Optional[PlotSettings]): Legacy settings for backward compatibility (optional).
-        
-        Returns:
-            list: List of dictionaries containing figures and filenames, or None if creation fails.
-        """
-        if settings is not None and not isinstance(settings, (DimensionalityReductionSettings, NonMessageContentSettings)):
-            logger.warning("Received legacy 'settings' parameter. Using default dr_settings and nmc_settings instead. Update caller to use dr_settings and nmc_settings.")
-            dr_settings = DimensionalityReductionSettings()
-            nmc_settings = NonMessageContentSettings()
-        
-        try:
-            figs = []
-            numerical_features = self._prepare_features(feature_df, settings=dr_settings)
-            for method in ['pca', 'tsne']:
-                reducer = self._get_reducer(method, len(feature_df), dr_settings)
-                X_reduced = reducer.fit_transform(numerical_features)
-                distances = pairwise_distances(X_reduced, metric=dr_settings.metric)
-                logger.info(f"{method.upper()} embedding: Mean pairwise distance: {distances.mean():.2f}, Std: {distances.std():.2f}")
-                if nmc_settings.plot_type in ['per_group', 'both']:
-                    figs.extend(self._plot_per_group(X_reduced, feature_df, method, nmc_settings))
-                if nmc_settings.plot_type in ['global', 'both']:
-                    figs.append(self._plot_global(X_reduced, feature_df, method, nmc_settings))
-            logger.info(f"Created {len(figs)} visualizations for non-message content.")
-            return figs
-        except Exception as e:
-            logger.exception(f"Failed to build non-message content visualizations: {e}")
-            return None
-
-    def build_visual_relationships_bubble_new(self, feature_df, settings: BubbleNewPlotSettings = BubbleNewPlotSettings()):
+    def build_visual_relationships_bubble(self, feature_df, settings: BubbleNewPlotSettings = BubbleNewPlotSettings()):
         """
         Create a bubble plot of average words vs average punctuation, with bubble size as message count,
         one bubble per author per WhatsApp group, and a single red trendline. Legend bubble sizes are scaled
@@ -689,437 +636,57 @@ class PlotManager:
             logger.exception(f"Failed to build bubble plot: {e}")
             return None
 
-    def _build_bubble_common(self, agg_df, settings: BubblePlotSettings = BubblePlotSettings()):
-        """Common functionality for bubble plots."""
-        if agg_df is None or agg_df.empty:
-            logger.error("No data provided for bubble plot.")
-            return None, None, None, None, None, None, None, None, None, None
-        try:
-            # Initialize figure
-            fig, ax = plt.subplots(figsize=settings.figsize)
-            
-            # Get top 5 group/author combinations for has_emoji=True and has_emoji=False
-            emoji_true = agg_df[agg_df['has_emoji'] == True]
-            emoji_false = agg_df[agg_df['has_emoji'] == False]
-            
-            top_5_true = emoji_true.sort_values('message_count', ascending=False).head(5)[['whatsapp_group', 'author']].values.tolist()
-            top_5_true_keys = [f"{group}_{author}" for group, author in top_5_true]
-            top_5_false = emoji_false.sort_values('message_count', ascending=False).head(5)[['whatsapp_group', 'author']].values.tolist()
-            top_5_false_keys = [f"{group}_{author}" for group, author in top_5_false]
-            
-            logger.debug(f"Top 5 group/author combinations for has_emoji=True: {top_5_true}")
-            logger.debug(f"Top 5 group/author combinations for has_emoji=False: {top_5_false}")
-            
-            # Compute trendlines
-            slope_false, intercept_false, slope_true, intercept_true = None, None, None, None
-            if len(agg_df) > 1:
-                line_x = np.linspace(agg_df['avg_words'].min(), agg_df['avg_words'].max(), 100)
-                if len(emoji_false) > 1:
-                    x_false = emoji_false['avg_words']
-                    y_false = emoji_false['avg_punct']
-                    slope_false, intercept_false = np.polyfit(x_false, y_false, 1)
-                if len(emoji_true) > 1:
-                    x_true = emoji_true['avg_words']
-                    y_true = emoji_true['avg_punct']
-                    slope_true, intercept_true = np.polyfit(x_true, y_true, 1)
-            
-            return fig, ax, emoji_true, emoji_false, top_5_true_keys, top_5_false_keys, slope_false, intercept_false, slope_true, intercept_true
-        except Exception as e:
-            logger.exception(f"Failed in common bubble plot preparation: {e}")
-            return None, None, None, None, None, None, None, None, None, None
+    def draw_confidence_ellipse(self, data, ax, alpha=0.95, facecolor='none', edgecolor='black', zorder=0):
+        """Draw confidence ellipse (unchanged, as it's already abstract)."""
+        if len(data) < 2:
+            return
+        cov = np.cov(data, rowvar=False)
+        mean_x = np.mean(data[:, 0])
+        mean_y = np.mean(data[:, 1])
+        lambda_, v = np.linalg.eig(cov)
+        lambda_ = np.sqrt(lambda_)
+        scale = np.sqrt(chi2.ppf(alpha, 2))
+        ellipse = Ellipse(xy=(mean_x, mean_y),
+                          width=lambda_[0] * scale * 2, height=lambda_[1] * scale * 2,
+                          angle=np.rad2deg(np.arccos(v[0, 0])),
+                          edgecolor=edgecolor, facecolor=facecolor, alpha=0.3, zorder=zorder)
+        ax.add_patch(ellipse)
+        logger.debug(f"Drew {alpha*100:.0f}% confidence ellipse with center ({mean_x:.2f}, {mean_y:.2f}) and scale {scale:.2f}")
 
-    def build_visual_relationships_bubble(self, agg_df, settings: BubblePlotSettings = BubblePlotSettings()):
+    def build_visual_no_message_content(self, feature_df, dr_settings: DimensionalityReductionSettings = DimensionalityReductionSettings(), nmc_settings: NonMessageContentSettings = NonMessageContentSettings(), settings: Optional[PlotSettings] = None):
         """
-        Create a bubble plot from prepared data: avg_words vs avg_punct, bubble size = message_count.
-        Groups/Colors: has_emoji=True in shades of green (darkest for largest, top 5),
-        has_emoji=False in shades of red (darkest for largest, top 5),
-        with two trendlines: red (has_emoji=False), green (has_emoji=True).
+        Non-message content visualizations using configs.
+        
         Args:
-            agg_df (pandas.DataFrame): Aggregated data from DataPreparation with columns:
-                                    whatsapp_group, author, has_emoji, message_count, avg_words, avg_punct.
-            settings (BubblePlotSettings): Plot settings with color shades and layout configurations.
+            feature_df (pandas.DataFrame): Feature matrix with relevant columns.
+            dr_settings (DimensionalityReductionSettings): Dimensionality reduction settings.
+            nmc_settings (NonMessageContentSettings): Settings for group and Anthony color maps.
+            settings (Optional[PlotSettings]): Legacy settings for backward compatibility (optional).
+        
         Returns:
-            matplotlib.figure.Figure or None: Figure object for the bubble plot, or None if creation fails.
+            list: List of dictionaries containing figures and filenames, or None if creation fails.
         """
-        if not isinstance(settings, BubblePlotSettings):
-            logger.warning("Settings must be an instance of BubblePlotSettings. Using default BubblePlotSettings.")
-            settings = BubblePlotSettings()
+        if settings is not None and not isinstance(settings, (DimensionalityReductionSettings, NonMessageContentSettings)):
+            logger.warning("Received legacy 'settings' parameter. Using default dr_settings and nmc_settings instead. Update caller to use dr_settings and nmc_settings.")
+            dr_settings = DimensionalityReductionSettings()
+            nmc_settings = NonMessageContentSettings()
         
         try:
-            fig, ax, emoji_true, emoji_false, top_5_true_keys, top_5_false_keys, slope_false, intercept_false, slope_true, intercept_true = self._build_bubble_common(agg_df, settings)
-            if fig is None:
-                return None
-
-            # Plot bubbles
-            for _, row in agg_df.iterrows():
-                group = row['whatsapp_group']
-                author = row['author']
-                has_emoji = row['has_emoji']
-                group_author = f"{group}_{author}"
-                size = row['message_count'] * 10
-                initials = f"{group[0].upper()}{''.join(word[0].upper() for word in author.split() if word)}"
-                
-                # Assign color based on has_emoji and top 5 combinations
-                if has_emoji and group_author in top_5_true_keys:
-                    rank = top_5_true_keys.index(group_author)
-                    color = settings.green_shades[rank]
-                elif not has_emoji and group_author in top_5_false_keys:
-                    rank = top_5_false_keys.index(group_author)
-                    color = settings.red_shades[rank]
-                else:
-                    color = settings.green_shades[6] if has_emoji else settings.red_shades[6]
-                
-                ax.scatter(
-                    row['avg_words'],
-                    row['avg_punct'],
-                    s=size,
-                    color=color,
-                    alpha=0.5
-                )
-                
-                ax.text(
-                    row['avg_words'],
-                    row['avg_punct'],
-                    initials,
-                    fontsize=8,
-                    ha='center',
-                    va='center',
-                    color='black',
-                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='none')
-                )
-            
-            # Add trendlines
-            if len(agg_df) > 1:
-                line_x = np.linspace(agg_df['avg_words'].min(), agg_df['avg_words'].max(), 100)
-                if len(emoji_false) > 1:
-                    line_y_false = slope_false * line_x + intercept_false
-                    ax.plot(line_x, line_y_false, color='red', linestyle='--')
-                if len(emoji_true) > 1:
-                    line_y_true = slope_true * line_x + intercept_true
-                    ax.plot(line_x, line_y_true, color='green', linestyle='--')
-            
-            # Customize plot
-            ax.set_xlabel(settings.xlabel)
-            ax.set_ylabel(settings.ylabel)
-            ax.set_title(settings.title, fontsize=20, x=0.6, ha='center')
-            
-            # Create custom legend
-            total_false_msgs = int(emoji_false['message_count'].sum()) if not emoji_false.empty else 0
-            total_true_msgs = int(emoji_true['message_count'].sum()) if not emoji_true.empty else 0
-            legend_elements = [
-                plt.scatter([], [], s=100, color=settings.red_shades[0], label=f'Without emojis\nTotal: {total_false_msgs:,} msgs'),
-                plt.scatter([], [], s=100, color=settings.green_shades[0], label=f'With emojis\nTotal: {total_true_msgs:,} msgs'),
-                plt.scatter([], [], s=0, label='\nSize of bubble reflects number of msgs\n', alpha=0),
-                plt.plot([], [], color='red', linestyle='--', label='Trend line without emojis')[0],
-                plt.plot([], [], color='green', linestyle='--', label='Trend line with emojis')[0]
-            ]
-            ax.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left')
-            
-            plt.tight_layout()
-            plt.show()
-            logger.info("Created bubble plot successfully.")
-            return fig
+            figs = []
+            numerical_features = self._prepare_features(feature_df, settings=dr_settings)
+            for method in ['pca', 'tsne']:
+                reducer = self._get_reducer(method, len(feature_df), dr_settings)
+                X_reduced = reducer.fit_transform(numerical_features)
+                distances = pairwise_distances(X_reduced, metric=dr_settings.metric)
+                logger.info(f"{method.upper()} embedding: Mean pairwise distance: {distances.mean():.2f}, Std: {distances.std():.2f}")
+                if nmc_settings.plot_type in ['per_group', 'both']:
+                    figs.extend(self._plot_per_group(X_reduced, feature_df, method, nmc_settings))
+                if nmc_settings.plot_type in ['global', 'both']:
+                    figs.append(self._plot_global(X_reduced, feature_df, method, nmc_settings))
+            logger.info(f"Created {len(figs)} visualizations for non-message content.")
+            return figs
         except Exception as e:
-            logger.exception(f"Failed to build bubble plot: {e}")
-            return None
-
-    def build_visual_relationships_bubble_1(self, agg_df, settings: BubblePlotSettings = BubblePlotSettings()):
-        """
-        Create a bubble plot from prepared data: avg_words vs avg_punct, bubble size = message_count.
-        Groups/Colors: has_emoji=True in shades of green (darkest for largest, top 5),
-        has_emoji=False in shades of red (darkest for largest, top 5),
-        with two trendlines: red (has_emoji=False), green (has_emoji=True).
-        Args:
-            agg_df (pandas.DataFrame): Aggregated data from DataPreparation with columns:
-                                    whatsapp_group, author, has_emoji, message_count, avg_words, avg_punct.
-            settings (BubblePlotSettings): Plot settings with color shades and layout configurations.
-        Returns:
-            matplotlib.figure.Figure or None: Figure object for the bubble plot, or None if creation fails.
-        """
-        if not isinstance(settings, BubblePlotSettings):
-            logger.warning("Settings must be an instance of BubblePlotSettings. Using default BubblePlotSettings.")
-            settings = BubblePlotSettings()
-        
-        try:
-            fig, ax, emoji_true, emoji_false, top_5_true_keys, top_5_false_keys, slope_false, intercept_false, slope_true, intercept_true = self._build_bubble_common(agg_df, settings)
-            if fig is None:
-                return None
-
-            # Plot bubbles
-            for _, row in agg_df.iterrows():
-                group = row['whatsapp_group']
-                author = row['author']
-                has_emoji = row['has_emoji']
-                group_author = f"{group}_{author}"
-                size = row['message_count'] * 10
-                initials = f"{group[0].upper()}{''.join(word[0].upper() for word in author.split() if word)}"
-                
-                # Assign color based on has_emoji and top 5 combinations
-                if has_emoji and group_author in top_5_true_keys:
-                    rank = top_5_true_keys.index(group_author)
-                    color = settings.green_shades[rank]
-                elif not has_emoji and group_author in top_5_false_keys:
-                    rank = top_5_false_keys.index(group_author)
-                    color = settings.red_shades[rank]
-                else:
-                    color = settings.green_shades[6] if has_emoji else settings.red_shades[6]
-                
-                ax.scatter(
-                    row['avg_words'],
-                    row['avg_punct'],
-                    s=size,
-                    color=color,
-                    alpha=0.5
-                )
-                
-                ax.text(
-                    row['avg_words'],
-                    row['avg_punct'],
-                    initials,
-                    fontsize=8,
-                    ha='center',
-                    va='center',
-                    color='black',
-                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='none')
-                )
-            
-            # Add trendlines
-            if len(agg_df) > 1:
-                line_x = np.linspace(agg_df['avg_words'].min(), agg_df['avg_words'].max(), 100)
-                if len(emoji_false) > 1:
-                    line_y_false = slope_false * line_x + intercept_false
-                    ax.plot(line_x, line_y_false, color='red', linestyle='--')
-                if len(emoji_true) > 1:
-                    line_y_true = slope_true * line_x + intercept_true
-                    ax.plot(line_x, line_y_true, color='green', linestyle='--')
-            
-            # Customize plot
-            ax.set_xlabel(settings.xlabel)
-            ax.set_ylabel(settings.ylabel)
-            ax.set_title(settings.title, fontsize=20, x=0.6, ha='center')
-            
-            # Create custom legend
-            total_false_msgs = int(emoji_false['message_count'].sum()) if not emoji_false.empty else 0
-            total_true_msgs = int(emoji_true['message_count'].sum()) if not emoji_true.empty else 0
-            legend_elements = [
-                plt.scatter([], [], s=100, color=settings.red_shades[0], label=f'Without emojis\nTotal: {total_false_msgs:,} msgs'),
-                plt.scatter([], [], s=100, color=settings.green_shades[0], label=f'With emojis\nTotal: {total_true_msgs:,} msgs'),
-                plt.scatter([], [], s=0, label='\nSize of bubble reflects number of msgs\n', alpha=0),
-                plt.plot([], [], color='red', linestyle='--', label='Trend line without emojis')[0],
-                plt.plot([], [], color='green', linestyle='--', label='Trend line with emojis')[0]
-            ]
-            ax.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left')
-            
-            plt.tight_layout()
-            plt.show()
-            logger.info("Created bubble plot (version 1) successfully.")
-            return fig
-        except Exception as e:
-            logger.exception(f"Failed to build bubble plot (version 1): {e}")
-            return None
-
-    def build_visual_relationships_bubble_2(self, agg_df, settings: BubblePlotSettings = BubblePlotSettings(title="More words = More Punctuations ... and Emojis reduce the number of Punctuations!", x=0.65)):
-        """
-        Create an enhanced bubble plot from prepared data: avg_words vs avg_punct, bubble size = message_count.
-        Groups/Colors: has_emoji=True in shades of green, has_emoji=False in shades of red,
-        with two trendlines: red (has_emoji=False), green (has_emoji=True).
-        Adds horizontal and vertical lines at y=1,2,3 with corresponding x-value labels, and filled areas.
-        Args:
-            agg_df (pandas.DataFrame): Aggregated data from DataPreparation with columns:
-                                    whatsapp_group, author, has_emoji, message_count, avg_words, avg_punct.
-            settings (BubblePlotSettings): Plot settings with color shades and layout configurations.
-        Returns:
-            matplotlib.figure.Figure or None: Figure object for the bubble plot, or None if creation fails.
-        """
-        if not isinstance(settings, BubblePlotSettings):
-            logger.error("Settings must be an instance of BubblePlotSettings.")
-            settings = BubblePlotSettings(title="More words = More Punctuations ... and Emojis reduce the number of Punctuations!", x=0.65)
-        
-        try:
-            fig, ax, emoji_true, emoji_false, top_5_true_keys, top_5_false_keys, slope_false, intercept_false, slope_true, intercept_true = self._build_bubble_common(agg_df, settings)
-            if fig is None:
-                return None
-
-            # Calculate intersection points for y=1,2,3
-            ks = [1, 2, 3]
-            x_reds = []
-            x_greens = []
-            for k in ks:
-                x_red = (k - intercept_false) / slope_false if slope_false and slope_false != 0 else 0
-                x_green = (k - intercept_true) / slope_true if slope_true and slope_true != 0 else 0
-                x_red = max(0, x_red)
-                x_green = max(0, x_green)
-                x_reds.append(x_red)
-                x_greens.append(x_green)
-            
-            # Calculate additional y values where x_green[1] and x_green[2] hit the red trendline
-            additional_ys = []
-            for k in [0, 1]:
-                x_green = x_greens[k]
-                y_next = slope_false * x_green + intercept_false if slope_false is not None and intercept_false is not None else 0
-                additional_ys.append(y_next)
-            
-            logger.info(f"Additional y values where x_green[1] and x_green[2] hit red trendline: {additional_ys}")
-            
-            # Set y-axis limits
-            ax.set_ylim(bottom=0, top=max(3.5, agg_df['avg_punct'].max() * 1.1))
-            
-            # Fill areas
-            gray_colors = [settings.gray_shades[3], settings.gray_shades[5], settings.gray_shades[7]]
-            prev_x_red = 0
-            prev_k = 0
-            for i, (k, x_red, color) in enumerate(zip(ks, x_reds, gray_colors)):
-                ax.fill(
-                    [0, 0, x_red, prev_x_red],
-                    [prev_k, k, k, prev_k],
-                    color=color,
-                    alpha=0.5,
-                    zorder=0
-                )
-                prev_x_red = x_red
-                prev_k = k
-            for i, (k, x_red, x_green, color) in enumerate(zip(ks, x_reds, x_greens, gray_colors)):
-                ax.fill(
-                    [x_red, x_red, x_green, x_green],
-                    [0, k, k, 0],
-                    color=color,
-                    alpha=0.5,
-                    zorder=0
-                )
-            ax.fill(
-                [x_greens[1], x_reds[2], x_reds[2], x_greens[1]],
-                [additional_ys[1], 3, 0, 0],
-                color=settings.gray_shades[7],
-                alpha=0.5,
-                zorder=0
-            )
-            ax.fill(
-                [x_greens[0], x_reds[1], x_reds[1], x_greens[0]],
-                [additional_ys[0], 2, 0, 0],
-                color=settings.gray_shades[5],
-                alpha=0.5,
-                zorder=0
-            )
-            ax.fill(
-                [0, x_reds[0], x_reds[0]],
-                [0, 1, 0],
-                color=settings.gray_shades[3],
-                alpha=0.5,
-                zorder=0
-            )
-            ax.fill(
-                [x_reds[1], x_greens[1], x_greens[1]],
-                [2, additional_ys[1], 2],
-                color=settings.gray_shades[7],
-                alpha=0.5,
-                zorder=0
-            )
-            
-            # Plot bubbles
-            for _, row in agg_df.iterrows():
-                group = row['whatsapp_group']
-                author = row['author']
-                has_emoji = row['has_emoji']
-                group_author = f"{group}_{author}"
-                size = row['message_count'] * 10
-                initials = f"{group[0].upper()}{''.join(word[0].upper() for word in author.split() if word)}"
-                
-                color = settings.green_shades[6] if has_emoji else settings.red_shades[6]
-                
-                ax.scatter(
-                    row['avg_words'],
-                    row['avg_punct'],
-                    s=size,
-                    color=color,
-                    alpha=0.5
-                )
-                
-                ax.text(
-                    row['avg_words'],
-                    row['avg_punct'],
-                    initials,
-                    fontsize=8,
-                    ha='center',
-                    va='center',
-                    color='black',
-                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='none')
-                )
-            
-            # Add trendlines
-            if len(agg_df) > 1:
-                line_x = np.linspace(agg_df['avg_words'].min(), agg_df['avg_words'].max(), 100)
-                if len(emoji_false) > 1:
-                    line_y_false = slope_false * line_x + intercept_false
-                    ax.plot(line_x, line_y_false, color='red', linestyle='--')
-                if len(emoji_true) > 1:
-                    line_y_true = slope_true * line_x + intercept_true
-                    ax.plot(line_x, line_y_true, color='green', linestyle='--')
-            
-            # Add horizontal and vertical lines
-            for i, k in enumerate(ks):
-                x_red = x_reds[i]
-                x_green = x_greens[i]
-                ax.hlines(y=k, xmin=0, xmax=x_red, color='black', linestyle='--')
-                ax.hlines(y=k, xmin=x_red, xmax=x_green, color='black', linestyle=':')
-                ax.vlines(x=x_red, ymin=0, ymax=k, color='red', linestyle='--')
-                ax.vlines(x=x_green, ymin=0, ymax=k, color='green', linestyle=':')
-                ax.text(x_red, 0.2, f"{x_red:.1f}", color='red', ha='center', va='top', fontsize=12)
-                ax.text(x_green, 0.2, f"{x_green:.1f}", color='green', ha='center', va='top', fontsize=12)
-                ax.scatter([x_reds[i]], [k], s=100, color=settings.red_shades[0], zorder=5)
-                ax.scatter([x_reds[i]], 0.05, s=100, color=settings.red_shades[0], zorder=5)
-                ax.scatter([x_greens[i]], [k], s=100, color=settings.green_shades[0], zorder=5)
-                ax.scatter([x_greens[i]], 0.05, s=100, color=settings.green_shades[0], zorder=5)
-            
-            # Add block arrows
-            for i, k in enumerate(ks):
-                ax.annotate(
-                    '',
-                    xy=(x_greens[i], 0.25),
-                    xytext=(x_reds[i], 0.25),
-                    arrowprops=dict(
-                        arrowstyle='-|>',
-                        color='black',
-                        linewidth=3,
-                        mutation_scale=20
-                    ),
-                    zorder=1
-                )
-                ax.annotate(
-                    '',
-                    xy=(x_reds[i], 0.25),
-                    xytext=(x_greens[i], 0.25),
-                    arrowprops=dict(
-                        arrowstyle='-|>',
-                        color='black',
-                        linewidth=3,
-                        mutation_scale=20
-                    ),
-                    zorder=1
-                )
-            
-            # Customize plot
-            ax.set_xlabel(settings.xlabel)
-            ax.set_ylabel(settings.ylabel)
-            ax.set_title(settings.title, fontsize=20, x=0.65, ha='center')
-            
-            # Create custom legend
-            total_false_msgs = int(emoji_false['message_count'].sum()) if not emoji_false.empty else 0
-            total_true_msgs = int(emoji_true['message_count'].sum()) if not emoji_true.empty else 0
-            legend_elements = [
-                plt.scatter([], [], s=100, color=settings.red_shades[6], label=f'Without emojis\nTotal: {total_false_msgs:,} msgs'),
-                plt.scatter([], [], s=100, color=settings.green_shades[6], label=f'With emojis\nTotal: {total_true_msgs:,} msgs'),
-                plt.scatter([], [], s=0, label='\nSize of bubble reflects number of msgs\n', alpha=0),
-                plt.plot([], [], color='red', linestyle='--', label='Trend line without emojis')[0],
-                plt.plot([], [], color='green', linestyle='--', label='Trend line with emojis')[0]
-            ]
-            ax.legend(handles=legend_elements, bbox_to_anchor=(1.05, 1), loc='upper left')
-            
-            plt.tight_layout()
-            plt.show()
-            logger.info("Created enhanced bubble plot (version 2) successfully.")
-            return fig
-        except Exception as e:
-            logger.exception(f"Failed to build enhanced bubble plot (version 2): {e}")
+            logger.exception(f"Failed to build non-message content visualizations: {e}")
             return None
 
     def plot_month_correlations(self, correlations, settings: PlotSettings = PlotSettings()):

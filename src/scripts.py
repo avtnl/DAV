@@ -159,54 +159,16 @@ class Step5Script(BaseScript):
         if df_groups.empty:
             return self.log_error(f"No data found for WhatsApp groups {groups}. Skipping bubble plot visualization.")
         try:
-            bubble_df = self.data_preparation.build_visual_relationships_bubble_new(df_groups, groups)
+            bubble_df = self.data_preparation.build_visual_relationships_bubble(df_groups, groups)
             if bubble_df is None or bubble_df.empty:
                 return self.log_error("Failed to prepare bubble plot data.")
-            fig_bubble = self.plot_manager.build_visual_relationships_bubble_new(bubble_df, self.settings)
+            fig_bubble = self.plot_manager.build_visual_relationships_bubble(bubble_df, self.settings)
             if fig_bubble is None:
                 return self.log_error("Failed to create bubble plot.")
             return self.save_figure(fig_bubble, self.image_dir, "bubble_plot_words_vs_punct")
         except Exception as e:
             logger.exception(f"Error in STEP 5 - Relationship Visualizations: {e}")
             return None
-
-class Step6Script(BaseScript):
-    """Script for Step 6: Message normalization and multi-dimensional visualization."""
-    def __init__(self, file_manager, data_editor, data_preparation, plot_manager, image_dir, tables_dir, processed, dr_settings: Optional[DimensionalityReductionSettings] = None, nmc_settings: Optional[PMNonMessageContentSettings] = None):
-        super().__init__(file_manager, data_editor=data_editor, data_preparation=data_preparation, plot_manager=plot_manager, settings=PlotSettings())
-        self.image_dir = image_dir
-        self.tables_dir = tables_dir
-        self.processed = processed
-        self.dr_settings = dr_settings or DimensionalityReductionSettings()
-        self.nmc_settings = nmc_settings or PMNonMessageContentSettings()
-
-    def run(self):
-        if 'message_cleaned' not in self.data_preparation.df.columns:
-            return self.log_error("Column 'message_cleaned' not found. Ensure clean_for_deleted_media_patterns() is called first.")
-        self.data_preparation.df['message_with_emojis'] = self.data_preparation.df['message_cleaned'].apply(self.data_editor.handle_emojis)
-        self.data_preparation.df['message_normalized'] = self.data_preparation.df['message_with_emojis'].apply(self.data_editor.normalize_text)
-        logger.info(f"Normalized messages: {self.data_preparation.df[['message_cleaned', 'message_with_emojis', 'message_normalized']].head(10).to_string()}")
-        csv_file = self.file_manager.save_csv(self.data_preparation.df, self.processed)
-        parq_file = self.file_manager.save_parq(self.data_preparation.df, self.processed)
-        if csv_file is None or parq_file is None:
-            return self.log_error("Failed to save normalized DataFrame.")
-        logger.info(f"Saved normalized DataFrame: CSV={csv_file}, Parquet={parq_file}")
-
-        vectorizer = CountVectorizer(vocabulary=self.data_preparation.vis_settings.golf_keywords)
-        grouped = self.data_preparation.df.groupby(['whatsapp_group', 'author'])['message_normalized'].apply(' '.join).reset_index()
-        grouped['group_author'] = grouped['whatsapp_group'] + '/' + grouped['author']
-        X = vectorizer.fit_transform(grouped['message_normalized'])
-        total_words = grouped['message_normalized'].apply(lambda x: len(x.split())).replace(0, 1)
-        X_normalized = X.toarray() / np.array(total_words)[:, np.newaxis]
-        feature_df = pd.DataFrame(X_normalized, columns=self.data_preparation.vis_settings.golf_keywords, index=grouped['group_author'])
-        feature_df = feature_df.reset_index().rename(columns={'index': 'group_author'})
-        saved_table = self.save_table(feature_df, self.tables_dir, "golf_features_normalized")
-        if saved_table is None:
-            return None
-        fig_multi = self.plot_manager.build_visual_not_message_content(feature_df, self.dr_settings, self.nmc_settings)
-        if fig_multi is None:
-            return self.log_error("Failed to create multi-dimensional visualization_2.")
-        return self.save_figure(fig_multi[0]['fig'], self.image_dir, "golf_relatedness_pca")
 
 class Step7Script(BaseScript):
     """Script for Step 7: Interaction dynamics visualization."""
@@ -238,50 +200,32 @@ class Step7Script(BaseScript):
         return None
 
 class Step10Script(BaseScript):
-    """Script for Step 10: DataFrame organization."""
-    def __init__(self, file_manager, data_editor, processed, tables_dir):
-        super().__init__(file_manager, data_editor=data_editor)
+    """Script for Step 10: Organize DataFrame with additional features."""
+    def __init__(self, file_manager, data_editor, data_preparation, processed, tables_dir, settings: Optional[PlotSettings] = None):
+        super().__init__(file_manager, data_editor=data_editor, data_preparation=data_preparation, settings=settings or PlotSettings())
         self.processed = processed
         self.tables_dir = tables_dir
 
     def run(self):
         try:
-            self.data_editor.df['year'] = self.data_editor.get_year(self.data_editor.df)
-            self.data_editor.df['month'] = self.data_editor.get_month(self.data_editor.df)
-            self.data_editor.df['week'] = self.data_editor.get_week(self.data_editor.df)
-            self.data_editor.df['active_years'] = self.data_editor.active_years(self.data_editor.df)
-            self.data_editor.df['early_leaver'] = self.data_editor.early_leaver(self.data_editor.df)
-            logger.info(f"Added columns: year, month, week, active_years, early_leaver")
-            logger.debug(f"DataFrame with new columns:\n{self.data_editor.df[['whatsapp_group', 'author', 'year', 'month', 'week', 'active_years', 'early_leaver']].head().to_string()}")
-
-            df_organized = self.data_editor.organize_df(self.data_editor.df)
-            if df_organized is None:
-                return self.log_error("Failed to organize DataFrame in STEP 10.")
-
-            df_organized = self.data_editor.convert_booleans(df_organized)
-            if df_organized is None:
-                return self.log_error("Failed to convert boolean columns in STEP 10.")
-
-            csv_file_with_redundancy = self.file_manager.save_csv(df_organized, self.processed, prefix="organized_data_with_redundancy")
-            parq_file_with_redundancy = self.file_manager.save_parq(df_organized, self.processed, prefix="organized_data_with_redundancy")
-            if csv_file_with_redundancy is None or parq_file_with_redundancy is None:
-                return self.log_error("Failed to save organized DataFrame with redundancy.")
-            logger.info(f"Saved organized DataFrame with redundancy: CSV={csv_file_with_redundancy}, Parquet={parq_file_with_redundancy}")
-
-            df_no_redundancy = self.data_editor.delete_redundant_attributes(df_organized)
-            if df_no_redundancy is None:
-                return self.log_error("Failed to delete redundant attributes in STEP 10.")
-
-            csv_file_no_redundancy = self.file_manager.save_csv(df_no_redundancy, self.processed, prefix="organized_data_no_redundancy")
-            parq_file_no_redundancy = self.file_manager.save_parq(df_no_redundancy, self.processed, prefix="organized_data_no_redundancy")
-            if csv_file_no_redundancy is None or parq_file_no_redundancy is None:
-                return self.log_error("Failed to save organized DataFrame no redundancy.")
-            logger.info(f"Saved organized DataFrame no redundancy: CSV={csv_file_no_redundancy}, Parquet={parq_file_no_redundancy}")
-            logger.debug(f"Organized DataFrame preview:\n{df_no_redundancy.head().to_string()}")
-
-            active_years = self.data_editor.df.groupby(['whatsapp_group', 'author'])['year'].agg(['min', 'max']).reset_index()
-            active_years['active_years'] = active_years.apply(lambda x: f"{x['min']}-{x['max']}", axis=1)
-            return self.save_table(active_years, self.tables_dir, "active_years")
+            # Assume the DataFrame is available from data_preparation.df or needs to be loaded
+            if self.data_preparation.df is None or self.data_preparation.df.empty:
+                logger.error("No valid DataFrame available in DataPreparation.")
+                return None
+            
+            df = self.data_preparation.df.copy()  # Work with a copy to avoid modifying the original
+            # Use DataEditor methods with the DataFrame
+            df = self.data_editor.clean_author(df)  # Example method; adjust based on your needs
+            df['year'] = self.data_editor.get_year(df)  # Add year column
+            
+            # Save the organized DataFrame
+            csv_file = self.file_manager.save_csv(df, self.processed, prefix="organized_data_step10")
+            parq_file = self.file_manager.save_parq(df, self.processed, prefix="organized_data_step10")
+            if csv_file is None or parq_file is None:
+                return self.log_error("Failed to save organized DataFrame.")
+            logger.info(f"Saved organized DataFrame: CSV={csv_file}, Parquet={parq_file}")
+            
+            return csv_file  # Or return None if no further action is needed
         except Exception as e:
             logger.exception(f"Error in STEP 10 - DataFrame Organization: {e}")
             return None
@@ -337,10 +281,10 @@ class Step11Script(BaseScript):
                     return self.log_error("Failed to save organized DataFrame.")
                 logger.info(f"Saved organized DataFrame: CSV={csv_file_specific}, Parquet={parq_file_specific}")
 
-            feature_df = self.data_preparation.build_visual_not_message_content(df, groupby_period=groupby_period)
+            feature_df = self.data_preparation.build_visual_no_message_content(df, groupby_period=groupby_period)
             if feature_df is None:
                 return self.log_error("Failed to build non-message content feature DataFrame.")
-            figs = self.plot_manager.build_visual_not_message_content(feature_df, settings=self.settings)
+            figs = self.plot_manager.build_visual_no_message_content(feature_df, settings=self.settings)
             if figs is None:
                 return self.log_error("Failed to create non-message content visualizations.")
             for fig_info in figs:
