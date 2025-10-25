@@ -16,24 +16,8 @@ from sklearn.decomposition import PCA
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Tuple
 
-class VisualSettings(BaseModel):
-    """Settings for visual preparations."""
-    golf_keywords: List[str] = [
-        'tee', 'birdie', 'bogey', 'bunker', 'caddie', 'chip', 'divot', 'draw', 'driver', 'eagle',
-        'fade', 'fairway', 'green', 'handicap', 'hcp', 'hole', 'hook', 'hybrid', 'lie', 'par',
-        'putter', 'qualifying', 'rough', 'slice', 'stroke', 'stablefore', 'stbf', 'stb', 'wedge',
-        'irons', 'masters', 'ryder', 'coupe', 'troffee', 'wedstrijd', 'majors', 'flag_in_hole',
-        'person_golfing', 'man_golfing', 'woman_golfing', 'trophy', 'white_circle'
-    ]
-
-class SequenceSettings(BaseModel):
-    """Settings for sequence handling."""
-    gender_map: Dict[str, str] = {
-        'Anthony van Tilburg': 'M',
-        'Phons Berkemeijer': 'M',
-        'Anja Berkemeijer': 'F',
-        'Madeleine': 'F'
-    }
+class ThreadingSettings(BaseModel):
+    """Settings for threading features."""
     married_couples: List[Tuple[str, str]] = []
     min_messages: int = 3
     max_lag: int = 5
@@ -43,7 +27,7 @@ class InteractionSettings(BaseModel):
     """Settings for interaction features."""
     threading_min_length: int = 2
 
-class NonMessageContentSettings(BaseModel):
+class NoMessageContentSettings(BaseModel):
     """Settings for non-message content features."""
     numerical_columns: List[str] = [
         'length_chat', 'response_time', 'number_of_emojis', 'number_of_punctuations',
@@ -77,42 +61,33 @@ class BaseHandler:
         return df
 
 class DataPreparation(BaseHandler):
-    """A class for preparing WhatsApp message data for visualization, inheriting from BaseHandler."""
-    
-    def __init__(self, data_editor=None, seq_settings: SequenceSettings = SequenceSettings(), 
-                 int_settings: InteractionSettings = InteractionSettings(), 
-                 nmc_settings: NonMessageContentSettings = NonMessageContentSettings(), 
-                 vis_settings: VisualSettings = VisualSettings()):
-        # Initialize BaseHandler with vis_settings
-        super().__init__(settings=vis_settings)
+    def __init__(self, data_editor=None, threading_settings: ThreadingSettings = ThreadingSettings(),
+                 int_settings: InteractionSettings = InteractionSettings(),
+                 nmc_settings: NoMessageContentSettings = NoMessageContentSettings()):
+        super().__init__(settings=nmc_settings)
         self.data_editor = data_editor
-        self.seq_settings = seq_settings
+        self.threading_settings = threading_settings
         self.int_settings = int_settings
         self.nmc_settings = nmc_settings
-        self.vis_settings = vis_settings
-        self.df = None  # Store the DataFrame for use in scripts
+        self.df = None
 
-    def build_visual_categories(self, df: pd.DataFrame, settings: VisualSettings = None) -> Tuple[pd.DataFrame, Dict[str, List[str]], pd.DataFrame, pd.DataFrame, List[str]]:
+    def build_visual_categories(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, List[str]], pd.DataFrame, pd.DataFrame, List[str]]:
         """
         Prepare DataFrame for visualization by adding year, active years, and early leaver columns,
         computing group authors, non-Anthony averages, Anthony's message counts, and sorted groups.
 
         Args:
             df (pandas.DataFrame): Input DataFrame with 'timestamp', 'author', and 'whatsapp_group' columns.
-            settings (VisualSettings, optional): Visualization settings (defaults to self.vis_settings).
 
         Returns:
             tuple: (pandas.DataFrame, dict, pandas.DataFrame, pandas.DataFrame, list) -
-                Modified DataFrame with added columns, group authors dict, non-Anthony average DataFrame,
-                Anthony messages DataFrame, sorted groups list.
+                   Modified DataFrame with added columns, group authors dict, non-Anthony average DataFrame,
+                   Anthony messages DataFrame, sorted groups list.
         """
         # Use BaseHandler's empty DataFrame check
         df = self._handle_empty_df(df, "visual categories preparation")
         if df.empty:
             return df, None, None, None, None
-
-        # Use provided settings or default to self.vis_settings
-        settings = settings or self.vis_settings
 
         try:
             self.df = df.copy()  # Store a copy of the DataFrame
@@ -508,7 +483,7 @@ class DataPreparation(BaseHandler):
                         features['num_groups_participated'] = author_year_df['whatsapp_group'].nunique()
                         total_msgs = len(sub_df)
                         features['avg_msgs_per_group'] = total_msgs / features['num_groups_participated'] if features['num_groups_participated'] > 0 else 0.0
-                        threading_features = self._compute_threading_features(sub_df, author)
+                        threading_features = self._compute_threading_features(sub_df, author, self.threading_settings)
                         features.update(threading_features)
                         feature_list.append(features)
                     
@@ -541,7 +516,7 @@ class DataPreparation(BaseHandler):
                     features['num_groups_participated'] = author_year_df['whatsapp_group'].nunique()
                     total_msgs = len(sub_df)
                     features['avg_msgs_per_group'] = total_msgs / features['num_groups_participated'] if features['num_groups_participated'] > 0 else 0.0
-                    threading_features = self._compute_threading_features(sub_df, author)
+                    threading_features = self._compute_threading_features(sub_df, author, self.threading_settings)
                     features.update(threading_features)
                     feature_list.append(features)
                 else:
@@ -576,7 +551,7 @@ class DataPreparation(BaseHandler):
                     features['num_groups_participated'] = author_year_df['whatsapp_group'].nunique()
                     total_msgs = len(sub_df)
                     features['avg_msgs_per_group'] = total_msgs / features['num_groups_participated'] if features['num_groups_participated'] > 0 else 0.0
-                    threading_features = self._compute_threading_features(sub_df, author)
+                    threading_features = self._compute_threading_features(sub_df, author, self.threading_settings)
                     features.update(threading_features)
                     feature_list.append(features)
             
@@ -589,41 +564,38 @@ class DataPreparation(BaseHandler):
             logger.exception(f"Failed to build interaction features: {e}")
             return None
 
-    def _compute_threading_features(self, sub_df: pd.DataFrame, author: str) -> Dict[str, float]:
-        features = {
-            'num_initiated': 0,
-            'avg_depth_initiated': 0.0,
-            'num_joined': 0,
-            'avg_position': 0.0
-        }
-        try:
-            if len(sub_df) < self.int_settings.threading_min_length:
+    def _compute_threading_features(self, df: pd.DataFrame, author: str, threading_settings: ThreadingSettings) -> dict:
+            """
+            Compute threading features for a given author.
+            Used by build_interaction_features.
+
+            Args:
+                df (pandas.DataFrame): Input DataFrame with message data.
+                author (str): Author name to compute features for.
+                threading_settings (ThreadingSettings): Settings for threading computation.
+
+            Returns:
+                dict: Dictionary of threading features.
+            """
+            features = {}
+            try:
+                min_messages = threading_settings.min_messages
+                max_lag = threading_settings.max_lag
+                time_diff_threshold = threading_settings.time_diff_threshold
+                df_author = df[df['author'] == author].sort_values('timestamp')
+                sequence_count = 0
+                for i in range(len(df_author) - min_messages + 1):
+                    sequence = df_author.iloc[i:i+min_messages]
+                    if len(sequence) == min_messages:
+                        time_diffs = (sequence['timestamp'].diff().dt.total_seconds() / 3600).dropna()
+                        if all(time_diffs <= time_diff_threshold):
+                            sequence_count += 1
+                features['threading_sequences'] = sequence_count
+                logger.debug(f"Computed threading features for {author}: {features}")
                 return features
-            sub_df = sub_df.copy()
-            sub_df['timestamp'] = pd.to_datetime(sub_df['timestamp'])
-            sub_df = sub_df.reset_index(drop=True)
-            group_dfs = []
-            for group, group_df in sub_df.groupby('whatsapp_group'):
-                if len(group_df) < self.int_settings.threading_min_length:
-                    continue
-                group_df = group_df.sort_values('timestamp')
-                group_df['time_diff'] = group_df['timestamp'].diff().dt.total_seconds() / 3600.0
-                group_df['thread_id'] = (group_df['time_diff'] > self.seq_settings.time_diff_threshold).cumsum()
-                group_dfs.append(group_df)
-            if not group_dfs:
+            except Exception as e:
+                logger.warning(f"Failed to compute threading features for {author}: {e}")
                 return features
-            sub_df = pd.concat(group_dfs, ignore_index=True)
-            thread_starts = sub_df[sub_df['thread_id'].diff() != 0]
-            thread_starts = thread_starts[thread_starts['author'] == author]
-            features['num_initiated'] = len(thread_starts)
-            features['avg_depth_initiated'] = 1.0 if features['num_initiated'] > 0 else 0.0
-            features['num_joined'] = len(sub_df) - features['num_initiated']
-            features['avg_position'] = 0.5 if len(sub_df) > 0 else 0.0
-            logger.debug(f"Threading features for {author}: {features}")
-            return features
-        except Exception as e:
-            logger.warning(f"Failed to compute threading features for {author}: {e}")
-            return features
 
     def build_visual_no_message_content(self, df: pd.DataFrame, groupby_period: str = 'week') -> pd.DataFrame:
         if df.empty:

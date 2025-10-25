@@ -33,17 +33,17 @@ class PlotSettings(BaseModel):
     rotation: int = 0
     legend_title: Optional[str] = None
 
-class ColoredPlotSettings(PlotSettings):
+class ColorSettings(PlotSettings):
     """Extended settings for colored plots."""
     color_palette: str = "coolwarm"
 
-class DimensionalityReductionSettings(BaseModel):
+class DimReductionSettings(BaseModel):
     """Settings for dimensionality reduction."""
     n_top_features: int = 15
     perplexity: int = 30
     metric: str = "euclidean"
 
-class NonMessageContentSettings(ColoredPlotSettings):
+class NoMessageContentSettings(ColorSettings):
     """Settings for non-message content visualizations."""
     group_color_map: Dict[str, str] = {
         'maap': 'blue',
@@ -60,7 +60,7 @@ class NonMessageContentSettings(ColoredPlotSettings):
     alpha_global: float = 0.6
     plot_type: str = 'both'  # 'per_group', 'global', or 'both'
 
-class CategoriesPlotSettings(ColoredPlotSettings):
+class CategoriesPlotSettings(ColorSettings):
     """Settings for categories bar chart."""
     bar_width: float = 0.4
     overall_avg_label: str = 'Overall average messages per Author'
@@ -86,7 +86,7 @@ class DistributionPlotSettings(PlotSettings):
     cum_threshold: int = 75
     top_n: int = 25
 
-class BubblePlotSettings(ColoredPlotSettings):
+class BubblePlotSettings(ColorSettings):
     """Settings for bubble plots."""
     green_shades: List[str] = ['#00CC00', '#1AFF1A', '#33FF33', '#4DFF4D', '#66FF66', '#80FF80', '#99FF99', '#B3FFB3', '#CCFFCC', '#E6FFE6']
     red_shades: List[str] = ['#CC0000', '#FF1A1A', '#FF3333', '#FF4D4D', '#FF6666', '#FF8080', '#FF9999', '#FFB3B3', '#FFCCCC', '#FFE6E6']
@@ -111,7 +111,7 @@ class BubbleNewPlotSettings(PlotSettings):
     max_bubble_size: int = 500
     legend_scale_factor: float = 1.0 / 3.0  # Scale legend sizes to 1/3 of plot bubble sizes
 
-class ArcPlotSettings(ColoredPlotSettings):
+class ArcPlotSettings(ColorSettings):
     amplifier: int = 3
     married_couples: List[Tuple[str, str]] = Field(default_factory=lambda: [("Anja Berkemeijer", "Phons Berkemeijer"), ("Madeleine", "Anthony van Tilburg")])
     arc_types: List[Tuple[str, str | None, float, int]] = Field(default_factory=lambda: [
@@ -171,7 +171,7 @@ class PlotManager:
             logger.warning("Segoe UI Emoji font not found. Falling back to default font. Some emojis may not render correctly.")
             plt.rcParams['font.family'] = 'DejaVu Sans'
 
-    # def _prepare_features(self, feature_df, groupby_period=None, settings: DimensionalityReductionSettings = DimensionalityReductionSettings()):
+    # def _prepare_features(self, feature_df, groupby_period=None, settings: DimReductionSettings = DimReductionSettings()):
     #     """Prepare features: drop non-numeric, select top by variance, normalize."""
     #     drop_columns = ['author', 'year', 'whatsapp_group']
     #     if groupby_period and groupby_period in ['week', 'month', 'year']:
@@ -190,7 +190,7 @@ class PlotManager:
     #     logger.info(f"Normalized numerical features with shape {scaled_features.shape}")
     #     return scaled_features
 
-    def _prepare_features(self, feature_df, groupby_period=None, settings: DimensionalityReductionSettings = DimensionalityReductionSettings()):
+    def _prepare_features(self, feature_df, groupby_period=None, settings: DimReductionSettings = DimReductionSettings()):
         """Prepare features: drop non-numeric, select top by variance, no normalization."""
         drop_columns = ['author', 'year', 'whatsapp_group']
         if groupby_period and groupby_period in ['week', 'month', 'year']:
@@ -208,7 +208,7 @@ class PlotManager:
         logger.info(f"Prepared numerical features (no scaling) with shape {numerical_features.shape}")
         return numerical_features.values  # Convert to NumPy array for compatibility
 
-    def _get_reducer(self, method, n_samples, settings: DimensionalityReductionSettings = DimensionalityReductionSettings()):
+    def _get_reducer(self, method, n_samples, settings: DimReductionSettings = DimReductionSettings()):
         """Get reducer based on method and settings."""
         perplexity = min(settings.perplexity, n_samples - 1)
         if method == 'pca':
@@ -218,7 +218,7 @@ class PlotManager:
         else:
             raise ValueError(f"Unknown reduction method: {method}")
 
-    def _plot_per_group(self, X_reduced, feature_df, method, settings: NonMessageContentSettings):
+    def _plot_per_group(self, X_reduced, feature_df, method, settings: NoMessageContentSettings):
         """Per-group scatter plots colored by author, with optional ellipses."""
         figs = []
         unique_groups = feature_df['whatsapp_group'].unique()
@@ -253,7 +253,7 @@ class PlotManager:
             plt.show()
         return figs
 
-    def _plot_global(self, X_reduced, feature_df, method, settings: NonMessageContentSettings):
+    def _plot_global(self, X_reduced, feature_df, method, settings: NoMessageContentSettings):
         """Global scatter plot colored by group, with Anthony special and optional ellipses."""
         fig, ax = plt.subplots(figsize=settings.figsize)
         for i in range(len(X_reduced)):
@@ -671,29 +671,36 @@ class PlotManager:
         ax.add_patch(ellipse)
         logger.debug(f"Drew {alpha*100:.0f}% confidence ellipse with center ({mean_x:.2f}, {mean_y:.2f}) and scale {scale:.2f}")
 
-    def build_visual_no_message_content(self, feature_df, dr_settings: DimensionalityReductionSettings = DimensionalityReductionSettings(), nmc_settings: NonMessageContentSettings = NonMessageContentSettings(), settings: Optional[PlotSettings] = None):
+    def build_visual_no_message_content(self, feature_df, plot_type: str = 'both', dr_settings: DimReductionSettings = DimReductionSettings(), nmc_settings: NoMessageContentSettings = NoMessageContentSettings(), settings: Optional[PlotSettings] = None):
         """
         Non-message content visualizations using configs.
-        
+
         Args:
             feature_df (pandas.DataFrame): Feature matrix with relevant columns.
-            dr_settings (DimensionalityReductionSettings): Dimensionality reduction settings.
-            nmc_settings (NonMessageContentSettings): Settings for group and Anthony color maps.
+            plot_type (str): Dimensionality reduction method ('both', 'pca', or 'tsne').
+            dr_settings (DimReductionSettings): Dimensionality reduction settings.
+            nmc_settings (NoMessageContentSettings): Settings for group and Anthony color maps.
             settings (Optional[PlotSettings]): Legacy settings for backward compatibility (optional).
-        
+
         Returns:
             list: List of dictionaries containing figures and filenames, or None if creation fails.
         """
-        if settings is not None and not isinstance(settings, (DimensionalityReductionSettings, NonMessageContentSettings)):
+        if settings is not None and not isinstance(settings, (DimReductionSettings, NoMessageContentSettings)):
             logger.warning("Received legacy 'settings' parameter. Using default dr_settings and nmc_settings instead. Update caller to use dr_settings and nmc_settings.")
-            dr_settings = DimensionalityReductionSettings()
-            nmc_settings = NonMessageContentSettings()
-        
+            dr_settings = DimReductionSettings()
+            nmc_settings = NoMessageContentSettings()
+
+        # Validate plot_type
+        if plot_type not in ['both', 'pca', 'tsne']:
+            logger.error(f"Invalid plot_type: {plot_type}. Must be 'both', 'pca', or 'tsne'.")
+            return None
+
         try:
             figs = []
             numerical_features = self._prepare_features(feature_df, settings=dr_settings)
-            #for method in ['pca', 'tsne']:
-            for method in ['tsne']:
+            # Determine methods based on plot_type
+            methods = ['pca', 'tsne'] if plot_type == 'both' else [plot_type]
+            for method in methods:
                 reducer = self._get_reducer(method, len(feature_df), dr_settings)
                 X_reduced = reducer.fit_transform(numerical_features)
                 distances = pairwise_distances(X_reduced, metric=dr_settings.metric)
@@ -768,7 +775,7 @@ class PlotManager:
             logger.exception(f"Failed to plot {feature_name} trends: {e}")
             return None
 
-    def build_visual_interactions(self, feature_df, method='tsne', settings: DimensionalityReductionSettings = DimensionalityReductionSettings()):
+    def build_visual_interactions(self, feature_df, method='tsne', settings: DimReductionSettings = DimReductionSettings(), nmc_settings: NoMessageContentSettings = NoMessageContentSettings()):
         """
         Specialized 2D visualization for interaction features using PCA or t-SNE.
         Colors by author for evolution over years.
@@ -781,9 +788,9 @@ class PlotManager:
         Returns:
             matplotlib.figure.Figure or None: The plot figure.
         """
-        if not isinstance(settings, DimensionalityReductionSettings):
-            logger.warning("Settings must be an instance of DimensionalityReductionSettings. Using default DimensionalityReductionSettings.")
-            settings = DimensionalityReductionSettings()
+        if not isinstance(settings, DimReductionSettings):
+            logger.warning("Settings must be an instance of DimReductionSettings. Using default DimReductionSettings.")
+            settings = DimReductionSettings()
         
         try:
             labels = feature_df.index.values
@@ -813,7 +820,7 @@ class PlotManager:
             logger.exception(f"Failed to build interaction visualization: {e}")
             return None
 
-    def build_visual_interactions_2(self, feature_df, method='tsne', settings: DimensionalityReductionSettings = DimensionalityReductionSettings(), nmc_settings: NonMessageContentSettings = NonMessageContentSettings()):
+    def build_visual_interactions_2(self, feature_df, method='tsne', settings: DimReductionSettings = DimReductionSettings(), nmc_settings: NoMessageContentSettings = NoMessageContentSettings()):
         """
         Create two 2D visualizations for interaction features using PCA or t-SNE.
         First plot: Colors by author, with 'Anthony van Tilburg' points for each group-year and overall.
@@ -824,15 +831,15 @@ class PlotManager:
         Args:
             feature_df (pandas.DataFrame): Feature matrix with 'author_year' or 'author_year_group' index and 'whatsapp_group' column.
             method (str): 'pca' or 'tsne'.
-            settings (DimensionalityReductionSettings): Dimensionality reduction settings.
-            nmc_settings (NonMessageContentSettings): Settings for group and Anthony color maps.
+            settings (DimReductionSettings): Dimensionality reduction settings.
+            nmc_settings (NoMessageContentSettings): Settings for group and Anthony color maps.
     
         Returns:
             tuple: (matplotlib.figure.Figure, matplotlib.figure.Figure) or (None, None) if creation fails.
         """
-        if not isinstance(settings, DimensionalityReductionSettings):
-            logger.warning("Settings must be an instance of DimensionalityReductionSettings. Using default DimensionalityReductionSettings.")
-            settings = DimensionalityReductionSettings()
+        if not isinstance(settings, DimReductionSettings):
+            logger.warning("Settings must be an instance of DimReductionSettings. Using default DimReductionSettings.")
+            settings = DimReductionSettings()
         
         try:
             labels = feature_df.index.values
