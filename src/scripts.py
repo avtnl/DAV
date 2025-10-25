@@ -479,19 +479,34 @@ class Script11(BaseScript):
                 return None
             logger.info(f"Loading latest {prefix} data from {datafile}")
             column_mapping = {}  # Empty for now
-            df = pd.read_csv(datafile, parse_dates=['timestamp'])
+            df = pd.read_csv(datafile, parse_dates=['timestamp'], date_parser=lambda x: pd.to_datetime(x, errors='coerce'))
+            logger.debug(f"Timestamp column dtype: {df['timestamp'].dtype}")
+            logger.debug(f"Timestamp sample: {df['timestamp'].head().to_list()}")
+            if df['timestamp'].isna().any():
+                logger.warning(f"Found {df['timestamp'].isna().sum()} NaT values in timestamp column")
             df = df.rename(columns=column_mapping)
             df['month'] = self.data_editor.get_month(df)
+            if df['month'].isna().all():
+                self.log_error("Failed to extract month: all values are NaN")
+                return None
             df['week'] = self.data_editor.get_week(df)
-            logger.debug(f"DataFrame after adding month and week columns:\n{df[Columns.WHATSAPP_GROUP.value, Columns.YEAR.value, Columns.MONTH.value, Columns.WEEK.value].head().to_string()}")
-            df = df[Columns.WHATSAPP_GROUP.value != Groups.TILLIES.value].copy()
+            if df['week'].isna().all():
+                self.log_error("Failed to extract week: all values are NaN")
+                return None
+            required_cols = [Columns.WHATSAPP_GROUP.value, Columns.YEAR.value, Columns.MONTH.value, Columns.WEEK.value]
+            missing_cols = [col for col in required_cols if col not in df.columns]
+            if missing_cols:
+                self.log_error(f"Missing columns in DataFrame: {missing_cols}")
+                return None
+            logger.debug(f"DataFrame after adding month and week columns:\n{df[required_cols].head().to_string()}")
+            df = df[df[Columns.WHATSAPP_GROUP.value] != Groups.TILLIES.value].copy()
             if df.empty:
                 self.log_error(f"No data remains after filtering out '{Groups.TILLIES.value}' group.")
                 return None
             logger.info(f"Filtered DataFrame excluding '{Groups.TILLIES.value}': {len(df)} rows")
             return df
         except Exception as e:
-            self.log_error(f"Failed to load and preprocess data: {e}")
+            logger.exception(f"Failed to load and preprocess data: {e}")
             return None
 
     def delete_and_save_attributes(self, df: pd.DataFrame, delete_specific_attributes: bool) -> pd.DataFrame:
