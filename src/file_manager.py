@@ -8,6 +8,7 @@ from datetime import datetime
 import wa_analyzer.preprocess as preprocessor
 import pandas as pd
 import matplotlib.pyplot as plt
+from constants import Columns
 
 class FileManager:
     def find_name_csv(self, path, timestamp):
@@ -174,7 +175,30 @@ class FileManager:
                 logger.error("No valid CSV files found in config")
                 return None, None, None, None
             return datafiles, processed, group_map, None
-    
+
+    def load_dataframe(self, datafile: Path, mapping: dict = {}) -> pd.DataFrame:
+        """
+        Load a DataFrame from a CSV file and apply column renaming if a mapping is provided.
+
+        Args:
+            datafile (Path): Path to the CSV file.
+            mapping (dict): Dictionary for renaming columns (e.g., {'old_name': 'new_name'}). Defaults to empty.
+
+        Returns:
+            pd.DataFrame: Loaded and potentially renamed DataFrame.
+        """
+        try:
+            df = pd.read_csv(datafile, parse_dates=[Columns.TIMESTAMP.value])  # Use Enum for parse_dates; will expand later
+            if mapping:
+                df = df.rename(columns=mapping)
+                logger.info(f"Applied column mapping: {mapping}")
+            else:
+                logger.debug("No column mapping applied.")
+            return df
+        except Exception as e:
+            logger.error(f"Failed to load DataFrame from {datafile}: {e}")
+            return None
+
     def save_csv(self, df, processed_dir, prefix="whatsapp"):
         """
         Save the DataFrame to a CSV file with a unique timestamped filename.

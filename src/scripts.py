@@ -1,20 +1,31 @@
 import pandas as pd
-import numpy as np
 from loguru import logger
 from sklearn.feature_extraction.text import CountVectorizer
 from plot_manager import PlotSettings, CategoriesPlotSettings, TimePlotSettings, DistributionPlotSettings, NoMessageContentSettings as PlotManagerNoMessageContentSettings, DimReductionSettings, ArcPlotSettings, BubbleNewPlotSettings
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Tuple
-from pathlib import Path  # Added to resolve Path type hint
+from pathlib import Path
+import copy
+from constants import Columns, Groups, DataFeed, PlotFeed, GroupByPeriod, DeleteAttributes, PlotType
 
 class BaseScript:
-    """Base class for scripts with common functionality."""
-    def __init__(self, file_manager, data_editor=None, data_preparation=None, plot_manager=None, settings: BaseModel = None):
+    """Base class for scripts with common functionality.
+
+    Attributes:
+        file_manager: Manages file operations.
+        data_editor: Edits data (optional).
+        data_preparation: Prepares data (optional).
+        plot_manager: Manages plotting (optional).
+        settings: Configuration settings (optional, defaults to PlotSettings).
+        df: Original DataFrame for subclass processing (optional).
+    """
+    def __init__(self, file_manager, data_editor=None, data_preparation=None, plot_manager=None, settings: BaseModel = None, df=None):
         self.file_manager = file_manager
         self.data_editor = data_editor
         self.data_preparation = data_preparation
         self.plot_manager = plot_manager
-        self.settings = settings or PlotSettings()
+        self.settings = settings or PlotSettings()  # Default to PlotSettings if None
+        self.df = df  # Store original df if passed
 
     def save_figure(self, fig, image_dir: Path, filename: str) -> Optional[Path]:
         """Save a figure to the specified directory."""
@@ -43,6 +54,138 @@ class BaseScript:
         """Abstract method to be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement run()")
 
+def prepare_category_data(data_preparation, df, logger):
+    """
+    Prepare category-related data (group authors, non-Anthony averages, etc.) for scripts requiring it.
+
+    Args:
+        data_preparation (DataPreparation): Instance to call build_visual_categories.
+        df (pd.DataFrame): Input DataFrame to process.
+        logger: Logger instance for error reporting.
+
+    Returns:
+        tuple: (df, group_authors, non_anthony_group, anthony_group, sorted_groups) or (None, None, None, None, None)
+            if preparation fails.
+    """
+    try:
+        df, group_authors, non_anthony_group, anthony_group, sorted_groups = data_preparation.build_visual_categories(df)
+        if df is None or group_authors is None or sorted_groups is None:
+            logger.error("Failed to initialize required variables for category-dependent scripts.")
+            return None, None, None, None, None
+        return df, group_authors, non_anthony_group, anthony_group, sorted_groups
+    except Exception as e:
+        logger.exception(f"Error preparing category data: {e}")
+        return None, None, None, None, None
+    
+class Script0(BaseScript):
+    """Script for: Reads raw WhatsApp files, preprocesses and processes these files, 
+    which are saved in both CSV and Parquet format."""
+    
+    def __init__(self, file_manager, data_editor, data_preparation, processed_dir, config, image_dir):
+        super().__init__(file_manager, data_editor=data_editor, data_preparation=data_preparation)
+        self.processed_dir = processed_dir
+        self.config = config
+        self.image_dir = image_dir
+        self.dataframes = {}
+        
+    def run(self):
+        """Execute the preprocessing pipeline and return the final processed DataFrame."""
+        try:
+            # Get CSV file(s), processed directory, group mapping, and Parquet files
+            datafiles, processed, group_map, parq_files = self.file_manager.read_csv()
+            
+            # Check if any datafiles were returned
+            if not datafiles or datafiles is None:
+                return self.log_error("No valid data files were loaded. Exiting.")
+            
+            # Process files based on preprocess flag
+            if self.config["preprocess"]:
+                for datafile in datafiles:
+                    if not datafile.exists():
+                        logger.warning(f"{datafile} does not exist. Maybe check timestamp!")
+                        continue
+                    try:
+                        df = self.data_editor.convert_timestamp(datafile)
+                        df = self.data_editor.clean_author(df)
+                        df[Columns.HAS_EMOJI.value] = df["message"].apply(self.data_editor.has_emoji)
+                        
+                        # Assign whatsapp_group based on parq_files mapping
+                        for key, parq_name in parq_files.items():
+                            if parq_name.replace(".parq", ".csv") == datafile.name:
+                                df[Columns.WHATSAPP_GROUP.value] = group_map[key]
+                                break
+                        else:
+                            df[Columns.WHATSAPP_GROUP.value] = Groups.UNKNOWN.value
+                        
+                        logger.info(f"Processed DataFrame from {datafile}:\n{df.head()}")
+                        csv_file = self.file_manager.save_csv(df, processed)
+                        parq_file = self.file_manager.save_parq(df, processed)
+                        logger.info(f"Saved files: CSV={csv_file}, Parquet={parq_file}")
+                        self.dataframes[datafile.stem] = df
+                    except Exception as e:
+                        logger.error(f"Failed to process {datafile}: {e}")
+                        continue
+            else:
+                # Load preprocessed files
+                for key, group in group_map.items():
+                    datafile = processed / self.config[key]
+                    datafile = datafile.with_suffix(".csv")
+                    logger.debug(f"Attempting to load {datafile}")
+                    if not datafile.exists():
+                        logger.warning(f"{datafile} does not exist. Run preprocessing first or check timestamp!")
+                        continue
+                    try:
+                        df = self.data_editor.convert_timestamp(datafile)
+                        df = self.data_editor.clean_author(df)
+                        df[Columns.HAS_EMOJI.value] = df["message"].apply(self.data_editor.has_emoji)
+                        df[Columns.WHATSAPP_GROUP.value] = group
+                        self.dataframes[key] = df
+                        logger.info(f"Loaded {datafile} with {len(df)} rows")
+                    except Exception as e:
+                        logger.exception(f"Failed to load {datafile}: {e}")
+                        continue
+            
+            if not self.dataframes:
+                return self.log_error("No valid data files were loaded. Exiting.")
+            
+            # Concatenate and further process dataframes
+            df = self.data_editor.concatenate_df(self.dataframes)
+            if df is None:
+                return self.log_error("Failed to concatenate dataframes.")
+            
+            df = self.data_editor.filter_group_names(df)
+            if df is None:
+                return self.log_error("Failed to filter group names.")
+            
+            df = self.data_editor.clean_for_deleted_media_patterns(df)
+            if df is None:
+                return self.log_error("Failed to clean messages for all groups.")
+            
+            # Save combined files
+            csv_file, parq_file = self.file_manager.save_combined_files(df, self.processed_dir)
+            if csv_file is None or parq_file is None:
+                return self.log_error("Failed to save combined files.")
+            
+            # Final filtering
+            df = self.data_editor.filter_group_names(df)
+            if df is None:
+                return self.log_error("Final group name filtering failed.")
+            
+            # Create tables directory
+            tables_dir = Path("tables")
+            tables_dir.mkdir(parents=True, exist_ok=True)
+            
+            logger.info("Preprocessing pipeline completed successfully.")
+            return {
+                'df': df,
+                'tables_dir': tables_dir,
+                'dataframes': self.dataframes
+            }
+            
+        except Exception as e:
+            logger.exception(f"Error in preprocessing pipeline: {e}")
+            return None
+
 class Script1(BaseScript):
     """Script for: Build yearly bar chart."""
     def __init__(self, file_manager, plot_manager, image_dir, group_authors, non_anthony_group, anthony_group, sorted_groups, settings: Optional[CategoriesPlotSettings] = None):
@@ -67,9 +210,9 @@ class Script2(BaseScript):
         self.df = df
 
     def run(self):
-        df_dac = self.df[self.df['whatsapp_group'] == 'dac'].copy()
+        df_dac = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.DAC.value].copy()
         if df_dac.empty:
-            return self.log_error("No data found for WhatsApp group 'dac'. Skipping time-based visualization.")
+            return self.log_error(f"No data found for WhatsApp group '{Groups.DAC.value}'. Skipping time-based visualization.")
         df_dac, p, average_all = self.data_preparation.build_visual_time(df_dac)
         if df_dac is None or p is None or average_all is None:
             return self.log_error("Failed to prepare data for time-based visualization.")
@@ -86,9 +229,9 @@ class Script3(BaseScript):
         self.df = df
 
     def run(self):
-        df_maap = self.df[self.df['whatsapp_group'] == 'maap'].copy()
+        df_maap = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.MAAP.value].copy()
         if df_maap.empty:
-            return self.log_error("No data found for WhatsApp group 'maap'. Skipping distribution visualization.")
+            return self.log_error("No data found for WhatsApp group '{Groups.DAC.value}'. Skipping distribution visualization.")
         df_maap = self.data_editor.clean_for_deleted_media_patterns(df_maap)
         if df_maap is None:
             return self.log_error("Failed to clean messages for distribution visualization.")
@@ -103,13 +246,8 @@ class Script3(BaseScript):
 
 class Script4(BaseScript):
     """Script for: Build relationships arc diagram."""
-    def __init__(self, file_manager, data_preparation, plot_manager,
-                 image_dir, tables_dir, group_authors,
-                 settings: Optional[ArcPlotSettings] = None):
-        super().__init__(file_manager,
-                         data_preparation=data_preparation,
-                         plot_manager=plot_manager,
-                         settings=settings or ArcPlotSettings())
+    def __init__(self, file_manager, data_preparation, plot_manager, image_dir, tables_dir, group_authors, original_df=None, settings: Optional[ArcPlotSettings] = None):
+        super().__init__(file_manager, data_preparation=data_preparation, plot_manager=plot_manager, settings=settings or ArcPlotSettings(), df=original_df)
         self.image_dir = image_dir
         self.tables_dir = tables_dir
         self.group_authors = group_authors
@@ -118,12 +256,25 @@ class Script4(BaseScript):
         """
         Build and save the participation table for the arc diagram.
 
+        This method constructs a participation table (e.g., message counts per author) from a
+        filtered DataFrame and saves it to a table file. The table is specific to the provided
+        WhatsApp group.
+
         Args:
-            df_group (pandas.DataFrame): Filtered DataFrame for the specified group (e.g., 'maap').
-            group (str): WhatsApp group name (e.g., 'maap').
+            df_group (pandas.DataFrame): Filtered DataFrame for the specified group, where the
+                'whatsapp_group' column matches the group value (e.g., filtered by Groups.MAAP.value).
+            group (str): WhatsApp group name corresponding to an Enum value (e.g., Groups.MAAP.value).
 
         Returns:
-            pandas.DataFrame: Participation table DataFrame, or None if creation fails.
+            pd.DataFrame: Participation table DataFrame, or None if creation fails (e.g., empty
+                input DataFrame or processing error).
+
+        Raises:
+            Exception: If data processing or file saving fails, logged via loguru and None is returned.
+
+        Note:
+            The table is saved to the 'tables_dir' using file_manager.save_table. Ensure this
+            directory is accessible.
         """
         participation_df = self.data_preparation.build_visual_relationships_arc(
             df_group, self.group_authors.get(group, [])
@@ -138,11 +289,12 @@ class Script4(BaseScript):
         return participation_df
 
     def run(self):
+        """Execute the relationships arc diagram visualization."""
         try:
-            group = 'maap'
-            df_group = self.data_preparation.df[
-                self.data_preparation.df['whatsapp_group'] == group
-            ].copy()
+            group = Groups.MAAP.value
+            # Use self.df (original_df) instead of data_preparation.df
+            df_group = self.df[self.df[Columns.WHATSAPP_GROUP.value] == group].copy() if self.df is not None else \
+                       self.data_preparation.df[self.data_preparation.df[Columns.WHATSAPP_GROUP.value] == group].copy()
             if df_group.empty:
                 return self.log_error(
                     f"No data found for WhatsApp group '{group}'. "
@@ -175,8 +327,8 @@ class Script5(BaseScript):
         self.df = df
 
     def run(self):
-        groups = ['maap', 'golfmaten', 'dac', 'tillies']
-        df_groups = self.df[self.df['whatsapp_group'].isin(groups)].copy()
+        groups = [Groups.MAAP.value, Groups.GOLFMATEN.value, Groups.DAC.value, Groups.TILLIES.value]
+        df_groups = self.df[self.df[Columns.WHATSAPP_GROUP.value].isin(groups)].copy()
         if df_groups.empty:
             return self.log_error(f"No data found for WhatsApp groups {groups}. Skipping bubble plot visualization.")
         try:
@@ -193,8 +345,8 @@ class Script5(BaseScript):
 
 class Script7(BaseScript):
     """Script for Step 7: Interaction dynamics visualization."""
-    def __init__(self, file_manager, data_preparation, plot_manager, image_dir, group_authors, settings: Optional[PlotSettings] = None):
-        super().__init__(file_manager, data_preparation=data_preparation, plot_manager=plot_manager, settings=settings or PlotSettings())
+    def __init__(self, file_manager, data_preparation, plot_manager, image_dir, group_authors, df=None, settings: Optional[DimReductionSettings] = None):
+        super().__init__(file_manager, data_preparation=data_preparation, plot_manager=plot_manager, settings=settings, df=df)
         self.image_dir = image_dir
         self.group_authors = group_authors
 
@@ -297,13 +449,27 @@ class Script11(BaseScript):
 
     def load_and_preprocess_data(self, data_feed: str) -> pd.DataFrame:
         """
-        Load and preprocess data for non-message content visualization.
+        Load and preprocess a DataFrame for subsequent non-message content analysis.
+
+        This method loads the latest CSV file based on the data_feed type, applies an optional
+        column mapping, adds 'month' and 'week' columns, and filters out the Groups.TILLIES
+        group using the 'whatsapp_group' column.
 
         Args:
-            data_feed (str): Data type ('non_redundant' or 'redundant').
+            data_feed (str): Data type indicating the dataset variant ('non_redundant' or 'redundant')
+                used to construct the file prefix (e.g., 'organized_data_no_redundancy').
 
         Returns:
-            pandas.DataFrame: Processed DataFrame, or None if loading or preprocessing fails.
+            pd.DataFrame: Processed DataFrame with added 'month' and 'week' columns, filtered to
+                exclude the Groups.TILLIES group, or None if loading fails (e.g., missing file)
+                or preprocessing results in an empty DataFrame.
+
+        Raises:
+            Exception: If file I/O or preprocessing operations fail, logged via loguru and None is returned.
+
+        Note:
+            Column names (e.g., 'whatsapp_group') are standardized via the Columns Enum, and group
+            names (e.g., 'tillies') are defined in the Groups Enum.
         """
         try:
             prefix = f"organized_data_{'no_redundancy' if data_feed == 'non_redundant' else 'with_redundancy'}"
@@ -312,15 +478,17 @@ class Script11(BaseScript):
                 self.log_error(f"No {prefix}.csv found.")
                 return None
             logger.info(f"Loading latest {prefix} data from {datafile}")
+            column_mapping = {}  # Empty for now
             df = pd.read_csv(datafile, parse_dates=['timestamp'])
+            df = df.rename(columns=column_mapping)
             df['month'] = self.data_editor.get_month(df)
             df['week'] = self.data_editor.get_week(df)
-            logger.debug(f"DataFrame after adding month and week columns:\n{df[['whatsapp_group', 'author', 'year', 'month', 'week']].head().to_string()}")
-            df = df[df['whatsapp_group'] != 'tillies'].copy()
+            logger.debug(f"DataFrame after adding month and week columns:\n{df[Columns.WHATSAPP_GROUP.value, Columns.YEAR.value, Columns.MONTH.value, Columns.WEEK.value].head().to_string()}")
+            df = df[Columns.WHATSAPP_GROUP.value != Groups.TILLIES.value].copy()
             if df.empty:
-                self.log_error("No data remains after filtering out 'tillies' group.")
+                self.log_error(f"No data remains after filtering out '{Groups.TILLIES.value}' group.")
                 return None
-            logger.info(f"Filtered DataFrame excluding 'tillies': {len(df)} rows")
+            logger.info(f"Filtered DataFrame excluding '{Groups.TILLIES.value}': {len(df)} rows")
             return df
         except Exception as e:
             self.log_error(f"Failed to load and preprocess data: {e}")
@@ -356,11 +524,11 @@ class Script11(BaseScript):
 
     def run(self):
         try:
-            data_feed = 'non_redundant'  # 'non_redundant' or 'redundant'
-            plot_feed = 'global'  # 'both', 'per_group', or 'global'
-            groupby_period = 'month'  # 'week', 'month', or 'year'
-            delete_specific_attributes = False  # or True
-            plot_type = 'tsne'  # 'both', 'pca', or 'tsne'
+            data_feed = DataFeed.NON_REDUNDANT.value  # NON_REDUNDANT or REDUNDANT
+            plot_feed = PlotFeed.GLOBAL.value  # BOTH, PER_GROUP, GLOBAL
+            groupby_period = GroupByPeriod.MONTH.value  # WEEK, MONTH, YEAR
+            delete_specific_attributes = DeleteAttributes.FALSE.value  # TRUE or FALSE
+            plot_type = PlotType.TSNE.value  # BOTH, PCA, TSNE
 
             # Validate inputs
             if not self.check_input(data_feed, plot_feed, groupby_period, delete_specific_attributes, plot_type):

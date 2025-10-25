@@ -69,7 +69,9 @@ class DataEditor:
         Returns:
             pandas.DataFrame: DataFrame with converted timestamp column.
         """
+        column_mapping = {}  # Empty for now; will populate in later steps
         df = pd.read_csv(datafile, parse_dates=["timestamp"])
+        df = df.rename(columns=column_mapping)  # Apply mapping (no-op for now)
         logger.info(f"DataFrame head:\n{df.head()}")
         return df
 
