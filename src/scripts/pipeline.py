@@ -8,6 +8,7 @@ import tomllib
 from typing import List, Optional, Dict, Any
 import pandas as pd
 
+# Local imports
 from .script0 import Script0
 from .script1 import Script1
 from .script2 import Script2
@@ -17,7 +18,9 @@ from .script5 import Script5
 from .script7 import Script7
 from .script10 import Script10
 from .script11 import Script11
+from .utils import prepare_category_data
 
+# External imports
 from src.file_manager import FileManager
 from src.data_editor import DataEditor
 from src.data_preparation import DataPreparation, InteractionSettings, NoMessageContentSettings
@@ -31,9 +34,10 @@ class Pipeline:
         log_dir.mkdir(exist_ok=True)
         timestamp = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
         log_file = log_dir / f"logfile-{timestamp}.log"
+
         logger.remove()
         logger.add(log_file, level="DEBUG")
-        logger.add(sys.stderr, level="INFO", colorize=True)  # ← LIVE OUTPUT
+        logger.add(sys.stderr, level="INFO", colorize=True)
         logger.info(f"Pipeline started. Log: {log_file}")
         return log_file
 
@@ -44,14 +48,26 @@ class Pipeline:
             return tomllib.load(f)
 
     @staticmethod
-    def run(scripts: Optional[List[int]] = None, skip_preprocessing: bool = False):
-        import sys
-        scripts = scripts or [7, 1, 2, 3, 4, 5, 10, 11]
-
-        Pipeline._setup_logging()
+    def run(scripts: Optional[List[int]] = None):
+        # === Load config ===
         config = Pipeline._load_config()
-        image_dir = Path(config["image"])
         processed_dir = Path(config["processed"])
+        image_dir = Path(config["image"])
+
+        # === Use SCRIPTS from main.py ===
+        if scripts is None:
+            scripts = [1]
+            logger.info("No SCRIPTS supplied – using fallback: [1]")
+        else:
+            logger.info(f"Running user-defined SCRIPTS: {scripts}")
+
+        # === Force Script0 if no .parq exists ===
+        if not list(processed_dir.glob("combined_*.parq")) and 0 not in scripts:
+            logger.info("No pre-processed parquet found → forcing Script0.")
+            scripts = [0] + [s for s in scripts if s != 0]
+
+        # === Setup logging ===
+        Pipeline._setup_logging()
 
         # === Core Components ===
         file_manager = FileManager()
@@ -64,92 +80,84 @@ class Pipeline:
         plot_manager = PlotManager()
 
         df = None
-        tables_dir = None
+        tables_dir = Path("tables")
+        tables_dir.mkdir(exist_ok=True)
 
-        # === PREPROCESSING: RUN OR SKIP ===
-        if not skip_preprocessing:
-            logger.info("Running Script0: preprocessing raw data...")
-            script0 = Script0(
-                file_manager=file_manager,
-                data_editor=data_editor,
-                data_preparation=data_preparation,
-                processed_dir=processed_dir,
-                config=config,
-                image_dir=image_dir
-            )
-            result = script0.run()
-            if result is None:
-                logger.error("Script0 failed. Cannot continue.")
-                return
-            df = result['df']
-            tables_dir = result['tables_dir']
-            logger.info("Preprocessing completed.")
-        else:
-            logger.info("Skipping preprocessing. Attempting to load cached data...")
-            # Find latest combined parquet file
-            pattern = processed_dir / "combined_*.parq"
-            files = list(processed_dir.glob("combined_*.parq"))
-            if not files:
-                logger.error("No preprocessed data found. Run without skip_preprocessing first.")
-                return
-            latest_file = max(files, key=lambda p: p.stat().st_mtime)
-            try:
-                df = pd.read_parquet(latest_file)
-                tables_dir = Path("tables")
-                tables_dir.mkdir(exist_ok=True)
-                logger.info(f"Loaded cached data: {latest_file.name}")
-            except Exception as e:
-                logger.error(f"Failed to load cached data: {e}")
-                return
-
-        # === PREPARE CATEGORY DATA IF NEEDED ===
-        scripts_needing_categories = {1, 4, 5, 7}
-        category_data = None
-        if scripts_needing_categories.intersection(scripts):
-            from .utils import prepare_category_data
-            category_data = prepare_category_data(data_preparation, df, logger)
-            if category_data[0] is None:
-                logger.error("Failed to prepare category data.")
-                return
-            df, group_authors, non_anthony_group, anthony_group, sorted_groups = category_data
-        else:
-            group_authors = non_anthony_group = anthony_group = sorted_groups = None
-
-        # === SCRIPT REGISTRY ===
+        # === SCRIPT REGISTRY (including Script0) ===
         script_registry = {
-            1: (Script1, [file_manager, plot_manager, image_dir, group_authors, non_anthony_group, anthony_group, sorted_groups]),
-            2: (Script2, [file_manager, data_preparation, plot_manager, image_dir, df]),
-            3: (Script3, [file_manager, data_editor, data_preparation, plot_manager, image_dir, df]),
-            4: (Script4, [file_manager, data_preparation, plot_manager, image_dir, tables_dir, group_authors, df]),
-            5: (Script5, [file_manager, data_preparation, plot_manager, image_dir, df]),
-            7: (Script7, [file_manager, data_preparation, plot_manager, image_dir, group_authors, df]),
+            0: (Script0, [file_manager, data_editor, data_preparation, processed_dir, config, image_dir]),
+            1: (Script1, [file_manager, plot_manager, image_dir]),
+            2: (Script2, [file_manager, data_preparation, plot_manager, image_dir]),
+            3: (Script3, [file_manager, data_editor, data_preparation, plot_manager, image_dir]),
+            4: (Script4, [file_manager, data_preparation, plot_manager, image_dir, tables_dir]),
+            5: (Script5, [file_manager, data_preparation, plot_manager, image_dir]),
+            7: (Script7, [file_manager, data_preparation, plot_manager, image_dir]),
             10: (Script10, [file_manager, data_editor, data_preparation, processed_dir, tables_dir]),
             11: (Script11, [file_manager, data_editor, data_preparation, plot_manager, processed_dir, image_dir]),
         }
 
-        # === EXECUTE SCRIPTS ===
+        # === SINGLE EXECUTION LOOP: Script0 first, then others ===
         instances = {}
-        for script_id in scripts:
+
+        # 1. Run Script0 first (if in scripts)
+        if 0 in scripts:
+            logger.info("Running Script0 (preprocessing)...")
+            cls, args = script_registry[0]
+            script0 = cls(*args)
+            result = script0.run()
+            if result is None or "df" not in result:
+                logger.error("Script0 failed or didn't return 'df'. Aborting.")
+                return
+            df = result["df"]
+            tables_dir = result.get("tables_dir", tables_dir)
+            instances[0] = script0
+            logger.info(f"Script0 completed. DF shape: {df.shape}")
+
+        # 2. Run all other scripts (once each)
+        for script_id in [s for s in scripts if s != 0]:
             if script_id not in script_registry:
                 logger.warning(f"Script {script_id} not in registry. Skipping.")
                 continue
-            if script_id in scripts_needing_categories and group_authors is None:
-                logger.warning(f"Script {script_id} needs category data but it's missing. Skipping.")
-                continue
 
-            cls, args = script_registry[script_id]
+            cls, base_args = script_registry[script_id]
+            args = base_args.copy()  # Avoid mutating original
+
+            # Inject df for scripts that need it (as last arg)
+            if script_id in {2, 3, 4, 5, 7, 10, 11}:
+                if df is None:
+                    logger.error(f"Script {script_id} needs df, but Script0 failed.")
+                    continue
+                args.append(df)
+
+            # Prepare/inject category data for scripts that need it
+            if script_id in {1, 4, 5, 7, 10}:
+                category_data = prepare_category_data(data_preparation, df, logger)
+                if category_data[0] is None:
+                    logger.warning(f"Category data failed for Script {script_id}. Skipping.")
+                    continue
+                df_out, group_authors, non_anthony, anthony, sorted_g = category_data
+                df = df_out  # Update df if modified
+
+                # Customize args for category-dependent scripts
+                if script_id == 1:
+                    args = [file_manager, plot_manager, image_dir, group_authors, non_anthony, anthony, sorted_g]
+                elif script_id in {4, 7}:
+                    args.insert(-1, group_authors)  # Insert before df
+
+            # Instantiate
             try:
-                instances[script_id] = cls(*args)
+                instance = cls(*args)
+                instances[script_id] = instance
                 logger.info(f"Initialized Script {script_id}")
             except Exception as e:
                 logger.error(f"Failed to initialize Script {script_id}: {e}")
+                continue
 
-        for script_id in scripts:
-            if script_id in instances:
-                logger.info(f"Running Script {script_id}...")
-                try:
-                    instances[script_id].run()
-                except Exception as e:
-                    logger.exception(f"Script {script_id} failed: {e}")
+            # Run (exactly once)
+            logger.info(f"Running Script {script_id}...")
+            try:
+                instance.run()
+            except Exception as e:
+                logger.exception(f"Script {script_id} failed: {e}")
 
         logger.success("Pipeline completed successfully.")

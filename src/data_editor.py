@@ -979,7 +979,175 @@ class DataEditor:
             logger.exception(f"Failed to delete specific attributes: {e}")
             return None
 
-    def organize_df(self, df):
+    def organize_dataframe(self, df):
+        if df is None or df.empty:
+            logger.error("No valid DataFrame provided for organization")
+            return None
+        try:
+            # Create a copy to avoid modifying the input DataFrame
+            df = df.copy()
+
+            # Check and add time-based columns if not present
+            if 'year' not in df.columns:
+                df['year'] = self.get_year(df)
+                if df['year'].isna().all():
+                    logger.error("Failed to extract year: all values are NaN")
+                    return None
+                logger.debug("Added 'year' column")
+            else:
+                logger.debug("'year' column already exists, skipping computation")
+
+            if 'month' not in df.columns:
+                df['month'] = self.get_month(df)
+                if df['month'].isna().all():
+                    logger.error("Failed to extract month: all values are NaN")
+                    return None
+                logger.debug("Added 'month' column")
+            else:
+                logger.debug("'month' column already exists, skipping computation")
+
+            if 'week' not in df.columns:
+                df['week'] = self.get_week(df)
+                if df['week'].isna().all():
+                    logger.error("Failed to extract week: all values are NaN")
+                    return None
+                logger.debug("Added 'week' column")
+            else:
+                logger.debug("'week' column already exists, skipping computation")
+
+            if 'day_of_week' not in df.columns:
+                df['day_of_week'] = self.get_day_of_week(df)
+                if df['day_of_week'].isna().all():
+                    logger.error("Failed to extract day_of_week: all values are NaN")
+                    return None
+                logger.debug("Added 'day_of_week' column")
+            else:
+                logger.debug("'day_of_week' column already exists, skipping computation")
+
+            if 'active_years' not in df.columns:
+                df['active_years'] = self.active_years(df)
+                if df['active_years'].isna().all():
+                    logger.error("Failed to compute active_years: all values are NaN")
+                    return None
+                logger.debug("Added 'active_years' column")
+            else:
+                logger.debug("'active_years' column already exists, skipping computation")
+
+            if 'early_leaver' not in df.columns:
+                df['early_leaver'] = self.early_leaver(df)
+                if df['early_leaver'].isna().all():
+                    logger.error("Failed to compute early_leaver: all values are NaN")
+                    return None
+                logger.debug("Added 'early_leaver' column")
+            else:
+                logger.debug("'early_leaver' column already exists, skipping computation")
+
+            if 'has_emoji' not in df.columns:
+                df['has_emoji'] = df['message_cleaned'].apply(self.has_emoji)
+                logger.debug("Added 'has_emoji' column")
+            else:
+                logger.debug("'has_emoji' column already exists, skipping computation")
+
+            if 'message_length' not in df.columns:
+                df['message_length'] = df['message_cleaned'].apply(self.length_chat)
+                logger.debug("Added 'message_length' column")
+            else:
+                logger.debug("'message_length' column already exists, skipping computation")
+
+            if 'has_link' not in df.columns:
+                df['has_link'] = df['message_cleaned'].apply(self.has_link)
+                logger.debug("Added 'has_link' column")
+            else:
+                logger.debug("'has_link' column already exists, skipping computation")
+
+            if 'number_of_emojis' not in df.columns:
+                df['number_of_emojis'] = df['message_cleaned'].apply(self.count_emojis)
+                logger.debug("Added 'number_of_emojis' column")
+            else:
+                logger.debug("'number_of_emojis' column already exists, skipping computation")
+
+            if 'was_deleted' not in df.columns:
+                df['was_deleted'] = df['message_cleaned'].apply(self.was_deleted)
+                logger.debug("Added 'was_deleted' column")
+            else:
+                logger.debug("'was_deleted' column already exists, skipping computation")
+
+            if 'number_of_changes_to_group' not in df.columns:
+                df['number_of_changes_to_group'] = self.number_of_changes_to_group(df)
+                logger.debug("Added 'number_of_changes_to_group' column")
+            else:
+                logger.debug("'number_of_changes_to_group' column already exists, skipping computation")
+
+            if 'pictures_deleted' not in df.columns:
+                df['pictures_deleted'] = df['message_cleaned'].apply(lambda x: 1 if '<Media omitted>' in str(x) else 0)
+                logger.debug("Added 'pictures_deleted' column")
+            else:
+                logger.debug("'pictures_deleted' column already exists, skipping computation")
+
+            if 'videos_deleted' not in df.columns:
+                df['videos_deleted'] = df['message_cleaned'].apply(lambda x: 1 if '<Video omitted>' in str(x) else 0)
+                logger.debug("Added 'videos_deleted' column")
+            else:
+                logger.debug("'videos_deleted' column already exists, skipping computation")
+
+            if 'audios_deleted' not in df.columns:
+                df['audios_deleted'] = df['message_cleaned'].apply(lambda x: 1 if '<Audio omitted>' in str(x) else 0)
+                logger.debug("Added 'audios_deleted' column")
+            else:
+                logger.debug("'audios_deleted' column already exists, skipping computation")
+
+            if 'gifs_deleted' not in df.columns:
+                df['gifs_deleted'] = df['message_cleaned'].apply(lambda x: 1 if '<GIF omitted>' in str(x) else 0)
+                logger.debug("Added 'gifs_deleted' column")
+            else:
+                logger.debug("'gifs_deleted' column already exists, skipping computation")
+
+            if 'stickers_deleted' not in df.columns:
+                df['stickers_deleted'] = df['message_cleaned'].apply(lambda x: 1 if '<Sticker omitted>' in str(x) else 0)
+                logger.debug("Added 'stickers_deleted' column")
+            else:
+                logger.debug("'stickers_deleted' column already exists, skipping computation")
+
+            if 'documents_deleted' not in df.columns:
+                df['documents_deleted'] = df['message_cleaned'].apply(lambda x: 1 if '<Document omitted>' in str(x) else 0)
+                logger.debug("Added 'documents_deleted' column")
+            else:
+                logger.debug("'documents_deleted' column already exists, skipping computation")
+
+            if 'videonotes_deleted' not in df.columns:
+                df['videonotes_deleted'] = df['message_cleaned'].apply(lambda x: 1 if '<Videonote omitted>' in str(x) else 0)
+                logger.debug("Added 'videonotes_deleted' column")
+            else:
+                logger.debug("'videonotes_deleted' column already exists, skipping computation")
+
+            if 'message_cleaned' not in df.columns:
+                df['message_cleaned'] = df['message'].apply(self.clean_message)
+                logger.debug("Added 'message_cleaned' column")
+            else:
+                logger.debug("'message_cleaned' column already exists, skipping computation")
+
+            # Select and order columns
+            organized_columns = [
+                'timestamp', 'author', 'message', 'has_emoji', 'message_length', 'has_link',
+                'whatsapp_group', 'year', 'month', 'week', 'day_of_week', 'active_years',
+                'early_leaver', 'number_of_emojis', 'was_deleted', 'number_of_changes_to_group',
+                'pictures_deleted', 'videos_deleted', 'audios_deleted', 'gifs_deleted',
+                'stickers_deleted', 'documents_deleted', 'videonotes_deleted', 'message_cleaned'
+            ]
+            # Ensure all columns exist, fill missing with NaN
+            for col in organized_columns:
+                if col not in df.columns:
+                    df[col] = np.nan
+                    logger.warning(f"Column '{col}' was missing and filled with NaN")
+            df_organized = df[organized_columns]
+            logger.info(f"Organized DataFrame with {len(df_organized)} rows and columns: {df_organized.columns.tolist()}")
+            logger.debug(f"Organized DataFrame head:\n{df_organized.head().to_string()}")
+            return df_organized
+        except Exception as e:
+            logger.exception(f"Failed to organize DataFrame: {e}")
+            return None
+
+    def organize_extended_df(self, df):
         """
         Create a new DataFrame with the specified columns in the desired order, excluding rows where early_leaver is True.
         Args:
@@ -996,7 +1164,7 @@ class DataEditor:
                 'timestamp', 'author', 'message_cleaned', 'has_emoji', 'whatsapp_group',
                 'number_of_emojis', 'has_link', 'was_deleted', 'pictures_deleted',
                 'videos_deleted', 'audios_deleted', 'gifs_deleted', 'stickers_deleted',
-                'documents_deleted', 'videonotes_deleted', 'year', 'month', 'week', 'active_years', 'early_leaver'
+                'documents_deleted', 'videonotes_deleted'
             ]
             if not all(col in df.columns for col in required_columns):
                 logger.error(f"Missing required columns: {[col for col in required_columns if col not in df.columns]}")
