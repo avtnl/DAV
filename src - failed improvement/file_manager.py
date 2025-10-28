@@ -8,7 +8,7 @@ from datetime import datetime
 import wa_analyzer.preprocess as preprocessor
 import pandas as pd
 import matplotlib.pyplot as plt
-from src.constants import Columns
+from constants import Columns
 
 class FileManager:
     def find_name_csv(self, path, timestamp):
@@ -73,11 +73,11 @@ class FileManager:
         """
         Read configuration and determine the CSV file(s) to process.
         If preprocess is True, rename raw files, preprocess, and keep Parquet filenames in memory.
-        If preprocess is False, use current_* keys from config.
+        If preprocess is False, use current_* keys from config for Parquet files.
         
         Returns:
-            tuple: (list of Path or None, Path or None, dict, dict or None) - 
-                   List of CSV files, processed directory, group mapping, Parquet files mapping
+            tuple: (list of Path or None, Path or None, dict, list or None) - 
+                List of CSV files, processed directory, group mapping, Parquet files list
         """
         configfile = Path("config.toml").resolve()
         try:
@@ -89,7 +89,11 @@ class FileManager:
         
         processed = Path(config["processed"])
         raw_dir = Path(config["raw"])
-        preprocess = config["preprocess"]
+        
+        # Convert string boolean to Python boolean
+        preprocess_str = str(config.get("preprocess", "false")).lower()
+        preprocess = preprocess_str in ("true", "1", "yes", "on")
+        logger.debug(f"preprocess from config: '{preprocess_str}' -> Python boolean: {preprocess}")
         
         # Define raw file to group mapping
         raw_files = {
@@ -102,6 +106,7 @@ class FileManager:
         group_map = {current_key: group for _, (current_key, group) in raw_files.items()}
         
         if preprocess:
+            logger.info("preprocess=True: Processing raw files")
             datafiles = []
             parq_files = {}
             
@@ -160,21 +165,32 @@ class FileManager:
                 return None, None, None, None
             return datafiles, processed, group_map, parq_files
         else:
+            logger.info("preprocess=False: Loading existing Parquet files")
             datafiles = []
+            parq_files = []
             for current_key in group_map:
                 if current_key not in config:
                     logger.warning(f"Key {current_key} not found in config.toml")
                     continue
-                datafile = processed / config[current_key]
-                datafile = datafile.with_suffix(".csv")  # Convert .parq to .csv
-                if not datafile.exists():
-                    logger.warning(f"CSV file {datafile} does not exist")
+                # Get Parquet file
+                parq_file = processed / config[current_key]
+                logger.debug(f"Checking Parquet file: {parq_file}")
+                if not parq_file.exists():
+                    logger.warning(f"Parquet file {parq_file} does not exist")
                     continue
-                datafiles.append(datafile)
-            if not datafiles:
-                logger.error("No valid CSV files found in config")
-                return None, None, None, None
-            return datafiles, processed, group_map, None
+                parq_files.append(parq_file)
+                # Get corresponding CSV file (for fallback)
+                datafile = parq_file.with_suffix(".csv")
+                if datafile.exists():
+                    datafiles.append(datafile)
+                else:
+                    logger.warning(f"CSV file {datafile} does not exist")
+            if not parq_files:
+                logger.warning("No valid Parquet files found in config")
+                if not datafiles:
+                    logger.error("No valid CSV files found in config")
+                    return None, None, None, None
+            return datafiles, processed, group_map, parq_files
 
     def load_dataframe(self, datafile: Path, mapping: dict = {}) -> pd.DataFrame:
         """
@@ -200,61 +216,49 @@ class FileManager:
             return None
 
     def save_csv(self, df, processed_dir, prefix="whatsapp"):
-        """
-        Save the DataFrame to a CSV file with a unique timestamped filename.
-
-        Args:
-            df (pandas.DataFrame): DataFrame to save.
-            processed_dir (Path): Directory to save the file (e.g., Path("data/processed")).
-            prefix (str): Filename prefix (default: "whatsapp").
-
-        Returns:
-            Path: Path to the saved CSV file.
-        """
-        now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
-        logger.info(f"Generated timestamp: {now}")
-        output = processed_dir / f"{prefix}-{now}.csv"
-        logger.info(f"Saving CSV to: {output}")
-        df.to_csv(output, index=False)
-        return output
+        try:
+            if df.empty:
+                logger.error(f"Cannot save CSV: DataFrame is empty for prefix {prefix}")
+                return None
+            now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
+            output = processed_dir / f"{prefix}-{now}.csv"
+            logger.debug(f"Attempting to save CSV to: {output}, shape={df.shape}")
+            processed_dir.mkdir(parents=True, exist_ok=True)
+            df.to_csv(output, index=False)
+            logger.info(f"Saved CSV to: {output}")
+            return output
+        except Exception as e:
+            logger.exception(f"Failed to save CSV to {output}: {e}")
+            return None
 
     def save_parq(self, df, processed_dir, prefix="whatsapp"):
-        """
-        Save the DataFrame to a Parquet file with a unique timestamped filename.
-
-        Args:
-            df (pandas.DataFrame): DataFrame to save.
-            processed_dir (Path): Directory to save the file (e.g., Path("data/processed")).
-            prefix (str): Filename prefix (default: "whatsapp").
-
-        Returns:
-            Path: Path to the saved Parquet file.
-        """
-        now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
-        logger.info(f"Generated timestamp: {now}")
-        output = processed_dir / f"{prefix}-{now}.parq"
-        logger.info(f"Saving Parquet to: {output}")
-        df.to_parquet(output, index=False)
-        return output
+        try:
+            if df.empty:
+                logger.error(f"Cannot save Parquet: DataFrame is empty for prefix {prefix}")
+                return None
+            now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
+            output = processed_dir / f"{prefix}-{now}.parq"
+            logger.debug(f"Attempting to save Parquet to: {output}, shape={df.shape}")
+            processed_dir.mkdir(parents=True, exist_ok=True)
+            df.to_parquet(output, index=False)
+            logger.info(f"Saved Parquet to: {output}")
+            return output
+        except Exception as e:
+            logger.exception(f"Failed to save Parquet to {output}: {e}")
+            return None
 
     def save_combined_files(self, df, processed_dir):
-        """
-        Save the concatenated DataFrame to CSV and Parquet files with 'whatsapp_all-' prefix.
-
-        Args:
-            df (pandas.DataFrame): DataFrame to save.
-            processed_dir (Path): Directory to save the files.
-
-        Returns:
-            tuple: (Path, Path) - Paths to the saved CSV and Parquet files, or (None, None) if saving fails.
-        """
         try:
+            logger.debug(f"Saving combined files for DataFrame: shape={df.shape}")
             csv_file = self.save_csv(df, processed_dir, prefix="whatsapp_all")
             parq_file = self.save_parq(df, processed_dir, prefix="whatsapp_all")
-            logger.info(f"DataFrame saved as: {csv_file} and {parq_file}")
+            if csv_file is None or parq_file is None:
+                logger.error("Failed to save one or both combined files.")
+                return None, None
+            logger.info(f"Saved combined files: CSV={csv_file}, Parquet={parq_file}")
             return csv_file, parq_file
         except Exception as e:
-            logger.exception(f"Failed to save DataFrame: {e}")
+            logger.exception(f"Failed to save combined files: {e}")
             return None, None
 
     def save_png(self, fig, image_dir, filename="yearly_bar_chart_combined"):

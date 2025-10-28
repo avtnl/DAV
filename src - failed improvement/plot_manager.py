@@ -19,7 +19,7 @@ from sklearn.cluster import KMeans
 from matplotlib.patches import Ellipse
 from scipy.stats import chi2
 from pydantic import BaseModel, Field
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Any
 
 # Suppress FutureWarning from seaborn/pandas
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -43,7 +43,7 @@ class DimReductionSettings(BaseModel):
     perplexity: int = 30
     metric: str = "euclidean"
 
-class PMNoMessageContentSettings(ColorSettings):
+class NoMessageContentSettings(ColorSettings):
     """Settings for non-message content visualizations."""
     group_color_map: Dict[str, str] = {
         'maap': 'blue',
@@ -85,16 +85,6 @@ class DistributionPlotSettings(PlotSettings):
     cumulative_color: str = "orange"
     cum_threshold: int = 75
     top_n: int = 25
-
-class BubblePlotSettings(ColorSettings):
-    """Settings for bubble plots."""
-    green_shades: List[str] = ['#00CC00', '#1AFF1A', '#33FF33', '#4DFF4D', '#66FF66', '#80FF80', '#99FF99', '#B3FFB3', '#CCFFCC', '#E6FFE6']
-    red_shades: List[str] = ['#CC0000', '#FF1A1A', '#FF3333', '#FF4D4D', '#FF6666', '#FF8080', '#FF9999', '#FFB3B3', '#FFCCCC', '#FFE6E6']
-    gray_shades: List[str] = ['#1A1A1A', '#333333', '#4D4D4D', '#666666', '#808080', '#999999', '#B3B3B3', '#CCCCCC', '#E6E6E6', '#F2F2F2']
-    title: str = "More words = More Punctuations, but Emojis reduce number of Punctuations!"
-    xlabel: str = "Average Number of Words per Message"
-    ylabel: str = "Average Number of Punctuations per Message"
-    figsize: Tuple[int, int] = (12, 8)
 
 class BubbleNewPlotSettings(PlotSettings):
     """Settings for the new bubble plot."""
@@ -171,25 +161,6 @@ class PlotManager:
             logger.warning("Segoe UI Emoji font not found. Falling back to default font. Some emojis may not render correctly.")
             plt.rcParams['font.family'] = 'DejaVu Sans'
 
-    # def _prepare_features(self, feature_df, groupby_period=None, settings: DimReductionSettings = DimReductionSettings()):
-    #     """Prepare features: drop non-numeric, select top by variance, normalize."""
-    #     drop_columns = ['author', 'year', 'whatsapp_group']
-    #     if groupby_period and groupby_period in ['week', 'month', 'year']:
-    #         drop_columns.append(groupby_period)
-    #     drop_columns = [col for col in drop_columns if col in feature_df.columns]
-    #     numerical_features = feature_df.drop(drop_columns, axis=1)
-    #     variances = numerical_features.var()
-    #     logger.info(f"Feature variances:\n{variances.sort_values(ascending=False).to_string()}")
-    #     top_features = variances.nlargest(settings.n_top_features).index
-    #     if len(top_features) < numerical_features.shape[1]:
-    #         logger.info(f"Selected top {len(top_features)} features by variance: {list(top_features)}")
-    #     else:
-    #         logger.info("Using all features")
-    #     numerical_features = numerical_features[top_features]
-    #     scaled_features = StandardScaler().fit_transform(numerical_features)
-    #     logger.info(f"Normalized numerical features with shape {scaled_features.shape}")
-    #     return scaled_features
-
     def _prepare_features(self, feature_df, groupby_period=None, settings: DimReductionSettings = DimReductionSettings()):
         """Prepare features: drop non-numeric, select top by variance, no normalization."""
         drop_columns = ['author', 'year', 'whatsapp_group']
@@ -218,7 +189,7 @@ class PlotManager:
         else:
             raise ValueError(f"Unknown reduction method: {method}")
 
-    def _plot_per_group(self, X_reduced, feature_df, method, settings: PMNoMessageContentSettings):
+    def _plot_per_group(self, X_reduced, feature_df, method, settings: NoMessageContentSettings):
         """Per-group scatter plots colored by author, with optional ellipses."""
         figs = []
         unique_groups = feature_df['whatsapp_group'].unique()
@@ -253,7 +224,7 @@ class PlotManager:
             plt.show()
         return figs
 
-    def _plot_global(self, X_reduced, feature_df, method, settings: PMNoMessageContentSettings):
+    def _plot_global(self, X_reduced, feature_df, method, settings: NoMessageContentSettings):
         """Global scatter plot colored by group, with Anthony special and optional ellipses."""
         fig, ax = plt.subplots(figsize=settings.figsize)
         for i in range(len(X_reduced)):
@@ -328,140 +299,161 @@ class PlotManager:
             logger.exception(f"Failed to build bar chart: {e}")
             return None
 
-    def build_visual_time(self, p, average_all, settings: TimePlotSettings = TimePlotSettings()):
+    def build_visual_time(self, df: pd.DataFrame, weekly_avg: pd.DataFrame, settings: TimePlotSettings = TimePlotSettings()) -> Optional[plt.Figure]:
         """
-        Create a line plot showing average message counts per week.
+        Create a line plot showing average message counts per week for 'dac'.
+        
+        Args:
+            df (pd.DataFrame): Original DataFrame with 'whatsapp_group', 'week', 'year'.
+            weekly_avg (pd.DataFrame): DataFrame with 'week', 'avg_messages' for 'dac'.
+            settings (TimePlotSettings): Plot settings for customization.
+        
+        Returns:
+            plt.Figure: Matplotlib figure, or None if creation fails.
         """
+        if not isinstance(settings, TimePlotSettings):
+            logger.warning("Settings must be an instance of TimePlotSettings. Using default.")
+            settings = TimePlotSettings()
+        
         try:
-            weeks_1_12_35_53_all = average_all[
-                (average_all["isoweek"].between(1, 12)) | (average_all["isoweek"].between(35, 53))
-            ]["avg_count_all"].mean()
-            weeks_12_19_all = average_all[
-                average_all["isoweek"].between(12, 19)
-            ]["avg_count_all"].mean()
-            weeks_19_35_all = average_all[
-                (average_all["isoweek"].between(19, 35))
-            ]["avg_count_all"].mean()
-
-            fig, ax = plt.subplots(figsize=settings.figsize)
-
+            if not isinstance(weekly_avg, pd.DataFrame) or weekly_avg.empty:
+                logger.error("Invalid or empty weekly_avg DataFrame")
+                return None
+            
+            # Compute period averages
+            rest_period_avg = weekly_avg[(weekly_avg['week'].between(1, 14)) | (weekly_avg['week'].between(35, 53))]['avg_messages'].mean()
+            prep_period_avg = weekly_avg[weekly_avg['week'].between(14, 18)]['avg_messages'].mean()  # 1st April–1st May
+            play_period_avg = weekly_avg[weekly_avg['week'].between(18, 35)]['avg_messages'].mean()  # 1st May–1st Sep
+            
+            # Debug data
+            logger.debug(f"weekly_avg range: weeks={weekly_avg['week'].min()}-{weekly_avg['week'].max()}, avg_messages={weekly_avg['avg_messages'].min()}-{weekly_avg['avg_messages'].max()}")
+            logger.debug(f"Period averages: Rest={rest_period_avg:.2f}, Prep={prep_period_avg:.2f}, Play={play_period_avg:.2f}")
+            
+            # Create figure
+            fig, ax = plt.subplots(figsize=(14, 8))
+            
+            # Plot weekly averages
+            ax.plot(weekly_avg['week'], weekly_avg['avg_messages'], color=settings.line_color or 'green', linewidth=settings.linewidth, zorder=2)
+            
+            # Add vertical lines for key dates (1st April ~week 14, 1st May ~week 18, 1st Sep ~week 35)
             for week in settings.vline_weeks:
-                ax.axvline(x=week, color="gray", linestyle="--", alpha=0.5, zorder=1)
-
-            ax.hlines(y=weeks_1_12_35_53_all, xmin=1, xmax=11.5, colors="black", linestyles="--", alpha=0.7, zorder=5)
-            ax.hlines(y=weeks_1_12_35_53_all, xmin=34.5, xmax=52, colors="black", linestyles="--", alpha=0.7, zorder=5)
-            ax.hlines(y=weeks_12_19_all, xmin=11.5, xmax=18.5, colors="black", linestyles="--", alpha=0.7, zorder=5)
-            ax.hlines(y=weeks_19_35_all, xmin=18.5, xmax=34.5, colors="black", linestyles="--", alpha=0.7, zorder=5)
-
-            sns.lineplot(data=average_all, x="isoweek", y="avg_count_all", ax=ax, color=settings.line_color, linewidth=settings.linewidth, zorder=2)
-
+                ax.axvline(x=week, color='gray', linestyle='--', alpha=0.5, zorder=1)
+            
+            # Add horizontal lines for period averages
+            ax.hlines(y=rest_period_avg, xmin=1, xmax=14, colors='black', linestyles='--', alpha=0.7, zorder=5)
+            ax.hlines(y=rest_period_avg, xmin=35, xmax=53, colors='black', linestyles='--', alpha=0.7, zorder=5)
+            ax.hlines(y=prep_period_avg, xmin=14, xmax=18, colors='black', linestyles='--', alpha=0.7, zorder=5)
+            ax.hlines(y=play_period_avg, xmin=18, xmax=35, colors='black', linestyles='--', alpha=0.7, zorder=5)
+            
+            # Add shaded regions
+            ax.axvspan(xmin=1, xmax=14, color='white', alpha=1.0, zorder=0)    # Rest: 1st Jan–1st April
+            ax.axvspan(xmin=14, xmax=18, color='lightgreen', alpha=0.3, zorder=0)  # Prep: 1st April–1st May
+            ax.axvspan(xmin=18, xmax=35, color='green', alpha=0.3, zorder=0)   # Play: 1st May–1st Sep
+            ax.axvspan(xmin=35, xmax=53, color='white', alpha=1.0, zorder=0)   # Rest: 1st Sep–31st Dec
+            
+            # Add annotations
             y_min, y_max = ax.get_ylim()
             y_label = y_min + 0.9 * (y_max - y_min)
-            ax.text(5, y_label, settings.rest_label, ha="center", va="center", fontsize=12, bbox=dict(boxstyle="round", facecolor="white", alpha=0.0, edgecolor=None), zorder=7)
-            ax.text(15, y_label, settings.prep_label, ha="center", va="center", fontsize=12, bbox=dict(boxstyle="round", facecolor="lightgreen", alpha=0.0, edgecolor="gray"), zorder=7)
-            ax.text(26.5, y_label, settings.play_label, ha="center", va="center", fontsize=12, bbox=dict(boxstyle="round", facecolor="green", alpha=0.0, edgecolor=None), zorder=7)
-            ax.text(45, y_label, settings.rest_label, ha="center", va="center", fontsize=12, bbox=dict(boxstyle="round", facecolor="white", alpha=0.0, edgecolor="gray"), zorder=7)
-
-            ax.axvspan(xmin=11.5, xmax=18.5, color="lightgreen", alpha=0.3, zorder=0)
-            ax.axvspan(xmin=18.5, xmax=34.5, color="green", alpha=0.3, zorder=0)
-
-            combined_labels = [f"{week}\n{month}" for week, month in zip(settings.week_ticks, settings.month_labels)]
-            ax.set_xticks(settings.week_ticks)
-            ax.set_xticklabels(combined_labels, ha="right", fontsize=8)
-            ax.set_xlabel("Week/ Month of Year", fontsize=8)
-            ax.set_ylabel("Average message count per week (2017 - 2025)", fontsize=8)
-            plt.title("Golf season, decoded by WhatsApp heartbeat", fontsize=24)
-
+            ax.text(7, y_label, settings.rest_label, ha='center', va='center', fontsize=12, bbox=dict(boxstyle='round', facecolor='white', alpha=0.5))
+            ax.text(16, y_label, settings.prep_label, ha='center', va='center', fontsize=12, bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.5))
+            ax.text(26.5, y_label, settings.play_label, ha='center', va='center', fontsize=12, bbox=dict(boxstyle='round', facecolor='green', alpha=0.5))
+            ax.text(44, y_label, settings.rest_label, ha='center', va='center', fontsize=12, bbox=dict(boxstyle='round', facecolor='white', alpha=0.5))
+            
+            # Set x-axis to key dates
+            ax.set_xticks([14, 18, 35])
+            ax.set_xticklabels(['1st April', '1st May', '1st Sep'], fontsize=12)
+            ax.set_ylabel('Average Message Count per Week (2017–2025)', fontsize=12)
+            ax.set_title('Golf Season, Decoded by WhatsApp Heartbeat', fontsize=16)
+            ax.grid(True, linestyle='--', alpha=0.7)
+            
+            # Add legend
+            ax.legend(['Weekly Avg Messages'], loc='upper center', bbox_to_anchor=(0.5, -0.1), fontsize=10)
+            
+            plt.tight_layout(rect=[0, 0.1, 1, 0.95])
             plt.show()
+            logger.info("Created time visualization for 'dac' group.")
+            logger.debug(f"Plot settings: line_color={settings.line_color or 'green'}, figsize=(14, 8)")
             return fig
         except Exception as e:
-            logger.exception(f"Failed to build time-based plot: {e}")
+            logger.exception(f"Failed to build time visualization: {e}")
             return None
 
-    def build_visual_distribution(self, emoji_counts_df, settings: DistributionPlotSettings = DistributionPlotSettings()):
+    def build_visual_distribution(self, df_emojis: pd.DataFrame, settings: DistributionPlotSettings = DistributionPlotSettings()) -> Optional[plt.Figure]:
         """
-        Create a bar plot showing emoji distribution.
+        Create a bar/line plot for emoji distribution, using count_once for messages containing each emoji.
+        
+        Args:
+            df_emojis (pandas.DataFrame): DataFrame with ['emoji', 'count_once', 'cumulative_percentage'].
+            settings (DistributionPlotSettings): Plot settings (e.g., top_n, colors, threshold).
+        
+        Returns:
+            plt.Figure: Matplotlib figure with the plot, or None if creation fails.
         """
+        if not isinstance(settings, DistributionPlotSettings):
+            logger.warning("Settings must be an instance of DistributionPlotSettings. Using default.")
+            settings = DistributionPlotSettings()
+        
         try:
-            required_columns = ['emoji', 'count_once', 'percent_once']
-            if emoji_counts_df is None or emoji_counts_df.empty or not all(col in emoji_counts_df.columns for col in required_columns):
-                logger.error("No valid emoji_counts_df or required columns missing. Skipping distribution plot.")
+            # Check for required columns
+            required_cols = ['emoji', 'count_once', 'cumulative_percentage']
+            if df_emojis.empty or not all(col in df_emojis.columns for col in required_cols):
+                missing_cols = [col for col in required_cols if col not in df_emojis.columns]
+                logger.error(f"No valid emoji DataFrame or missing columns: {missing_cols}")
                 return None
-
-            logger.info(f"Emoji usage counts:\n{emoji_counts_df.to_string()}")
-
-            if emoji_counts_df.empty:
-                logger.error("No emojis found in 'maap' group. Skipping distribution plot.")
-                return None
-
-            num_emojis = len(emoji_counts_df)
-            fig, ax = plt.subplots(figsize=(max(num_emojis * 0.2, 8), 8))
-            ax2 = ax.twinx()
-            x_positions = np.arange(num_emojis)
-            bars = ax.bar(x_positions, emoji_counts_df['percent_once'], color=settings.bar_color, align='edge', width=0.5)
-            ax.set_ylabel("Likelihood (%) of finding an Emoji in a random chosen message", fontsize=12, labelpad=20)
-            ax.set_title(settings.title, fontsize=20)
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.spines['left'].set_position(('outward', 20))
-            ax.tick_params(axis='y', labelsize=10)
-            ax.set_xlim(-0.5, num_emojis)
-            ylim_bottom, ylim_top = ax.get_ylim()
-            ax.set_ylim(ylim_bottom - 3, ylim_top)
-            ax.set_xticks([])
-
-            cumulative_once = emoji_counts_df['percent_once'].cumsum()
-
-            idx_once = None
-            cum_once_np = np.array(cumulative_once)
-            if len(cum_once_np) > 0 and np.any(cum_once_np >= settings.cum_threshold):
-                idx_once = np.where(cum_once_np >= settings.cum_threshold)[0][0]
-                x_once = idx_once + 1
-                y_once = len(emoji_counts_df)
-                ax.axvspan(-0.5, idx_once + 0.5, facecolor="lightgreen", alpha=0.2)
-                ax.axvline(x=idx_once + 0.5, color=settings.cumulative_color, linestyle="--", linewidth=1)
-                left_mid = idx_once / 2
-                right_mid = (idx_once + 0.5) + (y_once - idx_once - 1) / 2
-                y_text = ylim_bottom - 1.5
-                ax.text(left_mid, y_text, f"<-- {x_once} emojis -->", ha='center', fontsize=12)
-                ax.text(right_mid, y_text, f"<-- {y_once} emojis -->", ha='center', fontsize=12)
-
-            ax2.plot(x_positions + 0.25, cumulative_once, color=settings.cumulative_color, label="Cumulative %")
-            if idx_once is not None:
-                ax2.axhline(y=settings.cum_threshold, color=settings.cumulative_color, linestyle="--", linewidth=1, xmin=-0.5, xmax=num_emojis + 0.5)
-            ax2.set_ylabel("Cumulative Percentage (%)", fontsize=12, labelpad=20)
-            ax2.set_ylim(0, 100)
-            ax2.set_yticks(np.arange(0, 101, 10))
-            ax2.spines['right'].set_position(('outward', 20))
-            ax2.tick_params(axis='y', labelsize=10, colors=settings.cumulative_color)
-            ax2.spines['right'].set_color(settings.cumulative_color)
-
-            top_25_once = emoji_counts_df.head(settings.top_n)
-            cum_once_top = top_25_once['percent_once'].cumsum()
+            
+            # Select top N based on count_once
+            top_n = settings.top_n
+            top_emojis = df_emojis.head(top_n)
+            
+            # Create table_data for logging
             table_data = [
-                [str(i+1) for i in range(len(top_25_once))],
-                [f"{row['emoji']}" for _, row in top_25_once.iterrows()],
-                [f"{count:.0f}" for count in top_25_once['count_once']],
-                [f"{cum:.1f}%" for cum in cum_once_top]
+                [str(i+1) for i in range(len(top_emojis))],
+                [row['emoji'] for _, row in top_emojis.iterrows()],
+                [f"{count:.0f}" for count in top_emojis['count_once']],
+                [f"{cum:.1f}%" if not pd.isna(cum) else '0.0%' for cum in top_emojis['cumulative_percentage']]
             ]
-            col_width = 0.8 / len(top_25_once)
-            table = ax.table(cellText=table_data,
-                             rowLabels=["Rank", "Emoji", "Count", "Cum"],
-                             colWidths=[col_width] * len(top_25_once),
-                             loc='bottom',
-                             bbox=[0.1, -0.45, 0.8, 0.3])
-            table.auto_set_font_size(False)
-            table.set_fontsize(10)
-            table.scale(1, 1.5)
-
-            fig.text(0.5, 0.27, "Top 25:", ha='center', fontsize=12)
-            ax2.legend(loc='upper left', fontsize=8)
+            logger.debug(f"Emoji table data:\n{table_data}")
+            
+            # Check if count_once is all zeros
+            if top_emojis['count_once'].sum() == 0:
+                logger.warning("All count_once values are zero. Plot will be empty.")
+            
+            # Create figure with two y-axes
+            fig, ax1 = plt.subplots(figsize=settings.figsize)
+            
+            # Bar plot for count_once
+            ax1.bar(range(len(top_emojis)), top_emojis['count_once'], color=settings.bar_color)
+            ax1.set_xlabel('Emoji Rank')
+            ax1.set_ylabel('Messages Containing Emoji', color=settings.bar_color)
+            ax1.tick_params(axis='y', labelcolor=settings.bar_color)
+            
+            # Line plot for cumulative percentage
+            ax2 = ax1.twinx()
+            ax2.plot(range(len(top_emojis)), top_emojis['cumulative_percentage'], color=settings.cumulative_color, marker='o')
+            ax2.set_ylabel('Cumulative Percentage (%)', color=settings.cumulative_color)
+            ax2.tick_params(axis='y', labelcolor=settings.cumulative_color)
+            
+            # Set x-ticks to emojis
+            ax1.set_xticks(range(len(top_emojis)))
+            ax1.set_xticklabels(top_emojis['emoji'], rotation=settings.rotation)
+            
+            # Set title
+            fig.suptitle(settings.title or "Emoji Distribution in 'maap' Group")
+            
+            # Threshold line
+            threshold_rank = top_emojis[top_emojis['cumulative_percentage'] >= settings.cum_threshold].index.min()
+            if pd.notna(threshold_rank):
+                threshold_index = top_emojis.index.get_loc(threshold_rank)
+                ax1.axvline(x=threshold_index + 0.5, color='red', linestyle='--')
+                ax1.text(threshold_index + 1, max(top_emojis['count_once'], default=1) * 0.9,
+                        f'{settings.cum_threshold}% at rank {threshold_index + 1}', color='red')
+            
             plt.tight_layout()
-            plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)
             plt.show()
+            logger.info("Created emoji distribution visualization for 'maap' group.")
             return fig
         except Exception as e:
-            logger.exception(f"Failed to build distribution plot: {e}")
+            logger.exception(f"Failed to build emoji distribution visualization: {e}")
             return None
 
     def build_visual_relationships_arc(self, combined_df, group, settings: ArcPlotSettings = ArcPlotSettings()):
@@ -671,7 +663,7 @@ class PlotManager:
         ax.add_patch(ellipse)
         logger.debug(f"Drew {alpha*100:.0f}% confidence ellipse with center ({mean_x:.2f}, {mean_y:.2f}) and scale {scale:.2f}")
 
-    def build_visual_no_message_content(self, feature_df, plot_type: str = 'both', dr_settings: DimReductionSettings = DimReductionSettings(), nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings(), settings: Optional[PlotSettings] = None):
+    def build_visual_no_message_content(self, feature_df, plot_type: str = 'both', dr_settings: DimReductionSettings = DimReductionSettings(), nmc_settings: NoMessageContentSettings = NoMessageContentSettings(), settings: Optional[PlotSettings] = None):
         """
         Non-message content visualizations using configs.
 
@@ -679,16 +671,16 @@ class PlotManager:
             feature_df (pandas.DataFrame): Feature matrix with relevant columns.
             plot_type (str): Dimensionality reduction method ('both', 'pca', or 'tsne').
             dr_settings (DimReductionSettings): Dimensionality reduction settings.
-            nmc_settings (PMNoMessageContentSettings): Settings for group and Anthony color maps.
+            nmc_settings (NoMessageContentSettings): Settings for group and Anthony color maps.
             settings (Optional[PlotSettings]): Legacy settings for backward compatibility (optional).
 
         Returns:
             list: List of dictionaries containing figures and filenames, or None if creation fails.
         """
-        if settings is not None and not isinstance(settings, (DimReductionSettings, PMNoMessageContentSettings)):
+        if settings is not None and not isinstance(settings, (DimReductionSettings, NoMessageContentSettings)):
             logger.warning("Received legacy 'settings' parameter. Using default dr_settings and nmc_settings instead. Update caller to use dr_settings and nmc_settings.")
             dr_settings = DimReductionSettings()
-            nmc_settings = PMNoMessageContentSettings()
+            nmc_settings = NoMessageContentSettings()
 
         # Validate plot_type
         if plot_type not in ['both', 'pca', 'tsne']:
@@ -775,7 +767,7 @@ class PlotManager:
             logger.exception(f"Failed to plot {feature_name} trends: {e}")
             return None
 
-    def build_visual_interactions(self, feature_df, method='tsne', settings: DimReductionSettings = DimReductionSettings(), nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings()):
+    def build_visual_interactions(self, feature_df, method='tsne', settings: DimReductionSettings = DimReductionSettings(), nmc_settings: NoMessageContentSettings = NoMessageContentSettings()):
         """
         Specialized 2D visualization for interaction features using PCA or t-SNE.
         Colors by author for evolution over years.
@@ -820,7 +812,7 @@ class PlotManager:
             logger.exception(f"Failed to build interaction visualization: {e}")
             return None
 
-    def build_visual_interactions_2(self, feature_df, method='tsne', settings: DimReductionSettings = DimReductionSettings(), nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings()):
+    def build_visual_interactions_2(self, feature_df, method='tsne', settings: DimReductionSettings = DimReductionSettings(), nmc_settings: NoMessageContentSettings = NoMessageContentSettings()):
         """
         Create two 2D visualizations for interaction features using PCA or t-SNE.
         First plot: Colors by author, with 'Anthony van Tilburg' points for each group-year and overall.
@@ -832,7 +824,7 @@ class PlotManager:
             feature_df (pandas.DataFrame): Feature matrix with 'author_year' or 'author_year_group' index and 'whatsapp_group' column.
             method (str): 'pca' or 'tsne'.
             settings (DimReductionSettings): Dimensionality reduction settings.
-            nmc_settings (PMNoMessageContentSettings): Settings for group and Anthony color maps.
+            nmc_settings (NoMessageContentSettings): Settings for group and Anthony color maps.
     
         Returns:
             tuple: (matplotlib.figure.Figure, matplotlib.figure.Figure) or (None, None) if creation fails.
