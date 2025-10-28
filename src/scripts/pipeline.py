@@ -61,11 +61,6 @@ class Pipeline:
         else:
             logger.info(f"Running user-defined SCRIPTS: {scripts}")
 
-        # === Force Script0 if no .parq exists ===
-        if not list(processed_dir.glob("combined_*.parq")) and 0 not in scripts:
-            logger.info("No pre-processed parquet found → forcing Script0.")
-            scripts = [0] + [s for s in scripts if s != 0]
-
         # === Setup logging ===
         Pipeline._setup_logging()
 
@@ -83,7 +78,21 @@ class Pipeline:
         tables_dir = Path("tables")
         tables_dir.mkdir(exist_ok=True)
 
-        # === SCRIPT REGISTRY (including Script0) ===
+        # === Load or run preprocessing ===
+        files = list(processed_dir.glob("combined_*.parq"))
+        if files and 0 not in scripts:
+            latest_file = max(files, key=lambda p: p.stat().st_mtime)
+            try:
+                df = pd.read_parquet(latest_file)
+                logger.info(f"Loaded cached data: {latest_file.name}. DF shape: {df.shape}")
+            except Exception as e:
+                logger.error(f"Failed to load cached data: {e}. Forcing Script0.")
+                scripts = [0] + scripts
+        else:
+            logger.info("No cached parquet or Script0 requested → forcing Script0.")
+            scripts = [0] + [s for s in scripts if s != 0]
+
+        # === SCRIPT REGISTRY ===
         script_registry = {
             0: (Script0, [file_manager, data_editor, data_preparation, processed_dir, config, image_dir]),
             1: (Script1, [file_manager, plot_manager, image_dir]),
@@ -96,38 +105,41 @@ class Pipeline:
             11: (Script11, [file_manager, data_editor, data_preparation, plot_manager, processed_dir, image_dir]),
         }
 
-        # === SINGLE EXECUTION LOOP: Script0 first, then others ===
+        # === SINGLE EXECUTION LOOP ===
         instances = {}
 
-        # 1. Run Script0 first (if in scripts)
-        if 0 in scripts:
-            logger.info("Running Script0 (preprocessing)...")
-            cls, args = script_registry[0]
-            script0 = cls(*args)
-            result = script0.run()
-            if result is None or "df" not in result:
-                logger.error("Script0 failed or didn't return 'df'. Aborting.")
-                return
-            df = result["df"]
-            tables_dir = result.get("tables_dir", tables_dir)
-            instances[0] = script0
-            logger.info(f"Script0 completed. DF shape: {df.shape}")
-
-        # 2. Run all other scripts (once each)
-        for script_id in [s for s in scripts if s != 0]:
+        for script_id in scripts:
             if script_id not in script_registry:
                 logger.warning(f"Script {script_id} not in registry. Skipping.")
                 continue
 
             cls, base_args = script_registry[script_id]
-            args = base_args.copy()  # Avoid mutating original
+            args = base_args.copy()
 
-            # Inject df for scripts that need it (as last arg)
+            # Inject df for scripts that need it
             if script_id in {2, 3, 4, 5, 7, 10, 11}:
                 if df is None:
-                    logger.error(f"Script {script_id} needs df, but Script0 failed.")
+                    logger.error(f"Script {script_id} needs df, but preprocessing failed.")
                     continue
                 args.append(df)
+
+            # Special handling for Script0
+            if script_id == 0:
+                logger.info("Running Script0 (preprocessing)...")
+                try:
+                    instance = cls(*args)
+                    result = instance.run()
+                    if result is None or "df" not in result:
+                        logger.error("Script0 failed or didn't return 'df'. Aborting.")
+                        return
+                    df = result["df"]
+                    tables_dir = result.get("tables_dir", tables_dir)
+                    instances[script_id] = instance
+                    logger.info(f"Script0 completed. DF shape: {df.shape}")
+                except Exception as e:
+                    logger.exception(f"Script0 failed: {e}")
+                    return
+                continue
 
             # Prepare/inject category data for scripts that need it
             if script_id in {1, 4, 5, 7, 10}:
@@ -138,11 +150,10 @@ class Pipeline:
                 df_out, group_authors, non_anthony, anthony, sorted_g = category_data
                 df = df_out  # Update df if modified
 
-                # Customize args for category-dependent scripts
                 if script_id == 1:
                     args = [file_manager, plot_manager, image_dir, group_authors, non_anthony, anthony, sorted_g]
                 elif script_id in {4, 7}:
-                    args.insert(-1, group_authors)  # Insert before df
+                    args.insert(-1, group_authors)  # Insert before df if present
 
             # Instantiate
             try:
@@ -153,7 +164,7 @@ class Pipeline:
                 logger.error(f"Failed to initialize Script {script_id}: {e}")
                 continue
 
-            # Run (exactly once)
+            # Run
             logger.info(f"Running Script {script_id}...")
             try:
                 instance.run()
