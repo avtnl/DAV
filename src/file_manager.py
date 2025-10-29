@@ -9,6 +9,7 @@ import wa_analyzer.preprocess as preprocessor
 import pandas as pd
 import matplotlib.pyplot as plt
 from src.constants import Columns
+from src.data_editor import DataEditor
 
 class FileManager:
     def find_name_csv(self, path, timestamp):
@@ -177,106 +178,60 @@ class FileManager:
             return datafiles, processed, group_map, None
 
     def get_preprocessed_data(self, data_editor, data_preparation, config, processed_dir):
-            """
-            New method: Handles full preprocessing flow, including loading, cleaning, group assignment, concatenation, and saving combined files.
-            Absorbs logic from Script0 to avoid overlap.
-
-            Args:
-                data_editor: DataEditor instance for cleaning methods.
-                data_preparation: DataPreparation instance if needed (currently not used here, but injected for future).
-                config: Config dict.
-                processed_dir: Path to processed directory.
-
-            Returns:
-                dict or None: {"df": combined_df, "tables_dir": Path, "dataframes": dict} or None on failure.
-            """
-            try:
-                datafiles, processed, group_map, parq_files = self.read_csv()
-                if not datafiles:
-                    logger.error("No valid data files from read_csv().")
-                    return None
-
-                dataframes = {}
-                preprocess = config["preprocess"]
-
-                if preprocess:
-                    for datafile in datafiles:
-                        if not datafile.exists():
-                            logger.warning(f"{datafile} does not exist – skip.")
-                            continue
-                        df = data_editor.convert_timestamp(datafile)
-                        df = data_editor.clean_author(df)
-                        df[Columns.HAS_EMOJI.value] = df["message"].apply(data_editor.has_emoji)
-
-                        # Assign group name
-                        for key, parq_name in parq_files.items():
-                            if parq_name.replace(".parq", ".csv") == datafile.name:
-                                df[Columns.WHATSAPP_GROUP.value] = group_map[key]
-                                break
-                        else:
-                            df[Columns.WHATSAPP_GROUP.value] = Groups.UNKNOWN.value
-
-                        logger.info(f"Processed {datafile.name} – {len(df)} rows")
-                        csv_file = self.save_csv(df, processed)
-                        parq_file = self.save_parq(df, processed)
-                        logger.info(f"Saved CSV={csv_file}, Parquet={parq_file}")
-                        dataframes[datafile.stem] = df
-                else:
-                    # Load already-processed files
-                    for key, group in group_map.items():
-                        csv_path = processed / config[key]
-                        csv_path = csv_path.with_suffix(".csv")
-                        if not csv_path.exists():
-                            logger.warning(f"{csv_path} missing – skip.")
-                            continue
-                        df = data_editor.convert_timestamp(csv_path)
-                        df = data_editor.clean_author(df)
-                        df[Columns.HAS_EMOJI.value] = df["message"].apply(data_editor.has_emoji)
-                        df[Columns.WHATSAPP_GROUP.value] = group
-                        dataframes[key] = df
-                        logger.info(f"Loaded {csv_path} – {len(df)} rows")
-
-                if not dataframes:
-                    logger.error("No DataFrames were created/loaded.")
-                    return None
-
-                # Concatenate + final cleaning
-                df = data_editor.concatenate_df(dataframes)
-                if df is None:
-                    logger.error("Concatenation failed.")
-                    return None
-
-                df = data_editor.filter_group_names(df)
-                if df is None:
-                    logger.error("Group-name filter failed.")
-                    return None
-                df = data_editor.clean_for_deleted_media_patterns(df)
-                if df is None:
-                    logger.error("Deleted-media cleaning failed.")
-                    return None
-
-                # Save combined files
-                csv_file, parq_file = self.save_combined_files(df, processed_dir)
-                if csv_file is None or parq_file is None:
-                    logger.error("Failed to save combined files.")
-                    return None
-
-                # Final filter
-                df = data_editor.filter_group_names(df)
-                if df is None:
-                    logger.error("Final group filter failed.")
-                    return None
-
-                # Tables directory
-                tables_dir = Path("tables")
-                tables_dir.mkdir(parents=True, exist_ok=True)
-
-                logger.info("Preprocessing finished.")
-                return {"df": df, "tables_dir": tables_dir, "dataframes": dataframes}
-
-            except Exception as e:
-                logger.exception(f"Preprocessing crashed: {e}")
+        try:
+            datafiles, processed, group_map, parq_files = self.read_csv()
+            if not datafiles:
+                logger.error("No valid data files")
                 return None
+
+            dataframes = {}
+            preprocess = config["preprocess"]
+
+            if preprocess:
+                for datafile in datafiles:
+                    if not datafile.exists():
+                        continue
+                    df = data_editor.convert_timestamp(datafile)
+                    df = data_editor.clean_author(df)
+                    df[Columns.HAS_EMOJI.value] = df["message"].apply(data_editor.has_emoji)
+                    for key, parq_name in parq_files.items():
+                        if parq_name.replace(".parq", ".csv") == datafile.name:
+                            df[Columns.WHATSAPP_GROUP.value] = group_map[key]
+                            break
+                    else:
+                        df[Columns.WHATSAPP_GROUP.value] = Groups.UNKNOWN.value
+                    dataframes[datafile.stem] = df
+            else:
+                for key, group in group_map.items():
+                    csv_path = processed / config[key]
+                    csv_path = csv_path.with_suffix(".csv")
+                    if not csv_path.exists():
+                        continue
+                    df = data_editor.convert_timestamp(csv_path)
+                    df = data_editor.clean_author(df)
+                    df[Columns.HAS_EMOJI.value] = df["message"].apply(data_editor.has_emoji)
+                    df[Columns.WHATSAPP_GROUP.value] = group
+                    dataframes[key] = df
+
+            if not dataframes:
+                return None
+
+            df = data_editor.concatenate_df(dataframes)
+            df = data_editor.filter_group_names(df)
+            df = data_editor.clean_for_deleted_media_patterns(df)
+            df = data_editor.organize_extended_df(df)  # ONE CALL
+
+            if df is None:
+                return None
+
+            csv_file, parq_file = self.save_combined_files(df, processed_dir)
+            tables_dir = Path("tables")
+            tables_dir.mkdir(parents=True, exist_ok=True)
+
+            return {"df": df, "tables_dir": tables_dir, "dataframes": dataframes}
+        except Exception as e:
+            logger.exception(f"Preprocessing failed: {e}")
+            return None
 
     def load_dataframe(self, datafile: Path, mapping: dict = {}) -> pd.DataFrame:
         """
@@ -400,3 +355,53 @@ class FileManager:
         logger.info(f"Saving table to: {output}")
         df.to_csv(output, index=True)
         return output
+    
+    def enrich_all_groups(self, data_editor: DataEditor, processed_dir: Path):
+        """
+        Load all 5 cleaned CSV files, assign whatsapp_group from filename,
+        run organize_extended_df, concatenate, save enriched CSV.
+        """
+        from pathlib import Path
+        import pandas as pd
+
+        # Mapping: filename pattern → group name
+        group_map = {
+            "maap": "maap",
+            "golf": "golfmaten",
+            "dac": "dac",
+            "voorganger-golf": "golfmaten",
+            "til": "tillies"
+        }
+
+        dfs = []
+        for csv_file in processed_dir.glob("whatsapp-*-cleaned.csv"):
+            # Extract group key from filename
+            name_part = csv_file.stem.split('-', 3)[-1]  # e.g., "maap-cleaned" → "maap"
+            group_key = name_part.split('-cleaned')[0]
+            group = group_map.get(group_key)
+
+            if not group:
+                logger.warning(f"Unknown group in {csv_file.name}, skipping")
+                continue
+
+            logger.info(f"Loading {csv_file.name} → group='{group}'")
+            df = pd.read_csv(csv_file, parse_dates=['timestamp'])
+            df['whatsapp_group'] = group
+
+            # Run full enrichment
+            df = data_editor.organize_extended_df(df)
+            if df is None:
+                logger.error(f"Failed to enrich {csv_file}")
+                continue
+
+            dfs.append(df)
+
+        if not dfs:
+            logger.error("No dataframes to concatenate")
+            return None
+
+        combined = pd.concat(dfs, ignore_index=True)
+        out_path = processed_dir / f"whatsapp_all_enriched-{pd.Timestamp.now():%Y%m%d-%H%M%S}.csv"
+        combined.to_csv(out_path, index=False)
+        logger.success(f"Enriched file saved: {out_path}")
+        return out_path      

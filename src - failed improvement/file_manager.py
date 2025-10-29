@@ -301,4 +301,4 @@ class FileManager:
         output = tables_dir / f"{prefix}-{now}.csv"
         logger.info(f"Saving table to: {output}")
         df.to_csv(output, index=True)
-        return output
+        return output  
