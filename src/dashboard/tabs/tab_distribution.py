@@ -1,7 +1,8 @@
 # src/dashboard/tabs/tab_distribution.py
 import streamlit as st
-import plotly.express as px
+import plotly.graph_objects as go
 import pandas as pd
+import numpy as np
 from config import COL
 from ast import literal_eval
 
@@ -9,34 +10,17 @@ def render_distribution_tab(df_filtered):
     st.header("Distribution – Emoji Usage")
 
     # ------------------------------------------------------------------
-    # 1. Fix column name if broken
+    # 1. Mode: Overview / Test Probability
     # ------------------------------------------------------------------
-    emoji_col = COL["list_emojis"]
-    if emoji_col not in df_filtered.columns:
-        # Try to find column with "emoji" in name
-        possible = [c for c in df_filtered.columns if "emoji" in c.lower()]
-        if possible:
-            emoji_col = possible[0]
-            st.info(f"Using emoji column: `{emoji_col}`")
-        else:
-            st.error("No emoji column found!")
-            return
+    mode = st.radio(
+        "Mode",
+        ["Overview", "Test Probability"],
+        horizontal=True,
+        key="dist_mode"
+    )
 
     # ------------------------------------------------------------------
-    # 2. Group selector
-    # ------------------------------------------------------------------
-    group_options = ["all whatsapp_groups"] + sorted(df_filtered[COL["group"]].unique().tolist())
-    selected_group = st.selectbox("Select WhatsApp Group", group_options, key="dist_group_select")
-
-    if selected_group == "all whatsapp_groups":
-        df_emoji = df_filtered.copy()
-        title_suffix = "All Groups"
-    else:
-        df_emoji = df_filtered[df_filtered[COL["group"]] == selected_group].copy()
-        title_suffix = selected_group
-
-    # ------------------------------------------------------------------
-    # 3. PARSE list_of_all_emojis → echte Python lijst
+    # 2. Parse emojis (robust)
     # ------------------------------------------------------------------
     def safe_parse_emojis(x):
         if pd.isna(x) or not x:
@@ -49,94 +33,182 @@ def render_distribution_tab(df_filtered):
                 return literal_eval(s)
             except:
                 pass
-        # Fallback: split by comma
         return [e.strip().strip("'\"") for e in s.split(",") if e.strip()]
 
-    df_emoji["emojis_parsed"] = df_emoji[emoji_col].apply(safe_parse_emojis)
-    df_emoji["emoji_count"] = df_emoji["emojis_parsed"].apply(len)
+    df_filtered["emojis_parsed"] = df_filtered[COL["list_emojis"]].apply(safe_parse_emojis)
+    df_filtered["has_emoji_flag"] = df_filtered["emojis_parsed"].apply(len) > 0
+    df_with_emoji = df_filtered[df_filtered["has_emoji_flag"]].copy()
 
-    df_with_emoji = df_emoji[df_emoji["emoji_count"] > 0].copy()
     if df_with_emoji.empty:
-        st.warning("No valid emojis found in this group.")
+        st.error("No messages with emojis found.")
         return
 
     # ------------------------------------------------------------------
-    # 4. DEBUG: Show parsing
+    # OVERVIEW MODE
     # ------------------------------------------------------------------
-    with st.expander("DEBUG: Parsed Emojis", expanded=False):
-        st.write(f"**Messages with emojis:** {len(df_with_emoji):,}")
-        sample = df_with_emoji[[emoji_col, "emojis_parsed"]].head(5)
-        st.write("**Raw → Parsed:**")
-        st.dataframe(sample)
+    if mode == "Overview":
+        render_overview(df_filtered, df_with_emoji)
 
     # ------------------------------------------------------------------
-    # 5. Count: one per message (unique emoji)
+    # TEST PROBABILITY MODE
     # ------------------------------------------------------------------
-    df_with_emoji["emojis_unique"] = df_with_emoji["emojis_parsed"].apply(lambda x: list(set(x)))
-    exploded = df_with_emoji.explode("emojis_unique")
-    exploded = exploded[exploded["emojis_unique"].notna()]
+    else:
+        render_probability_game(df_filtered, df_with_emoji)
 
+
+# ======================================================================
+# OVERVIEW
+# ======================================================================
+def render_overview(df_filtered, df_with_emoji):
+    # Group selector
+    group_options = ["all whatsapp_groups"] + sorted(df_filtered[COL["group"]].unique().tolist())
+    selected_group = st.selectbox("Select Group", group_options, key="overview_group")
+
+    if selected_group == "all whatsapp_groups":
+        df_group = df_with_emoji.copy()
+        title_suffix = "All Groups"
+    else:
+        df_group = df_with_emoji[df_with_emoji[COL["group"]] == selected_group].copy()
+        title_suffix = selected_group
+
+    # Explode + count
+    df_group["emojis_unique"] = df_group["emojis_parsed"].apply(lambda x: list(set(x)))
+    exploded = df_group.explode("emojis_unique")
     emoji_counts = exploded["emojis_unique"].value_counts().reset_index()
     emoji_counts.columns = ["emoji", "count"]
 
-    # ------------------------------------------------------------------
-    # 6. FINAL DEBUG
-    # ------------------------------------------------------------------
-    with st.expander("FINAL COUNTS (Before Filter)", expanded=True):
-        st.write("**Top 20 emojis:**")
-        st.dataframe(emoji_counts.head(20))
-        st.write(f"**Max count:** {emoji_counts['count'].max():,}")
-        st.write(f"**Total messages with emoji:** {emoji_counts['count'].sum():,}")
+    total_messages = len(df_group)
 
-    # ------------------------------------------------------------------
-    # 7. Filter slider
-    # ------------------------------------------------------------------
-    max_possible = int(emoji_counts["count"].max())
-    min_count, max_count = st.slider(
-        "Min–Max Messages Containing Emoji",
-        min_value=0,
-        max_value=max_possible,
-        value=(0, max_possible),
-        key="emoji_slider"
+    # Max slider (controls how many emojis to show)
+    max_emojis = st.slider(
+        "Max # of Emojis to Show",
+        min_value=1,
+        max_value=len(emoji_counts),
+        value=min(60, len(emoji_counts)),
+        key="max_emojis_slider"
     )
 
-    filtered = emoji_counts[
-        (emoji_counts["count"] >= min_count) &
-        (emoji_counts["count"] <= max_count)
-    ].copy()
+    top_n = emoji_counts.head(max_emojis).copy()
+    top_n["likelihood"] = top_n["count"] / total_messages
+    top_n["cumulative"] = top_n["likelihood"].cumsum()
 
-    if filtered.empty:
-        st.warning("No emojis match filter.")
-        return
+    # Plot
+    fig = go.Figure()
 
-    filtered = filtered.sort_values("count", ascending=False)
-    show_labels = len(filtered) < 26
+    # Bars: likelihood
+    fig.add_trace(go.Bar(
+        x=top_n["emoji"],
+        y=top_n["likelihood"],
+        name="Likelihood",
+        marker_color="lightblue",
+        text=top_n["emoji"],
+        textposition="outside" if len(top_n) <= 26 else "none"
+    ))
 
-    # ------------------------------------------------------------------
-    # 8. Plot
-    # ------------------------------------------------------------------
-    y_upper = filtered["count"].max() * 1.1
-
-    fig = px.bar(
-        filtered,
-        x="emoji",
-        y="count",
-        title=f"Emoji Distribution – {title_suffix}",
-        labels={"count": "Messages Containing Emoji", "emoji": "Emoji"},
-        text="emoji" if show_labels else None,
-        color="count",
-        color_continuous_scale="Blues"
-    )
+    # Orange line: cumulative
+    fig.add_trace(go.Scatter(
+        x=top_n["emoji"],
+        y=top_n["cumulative"],
+        mode="lines+markers",
+        name="Cumulative",
+        line=dict(color="orange", width=3),
+        yaxis="y2"
+    ))
 
     fig.update_layout(
-        height=600,
+        title=f"Emoji Likelihood – {title_suffix}<br><sub>Top {len(top_n)} of {len(emoji_counts)} emojis</sub>",
         xaxis_title="Emoji",
-        yaxis_title="Messages Containing Emoji",
-        showlegend=False,
-        yaxis=dict(range=[0, y_upper])
+        yaxis=dict(title="Likelihood", tickformat=".0%", range=[0, 1]),
+        yaxis2=dict(title="Cumulative", tickformat=".0%", range=[0, 1], overlaying="y", side="right"),
+        height=600,
+        showlegend=False
     )
 
-    if show_labels:
-        fig.update_traces(textposition="outside")
-
     st.plotly_chart(fig, use_container_width=True)
+
+    # Final counts below
+    with st.expander("Final Emoji Counts", expanded=False):
+        st.dataframe(top_n[["emoji", "count", "likelihood", "cumulative"]].style.format({
+            "likelihood": "{:.1%}",
+            "cumulative": "{:.1%}"
+        }))
+
+
+# ======================================================================
+# TEST PROBABILITY GAME
+# ======================================================================
+def render_probability_game(df_filtered, df_with_emoji):
+    st.subheader("Test Emoji Probability")
+
+    col1, col2 = st.columns(2)
+
+    # Emoji selector
+    all_emojis = sorted({e for lst in df_with_emoji["emojis_parsed"] for e in lst})
+    selected_emoji = col1.selectbox("Select Emoji", all_emojis, key="test_emoji")
+
+    # Group selector
+    group_options = ["all whatsapp_groups"] + sorted(df_filtered[COL["group"]].unique().tolist())
+    selected_group = col2.selectbox("WhatsApp Group", group_options, key="test_group")
+
+    # Author selector + sync
+    if selected_group == "all whatsapp_groups":
+        author_options = ["all authors"] + sorted(df_filtered[COL["author"]].unique().tolist())
+    else:
+        authors_in_group = df_filtered[df_filtered[COL["group"]] == selected_group][COL["author"]].unique()
+        author_options = ["all authors"] + sorted(authors_in_group)
+
+    selected_author = col1.selectbox("Author", author_options, key="test_author")
+
+    # Sync: if author not in group → switch group
+    if selected_author != "all authors" and selected_group != "all whatsapp_groups":
+        author_group = df_filtered[df_filtered[COL["author"]] == selected_author][COL["group"]].unique()
+        if selected_group not in author_group and len(author_group) > 0:
+            new_group = author_group[0]
+            st.warning(f"Author '{selected_author}' not in '{selected_group}'. Switching to '{new_group}'.")
+            selected_group = new_group
+
+    # Filter data
+    df_test = df_with_emoji.copy()
+    if selected_group != "all whatsapp_groups":
+        df_test = df_test[df_test[COL["group"]] == selected_group]
+    if selected_author != "all authors":
+        df_test = df_test[df_test[COL["author"]] == selected_author]
+
+    total_messages = len(df_test)
+    emoji_occurrences = df_test["emojis_parsed"].apply(lambda x: selected_emoji in x).sum()
+    probability = emoji_occurrences / total_messages if total_messages > 0 else 0
+
+    st.metric("Probability", f"{probability:.1%}", help=f"{emoji_occurrences} / {total_messages} messages")
+
+    # Sample size + tests
+    col3, col4 = st.columns(2)
+    max_sample = min(total_messages, 1000)
+    sample_size = col3.slider("Sample Size", 1, max_sample, min(100, max_sample), key="sample_size")
+    num_tests = col4.slider("Number of Tests", 1, 100, 10, key="num_tests")
+
+    if st.button("Run Test"):
+        results = []
+        for _ in range(num_tests):
+            sample = df_test.sample(n=sample_size, replace=False)
+            found = sample["emojis_parsed"].apply(lambda x: selected_emoji in x).sum()
+            results.append(found)
+
+        expected = sample_size * probability
+        actual_avg = np.mean(results)
+
+        st.write(f"**Expected per sample:** {expected:.2f}")
+        st.write(f"**Actually found (avg):** {actual_avg:.2f}")
+
+        diff = actual_avg - expected
+        if diff > 0.5 * expected:
+            st.success(f"**Exceeds expectation!** 🎉 You're on a hot streak!")
+        elif abs(diff) <= 0.3 * expected:
+            st.info(f"**In line with expectation.** 📊 Solid science.")
+        else:
+            st.warning(f"**Below expectation.** 😔")
+            if probability < 0.05:
+                st.write("→ You selected a **rare emoji**.")
+            if sample_size < 50:
+                st.write("→ Try **increasing sample size**.")
+            if num_tests < 20:
+                st.write("→ Try **more tests** for better stats.")

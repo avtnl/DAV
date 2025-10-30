@@ -6,6 +6,8 @@ from data_loader import load_csv
 from utils.filters import sidebar_filters
 from tabs.tab_time import render_time_tab
 from tabs.tab_distribution import render_distribution_tab
+from tabs.tab_relationships import render_relationships_tab
+from tabs.tab_multi_dimensions import render_multi_dimensions_tab
 
 # ----------------------------------------------------------------------
 # Page config
@@ -68,10 +70,8 @@ with tab_dist:
 
 # -------------------------- RELATIONSHIPS --------------------------
 with tab_rel:
-    st.header("Relationships – Bubble chart")
-    st.info("Placeholder – code for Relationships tab goes here.")
+    render_relationships_tab(df)
 
 # -------------------------- MULTI DIMENSIONS --------------------------
 with tab_multi:
-    st.header("Multi Dimensions – Fingerprint")
-    st.info("Placeholder – code for Multi-Dimensions tab goes here.")
+    render_multi_dimensions_tab(df)
