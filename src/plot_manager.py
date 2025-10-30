@@ -171,27 +171,12 @@ class PlotManager:
             logger.warning("Segoe UI Emoji font not found. Falling back to default font. Some emojis may not render correctly.")
             plt.rcParams['font.family'] = 'DejaVu Sans'
 
-    # def _prepare_features(self, feature_df, groupby_period=None, settings: DimReductionSettings = DimReductionSettings()):
-    #     """Prepare features: drop non-numeric, select top by variance, normalize."""
-    #     drop_columns = ['author', 'year', 'whatsapp_group']
-    #     if groupby_period and groupby_period in ['week', 'month', 'year']:
-    #         drop_columns.append(groupby_period)
-    #     drop_columns = [col for col in drop_columns if col in feature_df.columns]
-    #     numerical_features = feature_df.drop(drop_columns, axis=1)
-    #     variances = numerical_features.var()
-    #     logger.info(f"Feature variances:\n{variances.sort_values(ascending=False).to_string()}")
-    #     top_features = variances.nlargest(settings.n_top_features).index
-    #     if len(top_features) < numerical_features.shape[1]:
-    #         logger.info(f"Selected top {len(top_features)} features by variance: {list(top_features)}")
-    #     else:
-    #         logger.info("Using all features")
-    #     numerical_features = numerical_features[top_features]
-    #     scaled_features = StandardScaler().fit_transform(numerical_features)
-    #     logger.info(f"Normalized numerical features with shape {scaled_features.shape}")
-    #     return scaled_features
-
     def _prepare_features(self, feature_df, groupby_period=None, settings: DimReductionSettings = DimReductionSettings()):
-        """Prepare features: drop non-numeric, select top by variance, no normalization."""
+        """
+        Used in Script 11.
+        Prepare features: drop non-numeric, select top by variance, no normalization.
+
+        """
         drop_columns = ['author', 'year', 'whatsapp_group']
         if groupby_period and groupby_period in ['week', 'month', 'year']:
             drop_columns.append(groupby_period)
@@ -209,7 +194,10 @@ class PlotManager:
         return numerical_features.values  # Convert to NumPy array for compatibility
 
     def _get_reducer(self, method, n_samples, settings: DimReductionSettings = DimReductionSettings()):
-        """Get reducer based on method and settings."""
+        """
+        Used in Scripts 7 and 11.
+        Get reducer based on method and settings.
+        """
         perplexity = min(settings.perplexity, n_samples - 1)
         if method == 'pca':
             return PCA(n_components=2)
@@ -219,7 +207,10 @@ class PlotManager:
             raise ValueError(f"Unknown reduction method: {method}")
 
     def _plot_per_group(self, X_reduced, feature_df, method, settings: PMNoMessageContentSettings):
-        """Per-group scatter plots colored by author, with optional ellipses."""
+        """
+        Used in Script 11.
+        Per-group scatter plots colored by author, with optional ellipses.
+        """
         figs = []
         unique_groups = feature_df['whatsapp_group'].unique()
         for group in unique_groups:
@@ -254,7 +245,10 @@ class PlotManager:
         return figs
 
     def _plot_global(self, X_reduced, feature_df, method, settings: PMNoMessageContentSettings):
-        """Global scatter plot colored by group, with Anthony special and optional ellipses."""
+        """
+        Global scatter plot colored by group, with Anthony special and optional ellipses.
+        Used in Script 11.
+        """
         fig, ax = plt.subplots(figsize=settings.figsize)
         for i in range(len(X_reduced)):
             group = feature_df['whatsapp_group'].iloc[i]
@@ -285,7 +279,8 @@ class PlotManager:
 
     def build_visual_categories(self, group_authors, non_anthony_group, anthony_group, sorted_groups, settings: CategoriesPlotSettings = CategoriesPlotSettings()):
         """
-        Create a bar chart comparing non-Anthony average messages and Anthony's messages.
+        Part of Script1.
+        Create a bar chart comparing non-Anthony average messages and Anthony's messages
         """
         try:
             fig, ax = plt.subplots(figsize=settings.figsize)
@@ -330,6 +325,7 @@ class PlotManager:
 
     def build_visual_time(self, p, average_all, settings: TimePlotSettings = TimePlotSettings()):
         """
+        Part of Script2.
         Create a line plot showing average message counts per week.
         """
         try:
@@ -380,6 +376,7 @@ class PlotManager:
 
     def build_visual_distribution(self, emoji_counts_df, settings: DistributionPlotSettings = DistributionPlotSettings()):
         """
+        Part of Script3.
         Create a bar plot showing emoji distribution.
         """
         try:
@@ -465,7 +462,11 @@ class PlotManager:
             return None
 
     def build_visual_relationships_arc(self, combined_df, group, settings: ArcPlotSettings = ArcPlotSettings()):
-        """Arc diagram for relationships."""
+        """
+        Part of Script4.
+        Arc diagram for relationships.
+
+        """
         if combined_df is None or combined_df.empty:
             logger.error("No valid DataFrame provided for building visual relationships_4 plot.")
             return None
@@ -473,18 +474,22 @@ class PlotManager:
             # Extract authors
             participant_cols = [col for col in combined_df.columns if col not in settings.excluded_columns]
             authors = sorted(set(participant_cols))
+
             # Create figure
             fig, ax = plt.subplots(figsize=settings.figsize)
             ax.set_aspect('equal')
+
             # Position authors around a circle
             n = len(authors)
             angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
             radius = 1.0
             pos = {author: (radius * np.cos(angle), radius * np.sin(angle)) for author, angle in zip(authors, angles)}
+
             # Initialize weights
             pair_weights = {}
             triple_weights = {}
             total_weights = {}
+
             # Process Pairs
             pairs_df = combined_df[combined_df['type'] == 'Pairs']
             for _, row in pairs_df.iterrows():
@@ -493,6 +498,7 @@ class PlotManager:
                 weight = row['total_messages']
                 pair_weights[key] = weight
                 total_weights[key] = total_weights.get(key, 0) + weight
+
             # Process Non-participant (triples)
             triples_df = combined_df[combined_df['type'] == 'Non-participant']
             for _, row in triples_df.iterrows():
@@ -520,10 +526,13 @@ class PlotManager:
             if not total_weights:
                 logger.error("No edges found after processing pairs and triples.")
                 return None
+
             # Get max weight for scaling linewidths
             max_weight = max(total_weights.values(), default=1)
+
             # Weights dict
             weights_dict = {'pair': pair_weights, 'triple': triple_weights, 'total': total_weights}
+
             # Draw arcs
             for arc_type, color, height_offset, zorder in settings.arc_types:
                 weights = weights_dict.get(arc_type, {})
@@ -559,6 +568,7 @@ class PlotManager:
                         label_y += settings.special_label_y_offsets.get(label_offset_key, 0)
                         ax.text(label_x, label_y, f"{int(round(weight))}", ha='center', va='center', fontsize=settings.label_fontsize,
                                 bbox=settings.label_bbox, zorder=zorder + 1)
+
             # Draw nodes
             for author, (x, y) in pos.items():
                 ax.scatter([x], [y], s=settings.node_size, color=settings.node_color, edgecolors=settings.node_edge_color, zorder=4)
@@ -574,6 +584,8 @@ class PlotManager:
 
     def build_visual_relationships_bubble(self, feature_df, settings: BubbleNewPlotSettings = BubbleNewPlotSettings()):
         """
+        Part of Script5.
+        
         Create a bubble plot of average words vs average punctuation, with bubble size as message count,
         one bubble per author per WhatsApp group, and a single red trendline. Legend bubble sizes are scaled
         to match the original scale, while plot bubbles are three times larger.
@@ -655,7 +667,10 @@ class PlotManager:
             return None
 
     def draw_confidence_ellipse(self, data, ax, alpha=0.95, facecolor='none', edgecolor='black', zorder=0):
-        """Draw confidence ellipse (unchanged, as it's already abstract)."""
+        """
+        Used by Script10.
+        Draw confidence ellipse (unchanged, as it's already abstract).
+        """
         if len(data) < 2:
             return
         cov = np.cov(data, rowvar=False)
@@ -673,6 +688,8 @@ class PlotManager:
 
     def build_visual_no_message_content(self, feature_df, plot_type: str = 'both', dr_settings: DimReductionSettings = DimReductionSettings(), nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings(), settings: Optional[PlotSettings] = None):
         """
+        Part of Script 10.
+        
         Non-message content visualizations using configs.
 
         Args:
@@ -777,51 +794,8 @@ class PlotManager:
 
     def build_visual_interactions(self, feature_df, method='tsne', settings: DimReductionSettings = DimReductionSettings(), nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings()):
         """
-        Specialized 2D visualization for interaction features using PCA or t-SNE.
-        Colors by author for evolution over years.
-    
-        Args:
-            feature_df (pandas.DataFrame): Feature matrix with 'author_year' index.
-            method (str): 'pca' or 'tsne'.
-            settings (DimensionalityReductionSettings): Dimensionality reduction settings.
-    
-        Returns:
-            matplotlib.figure.Figure or None: The plot figure.
-        """
-        if not isinstance(settings, DimReductionSettings):
-            logger.warning("Settings must be an instance of DimReductionSettings. Using default DimReductionSettings.")
-            settings = DimReductionSettings()
-        
-        try:
-            labels = feature_df.index.values
-            # Drop non-numeric columns to ensure only numeric data is used for reduction
-            X = feature_df.drop(['whatsapp_group'], axis=1, errors='ignore').values
-            reducer = self._get_reducer(method, len(labels), settings)
-            X_reduced = reducer.fit_transform(X)
-            # Extract authors from labels (author_year)
-            authors = [label.split('_')[0] for label in labels]  # Assuming no '_' in names
-            unique_authors = list(set(authors))
-            colors = sns.color_palette("husl", len(unique_authors))
-            author_color_map = dict(zip(unique_authors, colors))
-            fig, ax = plt.subplots(figsize=(10, 8))
-            for i, label in enumerate(labels):
-                auth = label.split('_')[0]
-                ax.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[author_color_map[auth]], label=auth if authors.index(auth) == i else None)
-                # ax.annotate(label, (X_reduced[i, 0], X_reduced[i, 1]), fontsize=8, ha='right')
-            ax.set_title(f"Interaction Dynamics of Authors Over Years ({method.upper()})")
-            ax.set_xlabel('Component 1')
-            ax.set_ylabel('Component 2')
-            ax.legend(title="Author")
-            plt.tight_layout()
-            plt.show()
-            logger.info(f"Created interaction visualization with {method.upper()}.")
-            return fig
-        except Exception as e:
-            logger.exception(f"Failed to build interaction visualization: {e}")
-            return None
+        Part of Script 7.
 
-    def build_visual_interactions_2(self, feature_df, method='tsne', settings: DimReductionSettings = DimReductionSettings(), nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings()):
-        """
         Create two 2D visualizations for interaction features using PCA or t-SNE.
         First plot: Colors by author, with 'Anthony van Tilburg' points for each group-year and overall.
         Second plot: Colors by group ('maap': blue, 'golfmaten': red, 'dac': green) and
@@ -843,25 +817,31 @@ class PlotManager:
         
         try:
             labels = feature_df.index.values
+
+            # First plot: All Authors
+            # Drop non-numeric columns to ensure only numeric data is used for reduction
             X = feature_df.drop(['whatsapp_group'], axis=1, errors='ignore').values
             reducer = self._get_reducer(method, len(labels), settings)
             X_reduced = reducer.fit_transform(X)
-            # First plot: Color by author
-            authors = [label.split('_')[0] for label in labels]  # Extract author from 'author_year' or 'author_year_group'
+
+            # Extract authors from labels (author_year)
+            authors = [label.split('_')[0] for label in labels]  # Assuming no '_' in names
             unique_authors = list(set(authors))
             colors = sns.color_palette("husl", len(unique_authors))
             author_color_map = dict(zip(unique_authors, colors))
-            fig1, ax1 = plt.subplots(figsize=(10, 8))
+            fig, ax = plt.subplots(figsize=(10, 8))
             for i, label in enumerate(labels):
                 auth = label.split('_')[0]
-                ax1.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[author_color_map[auth]], label=auth if authors.index(auth) == i else None)
-                ax1.annotate(label, (X_reduced[i, 0], X_reduced[i, 1]), fontsize=8, ha='right')
-            ax1.set_title(f"Interaction Dynamics of Authors Over Years ({method.upper()})")
-            ax1.set_xlabel('Component 1')
-            ax1.set_ylabel('Component 2')
-            ax1.legend(title="Author")
+                ax.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[author_color_map[auth]], label=auth if authors.index(auth) == i else None)
+                # ax.annotate(label, (X_reduced[i, 0], X_reduced[i, 1]), fontsize=8, ha='right')
+            ax.set_title(f"Interaction Dynamics of Authors Over Years ({method.upper()})")
+            ax.set_xlabel('Component 1')
+            ax.set_ylabel('Component 2')
+            ax.legend(title="Author")
             plt.tight_layout()
             plt.show()
+            logger.info(f"Created interaction visualization with {method.upper()}.")
+
             # Second plot: Color by group, with special colors for Anthony van Tilburg
             fig2, ax2 = plt.subplots(figsize=(10, 8))
             group_color_map = nmc_settings.group_color_map

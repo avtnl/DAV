@@ -1,4 +1,3 @@
-# src/scripts/script7.py
 from .base import BaseScript
 from src.plot_manager import DimReductionSettings, PMNoMessageContentSettings
 import pandas as pd   # <-- add this import if not already present
@@ -39,7 +38,7 @@ class Script7(BaseScript):
         logger.info(f"Full feature matrix saved to: {csv_path}")
         # -------------------------------------------------------------
 
-        fig_interact, fig_groups = self.plot_manager.build_visual_interactions_2(
+        fig_interact, fig_groups = self.plot_manager.build_visual_interactions(
             feature_df,
             method='pca',
             settings=DimReductionSettings(),

@@ -73,6 +73,8 @@ class DataPreparation(BaseHandler):
 
     def build_visual_categories(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, List[str]], pd.DataFrame, pd.DataFrame, List[str]]:
         """
+        Part of Script1.
+
         Prepare DataFrame for visualization by adding year, active years, and early leaver columns,
         computing group authors, non-Anthony averages, Anthony's message counts, and sorted groups.
 
@@ -148,7 +150,11 @@ class DataPreparation(BaseHandler):
             return self.df, None, None, None, None
 
     def build_visual_time(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        """Prepare time-based data for visualization (e.g., average messages per week for 'dac' group)."""
+        """
+        Part of Script2.
+        
+        Prepare time-based data for visualization (e.g., average messages per week for 'dac' group).
+        """
         if df.empty:
             logger.error("Empty DataFrame provided for visual time preparation.")
             return df, None, None
@@ -167,7 +173,10 @@ class DataPreparation(BaseHandler):
             return df, None, None
 
     def build_visual_distribution(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Prepare emoji distribution data for visualization (e.g., for 'maap' group)."""
+        """
+        Part of Script3.
+        Prepare emoji distribution data for visualization (e.g., for 'maap' group).
+        """
         if df.empty:
             logger.error("Empty DataFrame provided for visual distribution preparation.")
             return df, None
@@ -190,6 +199,8 @@ class DataPreparation(BaseHandler):
 
     def build_visual_relationships_arc(self, df_group: pd.DataFrame, authors: List[str]) -> pd.DataFrame:
         """
+        Part of Script4.
+        
         Analyze daily participation in a WhatsApp group and combine results into a single table.
         
         Args:
@@ -382,6 +393,8 @@ class DataPreparation(BaseHandler):
 
     def build_visual_relationships_bubble(self, df_groups: pd.DataFrame, groups: List[str]) -> pd.DataFrame:
         """
+        Part of Script 5.
+        
         Prepare data for the new bubble plot with average words, average punctuation, and message count per author within each group.
         
         Args:
@@ -420,6 +433,8 @@ class DataPreparation(BaseHandler):
 
     def build_interaction_features(self, df: pd.DataFrame, group_authors: Dict[str, List[str]]) -> pd.DataFrame:
         """
+        Part of Script 7.
+        
         Build a feature matrix for interaction and network dynamics analysis.
         Features include normalized reply frequencies, mention frequencies, centrality measures,
         and cross-group participation. Computed per author-year, with separate rows for
@@ -566,8 +581,9 @@ class DataPreparation(BaseHandler):
 
     def _compute_threading_features(self, df: pd.DataFrame, author: str, threading_settings: ThreadingSettings) -> dict:
             """
+            Used by Script 7.
+            
             Compute threading features for a given author.
-            Used by build_interaction_features.
 
             Args:
                 df (pandas.DataFrame): Input DataFrame with message data.
@@ -598,6 +614,11 @@ class DataPreparation(BaseHandler):
                 return features
 
     def build_visual_no_message_content(self, df: pd.DataFrame, groupby_period: str = 'week') -> pd.DataFrame:
+        """
+        Part of Script10.
+        Show PCA/ t-SNE as alternative to Script7.
+        """
+
         if df.empty:
             logger.error("No valid DataFrame provided for non-message content preparation")
             return None

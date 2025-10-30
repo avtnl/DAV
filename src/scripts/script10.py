@@ -1,4 +1,3 @@
-# src/scripts/script10.py
 from .base import BaseScript
 from loguru import logger
 import pandas as pd

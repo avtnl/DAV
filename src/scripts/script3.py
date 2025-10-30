@@ -1,4 +1,3 @@
-# scripts/script3.py
 from loguru import logger
 from pathlib import Path
 from typing import Optional

@@ -1,4 +1,3 @@
-# scripts/script5.py
 from pathlib import Path
 from typing import Optional
 from .base import BaseScript

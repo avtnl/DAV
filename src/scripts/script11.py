@@ -1,4 +1,3 @@
-# scripts/script11.py
 from pathlib import Path
 from typing import List, Optional
 from loguru import logger

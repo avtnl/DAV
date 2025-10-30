@@ -1,4 +1,3 @@
-# scripts/script4.py
 import pandas as pd
 from loguru import logger
 from pathlib import Path
