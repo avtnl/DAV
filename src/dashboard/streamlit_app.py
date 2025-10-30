@@ -10,6 +10,17 @@ from tabs.tab_relationships import render_relationships_tab
 from tabs.tab_multi_dimensions import render_multi_dimensions_tab
 
 # ----------------------------------------------------------------------
+# Global CSS for all Plotly charts
+# ----------------------------------------------------------------------
+st.markdown("""
+<style>
+    .js-plotly-plot .plotly, .js-plotly-plot {
+        height: 800px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ----------------------------------------------------------------------
 # Page config
 # ----------------------------------------------------------------------
 st.set_page_config(page_title="WhatsApp Dashboard", layout="wide")
