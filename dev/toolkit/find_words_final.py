@@ -21,27 +21,24 @@ from typing import List
 start_time_run = time_module.time()
 
 # --- LOAD DATASET ---
-df = pd.read_csv("C:/Users/avtnl/Documents//HU/orginele bestanden/US_Accidents_TX_subset.csv")
+#df = pd.read_csv("C:/Users/avtnl/Documents//HU/orginele bestanden/US_Accidents_TX_subset.csv")
+df = pd.read_csv("C:/Users/avtnl/Documents/HU/Data Visualisation & Visualisation/DAV/data/processed/whatsapp_all_enriched-20251029-162237.csv")
 
 # --- PARAMETERS ---
-remove_words_with_digits: bool = True
-remove_words_in_first_column_from_second_column: bool = True  # MASTER SWITCH
+remove_words_with_digits: bool = False
+remove_words_in_first_column_from_second_column: bool = False  # MASTER SWITCH
 
-columns_having_text: List[str] = ['Street', 'Description']
+columns_having_text: List[str] = ['message_cleaned']
 
-removal_rules: List[str] = [
-    ['Street', 'Description']
-]
+# removal_rules: List[str] = [
+#     ['Street', 'Description']
+# ]
 
-words_to_exclude: List[str] = [
-    'accident', 'incident', 'blocked', 'traffic', 'caution', 'stationary', 'hazard', 'slow', 'crash', 'delays', 'expect', 'closed', 'long', 'hand', '-', '/',
-    'rd', 'r', 'street', 'st', 'lane', 'ln', 'lanes', 'drive', 'dr', 'boulevard', 'blvd', 'avenue', 'ave', 'fwy', 'hwy', 'loop', 'pkwy', 'exwy', 'tlwy',
-    'way', 'ways', 'park', 'hill', 'creek', 'plaza', 'market', 'school', 'main',
-    'northbound', 'southbound', 'eastbound', 'westbound', 'north', 'south', 'east', 'west', 'nb', 'sb', 'eb', 'wb', 'n', 's', 'e', 'w',
-    'northeast', 'northwest', 'southeast', 'southwest', 'ne', 'nw', 'se', 'sw',
-    'right', 'left', 'center', 'central', 'exit', 'exits', 'shoulder', 'service', 'ramp',
-    'one', 'two', 'three', 'four', 'five', 'both'
-]
+removal_rules: List[str] = []
+
+words_to_exclude: List[str] = ['de', 'het', 'een', 'ik', 'je', 'jij', 'hij', 'zij', 'we', 'wij', 'jullie', 'zij',
+                              'mijn', 'jouw', 'zijn', 'haar', 'ons', 'jullie', 'hun', 'dit', 'dat', 'die', 'en', 'of', 'maar', 'want', 'dus', 
+                              'ook', 'wel', 'niet', 'al', 'nog', 'toch', 'dan']
 
 # --- SAFETY CHECKS ---
 # Lowercase words_to_exclude
@@ -164,7 +161,7 @@ df_result = pd.concat(df_result_as_list, axis=1)
 
 # --- STEP 6: Save to CSV ---
 DATE_TIME = datetime.now().strftime('%d%b%Y_%H%M')
-output_words = f"C:/Users/avtnl/Documents/HU/Bestanden (output code)/Words_Counts_{DATE_TIME}.csv"
+output_words = f"C:/Users/avtnl/Documents/HU/Data Visualisation & Visualisation/DAV/data/processed/Words_Counts_{DATE_TIME}.csv"
 df_result.to_csv(output_words, index=False)
 
 # --- End time ---
