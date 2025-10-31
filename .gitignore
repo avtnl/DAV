@@ -1,0 +1,62 @@
+# ------------------------------------------------------------------
+#  YOUR ORIGINAL ENTRIES (kept exactly as you wrote them)
+# ------------------------------------------------------------------
+logs/
+data/
+*.csv
+*.txt
+*.xlsx
+*.parq
+.python-version
+hello.py
+
+# ------------------------------------------------------------------
+#  STANDARD PYTHON / TOOLING IGNORES
+# ------------------------------------------------------------------
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.class
+*.pyo
+*.pyd
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Ruff / MyPy caches
+.ruff_cache/
+.mypy_cache/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+.cache
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / editor files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs & misc
+*.log
