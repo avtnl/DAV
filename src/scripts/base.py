@@ -11,6 +11,8 @@ Provides shared utilities for:
 All scripts must inherit from :class:`BaseScript` and implement ``run()``.
 """
 
+from __future__ import annotations
+
 # === Imports ===
 from pathlib import Path
 from typing import Any, Never

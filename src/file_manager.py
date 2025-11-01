@@ -1,6 +1,6 @@
 # === Module Docstring ===
 """
-WhatsApp Chat Analyzer - File Management Module
+File Management Module
 
 Handles file discovery, preprocessing coordination, loading, saving, and
 enrichment of WhatsApp chat data. Integrates with ``DataEditor`` and
@@ -28,34 +28,37 @@ from src.constants import Columns, Groups
 from src.data_editor import DataEditor
 
 
-# === FileManager Class ===
+# === File Manager Class ===
 class FileManager:
-    """Manages file I/O, preprocessing, and data persistence for WhatsApp chat analysis."""
+    """Manages file I/O, preprocessing, and data persistence."""
 
-    # === Timestamped File Discovery ===
+    def __init__(self, processed_dir: Path | None = None) -> None:
+        self.processed_dir = processed_dir or Path("data/processed")
+        self.processed_dir.mkdir(parents=True, exist_ok=True)
 
-    def find_name_csv(self, path: Path, timestamp: str) -> Path | None:
-        pattern = r"whatsapp-(\d{8}-\d{6})\.csv"
+    # === Get Latest Enriched DataFrame ===
+    def get_latest_preprocessed_df(self) -> pd.DataFrame | None:
+        """
+        Load the most recent enriched CSV file: whatsapp_all_enriched-*.csv
+
+        Returns:
+            pd.DataFrame or None if no file found or load failed.
+        """
         try:
-            input_dt = datetime.strptime(timestamp, "%Y%m%d-%H%M%S")
-            input_dt = pytz.timezone("Europe/Amsterdam").localize(input_dt)
+            files = list(self.processed_dir.glob("whatsapp_all_enriched-*.csv"))
+            if not files:
+                logger.warning("No enriched CSV files found in processed directory.")
+                return None
 
-            for file in path.glob("*.csv"):
-                match = re.match(pattern, file.name)
-                if match:
-                    file_timestamp = match.group(1)
-                    file_dt = datetime.strptime(file_timestamp, "%Y%m%d-%H%M%S")
-                    file_dt = pytz.timezone("Europe/Amsterdam").localize(file_dt)
-                    if file_dt > input_dt:
-                        logger.info(f"Found matching file: {file}")
-                        return file
-                    logger.warning(f"Invalid timestamp in filename: {file.name}")
+            latest_file = max(files, key=lambda p: p.stat().st_mtime)
+            df = pd.read_csv(latest_file, parse_dates=[Columns.TIMESTAMP])
+            logger.info(f"Loaded enriched data: {latest_file.name} | Shape: {df.shape}")
+            return df
 
-            logger.warning(f"No CSV file found in {path} with timestamp later than {timestamp}")
+        except Exception as e:
+            logger.exception(f"Failed to load enriched data: {e}")
             return None
-        except ValueError:
-            logger.error(f"Invalid timestamp format: {timestamp}")
-            return None
+
 
     def find_latest_file(
         self, processed_dir: Path, prefix: str = "organized_data", suffix: str = ".csv"
@@ -360,5 +363,17 @@ class FileManager:
             logger.exception(f"Failed to enrich groups: {e}")
             return None
 
+
+# === CODING STANDARD (APPLY TO ALL CODE) ===
+# - `# === Module Docstring ===` before """
+# - Google-style docstrings
+# - `# === Section Name ===` for all blocks
+# - Inline: `# One space, sentence case`
+# - Tags: `# TODO:`, `# NOTE:`, `# NEW: (YYYY-MM-DD)`, `# FIXME:`
+# - Type hints in function signatures
+# - Examples: with >>>
+# - No long ----- lines
+# - No mixed styles
+# - Add markers #NEW at the end of the module capturing the latest changes.
 
 # NEW: Full standardization with Google-style docstrings, StrEnum, and type hints (2025-10-31)

@@ -27,6 +27,7 @@ class Columns(StrEnum):
     MESSAGE = "message"
     YEAR = "year"
     MONTH = "month"
+    ISOWEEK = "isoweek"
     WEEK = "week"
     DAY_OF_WEEK = "day_of_week"
     ACTIVE_YEARS = "active_years"

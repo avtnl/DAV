@@ -1,2 +1,0 @@
-[lint]
-extend-ignore = ["F821"]
