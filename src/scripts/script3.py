@@ -1,9 +1,12 @@
+# === script3.py ===
 # === Module Docstring ===
 """
 Emoji distribution plot for the MAAP group.
 
-Cleans media deletion patterns, counts emoji usage, and generates a bar + cumulative
-line chart via :meth:`src.plot_manager.PlotManager.build_visual_distribution`.
+Filters the enriched DataFrame for the MAAP group, prepares the emoji-frequency
+DataFrame via :meth:`src.data_preparation.DataPreparation.build_visual_distribution`,
+and generates the bar + cumulative line chart via
+:meth:`src.plot_manager.PlotManager.build_visual_distribution`.
 
 Examples
 --------
@@ -24,8 +27,6 @@ from .base import BaseScript
 
 # === Script 3 ===
 class Script3(BaseScript):
-    """Emoji distribution for the MAAP group."""
-
     def __init__(
         self,
         file_manager,
@@ -35,43 +36,46 @@ class Script3(BaseScript):
         image_dir: Path,
         df,
         settings: DistributionPlotSettings | None = None,
+        *args,
+        **kwargs,
     ) -> None:
         super().__init__(
-            file_manager,
+            file_manager=file_manager,
             data_editor=data_editor,
             data_preparation=data_preparation,
             plot_manager=plot_manager,
             settings=settings or DistributionPlotSettings(),
+            *args,
+            **kwargs,
         )
         self.image_dir = image_dir
         self.df = df
 
     def run(self) -> Path | None:
-        """Generate and save emoji distribution plot."""
+        """Generate and save the emoji distribution plot."""
+        # df is already filtered to full dataset; we filter MAAP here
         df_maap = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.MAAP.value].copy()
         if df_maap.empty:
             self.log_error(f"No data for group '{Groups.MAAP.value}'. Skipping.")
             return None
 
-        df_maap = self.data_editor.clean_for_deleted_media_patterns(df_maap)
-        if df_maap is None:
-            self.log_error("clean_for_deleted_media_patterns failed.")
+        distribution_data = self.data_preparation.build_visual_distribution(df_maap)
+        if distribution_data is None:
+            self.log_error("build_visual_distribution returned None.")
             return None
 
-        df_maap, emoji_counts_df = self.data_preparation.build_visual_distribution(df_maap)
-        if df_maap is None or emoji_counts_df is None:
-            self.log_error("build_visual_distribution failed.")
-            return None
-
-        logger.info(f"Unique emojis: {len(emoji_counts_df)}")
-        fig = self.plot_manager.build_visual_distribution(emoji_counts_df, self.settings)
+        logger.info(f"Unique emojis: {len(distribution_data.emoji_counts_df)}")
+        fig = self.plot_manager.build_visual_distribution(
+            distribution_data.emoji_counts_df, self.settings
+        )
         if fig is None:
             self.log_error("Failed to create emoji bar chart.")
             return None
+
         return self.save_figure(fig, self.image_dir, "emoji_counts_once")
 
 
-# === CODING STANDARD (APPLY TO ALL CODE) ===
+# === CODING STANDARD ===
 # - `# === Module Docstring ===` before """
 # - Google-style docstrings
 # - `# === Section Name ===` for all blocks
@@ -81,7 +85,9 @@ class Script3(BaseScript):
 # - Examples: with >>>
 # - No long ----- lines
 # - No mixed styles
-# - Add markers #NEW at the end of the module capturing the latest changes. There can be a list of more #NEW lines.
+# - Add markers #NEW at the end of the module
 
-
-# NEW: Full refactor with Google docstring, type hints, and SEnum usage (2025-10-31)
+# NEW: Fixed df injection – df stored directly, not passed to BaseScript (2025-11-01)
+# NEW: Prevents "truth value of DataFrame" error
+# NEW: Refactored to use pre-computed LIST_OF_ALL_EMOJIS (2025-11-01)
+# NEW: Returns DistributionPlotData and passes its DataFrame to PlotManager (2025-11-01)

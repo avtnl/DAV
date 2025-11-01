@@ -1,4 +1,3 @@
-# === data_preparation.py ===
 # === Module Docstring ===
 """
 Data Preparation Module
@@ -16,16 +15,13 @@ Prepares validated data for all 5 visualizations:
 # === Imports ===
 from __future__ import annotations
 
-import re
-import emoji
-import itertools
 from collections import Counter
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Dict
 
 import pandas as pd
 from loguru import logger
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field
 
 from .constants import Columns, Groups
 
@@ -38,10 +34,6 @@ class AuthorMessages(BaseModel):
     author: str = Field(..., min_length=1)
     message_count: int = Field(..., ge=0)
     is_avt: bool = False
-
-    @validator("author")
-    def strip(cls, v: str) -> str:
-        return v.strip()
 
 
 class GroupMessages(BaseModel):
@@ -72,6 +64,25 @@ class TimePlotData(BaseModel):
 
     class Config:
         arbitrary_types_allowed = False
+
+
+# === 3. Distribution Plot Data Contract (Script3) ===
+class DistributionPlotData(BaseModel):
+    """Validated container for the emoji-frequency DataFrame."""
+    emoji_counts_df: pd.DataFrame
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+# === 4. Arc Plot Data Contract (Script4) – placeholder ===
+class ArcPlotData(BaseModel):
+    pass  # to be filled later
+
+
+# === 5. Bubble Plot Data Contract (Script5) – placeholder ===
+class BubblePlotData(BaseModel):
+    pass  # to be filled later
 
 
 # === Base Handler ===
@@ -220,13 +231,77 @@ class DataPreparation(BaseHandler):
             logger.exception(f"build_visual_time failed: {e}")
             return None
 
-    # === 3–5: Stubs (to be filled) ===
-    def build_visual_distribution(self, df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame | None]: ...
-    def build_visual_relationships_arc(self, df_group: pd.DataFrame, authors: list[str]) -> pd.DataFrame | None: ...
-    def build_visual_relationships_bubble(self, df_groups: pd.DataFrame, groups: list[str]) -> pd.DataFrame | None: ...
+    # === 3. Distribution (Script3) ===
+    def build_visual_distribution(self, df: pd.DataFrame) -> DistributionPlotData | None:
+        df = self._handle_empty_df(df, "build_visual_distribution")
+        if df.empty:
+            return None
+
+        try:
+            import ast
+            import emoji
+
+            def parse_emoji_list(cell):
+                if pd.isna(cell) or cell in {'[]', '', ' ', None}:
+                    return []
+                try:
+                    return ast.literal_eval(cell)
+                except (ValueError, SyntaxError):
+                    # Fallback: split by space and filter valid emojis
+                    return [e.strip() for e in str(cell).split() if e.strip() in emoji.EMOJI_DATA]
+
+            # Parse and flatten
+            emoji_lists = df[Columns.LIST_OF_ALL_EMOJIS.value].apply(parse_emoji_list)
+            all_emojis = pd.Series([e for sublist in emoji_lists for e in sublist])
+
+            if all_emojis.empty:
+                logger.warning("No emojis found after parsing.")
+                return None
+
+            emoji_counts = Counter(all_emojis)
+            emoji_counts_df = pd.DataFrame(
+                {
+                    "emoji": list(emoji_counts.keys()),
+                    "count_once": list(emoji_counts.values()),
+                }
+            )
+            emoji_counts_df["percent_once"] = (
+                emoji_counts_df["count_once"] / len(df) * 100
+            )
+            emoji_counts_df = emoji_counts_df.sort_values(
+                by="count_once", ascending=False
+            ).reset_index(drop=True)
+
+            result = DistributionPlotData(emoji_counts_df=emoji_counts_df)
+            logger.success(
+                f"DistributionPlotData built – {len(emoji_counts_df)} unique emojis."
+            )
+            return result
+
+        except Exception as e:
+            logger.exception(f"build_visual_distribution failed: {e}")
+            return None
+
+    # === 4. Arc (Script4) – stub ===
+    def build_visual_relationships_arc(self, df_group: pd.DataFrame, authors: list[str]) -> ArcPlotData | None:
+        ...
+
+    # === 5. Bubble (Script5) – stub ===
+    def build_visual_relationships_bubble(self, df_groups: pd.DataFrame, groups: list[str]) -> BubblePlotData | None:
+        ...
 
 
 # === CODING STANDARD ===
-# NEW: All Pydantic models moved here (2025-11-01)
-# NEW: plot_manager imports from data_preparation only
-# NEW: No circular imports
+# - `# === Module Docstring ===` before """
+# - Google-style docstrings
+# - `# === Section Name ===` for all blocks
+# - Inline: `# One space, sentence case`
+# - Tags: `# TODO:`, `# NOTE:`, `# NEW: (YYYY-MM-DD)`, `# FIXME:`
+# - Type hints in function signatures
+# - Examples: with >>>
+# - No long ----- lines
+# - No mixed styles
+# - Add markers #NEW at the end of the module
+
+# NEW: DistributionPlotData + build_visual_distribution using LIST_OF_ALL_EMOJIS (2025-11-01)
+# NEW: High-level placeholders for Arc & Bubble (2025-11-01)

@@ -1,66 +1,66 @@
+# === script1.py ===
 # === Module Docstring ===
 """
-Script1 - Total Messages by Group and Author
+Category plot: Messages per author per group (Script 1).
 
-Builds and saves the category bar chart using validated CategoryPlotData.
+Uses enriched DataFrame, builds validated CategoryPlotData,
+and generates grouped bar chart with AvT highlight.
 """
 
-from __future__ import annotations
-
+# === Imports ===
 from pathlib import Path
-from typing import Any
 
-import pandas as pd
 from loguru import logger
-from pydantic import BaseModel  # ADD THIS LINE
-
+from src.constants import Columns, Groups
 from src.plot_manager import CategoriesPlotSettings
-from src.constants import Columns
+
 from .base import BaseScript
-
-
-class Script1Config(BaseModel):
-    image_dir: Path
-    settings: CategoriesPlotSettings
 
 
 class Script1(BaseScript):
     def __init__(
         self,
-        file_manager: Any,
-        data_preparation: Any,
-        plot_manager: Any,
+        file_manager,
+        data_preparation,
+        plot_manager,
         image_dir: Path,
         tables_dir: Path,
-        config: CategoriesPlotSettings,
-        df: pd.DataFrame | None = None,
+        df,
+        settings: CategoriesPlotSettings | None = None,
+        *args,
+        **kwargs,
     ) -> None:
         super().__init__(
-            file_manager,
+            file_manager=file_manager,
             data_preparation=data_preparation,
             plot_manager=plot_manager,
-            settings=config,
-            df=df,
+            settings=settings or CategoriesPlotSettings(),
+            *args,
+            **kwargs,
         )
         self.image_dir = image_dir
         self.tables_dir = tables_dir
-        self.config = Script1Config(image_dir=image_dir, settings=config)
+        self.df = df
 
-    def run(self) -> None:
-        if self.df is None:
-            return self.log_error("No DataFrame provided.")
+    def run(self) -> Path | None:
+        """Generate and save category plot."""
+        if self.df is None or self.df.empty:
+            self.log_error("No DataFrame provided to Script1.")
+            return None
 
         data = self.data_preparation.build_visual_categories(self.df)
-        if not data:
-            return self.log_error("Failed to build category data.")
+        if data is None:
+            self.log_error("build_visual_categories returned None.")
+            return None
 
-        fig = self.plot_manager.build_visual_categories(data, self.config.settings)
-        if not fig:
-            return self.log_error("Failed to create total messages bar chart.")
+        logger.info(f"Category plot: {len(data.groups)} groups, {data.total_messages:,} messages")
 
-        saved = self.save_figure(fig, self.image_dir, "total_messages_by_group_author")
-        if saved:
-            logger.info(f"Saved category chart: {saved}")
+        fig = self.plot_manager.build_visual_categories(data, self.settings)
+        if fig is None:
+            self.log_error("Failed to create category plot.")
+            return None
+
+        return self.save_figure(fig, self.image_dir, "category_plot")
 
 
 # === CODING STANDARD ===
@@ -75,5 +75,5 @@ class Script1(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Updated __init__ to accept 6 args + df (2025-11-01)
-# NEW: Added Script1Config for type safety
+# NEW: Fixed df injection – stored locally, not passed to BaseScript (2025-11-02)
+# NEW: Uses keyword args in super().__init__() to avoid DataFrame truth error

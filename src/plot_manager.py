@@ -257,66 +257,52 @@ class PlotManager:
     # === 2. Time (Script2) ===
     def build_visual_time(
         self,
-        p: pd.DataFrame,
-        average_all: pd.DataFrame,
+        data: TimePlotData,
         settings: TimePlotSettings = TimePlotSettings(),
     ) -> plt.Figure | None:
+        """
+        Plot the weekly average heartbeat for the DAC group.
+        """
         try:
-            weeks_rest = average_all["isoweek"].between(1, 12) | average_all["isoweek"].between(35, 53)
-            weeks_prep = average_all["isoweek"].between(12, 19)
-            weeks_play = average_all["isoweek"].between(19, 35)
-            avg_rest = average_all.loc[weeks_rest, "avg_count_all"].mean()
-            avg_prep = average_all.loc[weeks_prep, "avg_count_all"].mean()
-            avg_play = average_all.loc[weeks_play, "avg_count_all"].mean()
-
             fig, ax = plt.subplots(figsize=settings.figsize)
 
-            for week in settings.vline_weeks:
-                ax.axvline(x=week, color="gray", linestyle="--", alpha=0.5, zorder=1)
+            # data.weekly_avg is a dict {week_number: avg_messages}
+            weeks = list(data.weekly_avg.keys())
+            avg_counts = list(data.weekly_avg.values())
 
-            for xmin, xmax, yval in [
-                (1, 11.5, avg_rest),
-                (34.5, 52, avg_rest),
-                (11.5, 18.5, avg_prep),
-                (18.5, 34.5, avg_play),
-            ]:
-                ax.hlines(
-                    y=yval,
-                    xmin=xmin,
-                    xmax=xmax,
-                    colors="black",
-                    linestyles="--",
-                    alpha=0.7,
-                    zorder=5,
-                )
-
-            # Use column name directly: 'isoweek'
-            sns.lineplot(
-                data=average_all,
-                x="isoweek",  # CHANGED: No Columns.ISOWEEK
-                y="avg_count_all",
-                ax=ax,
+            # ----- line plot -----
+            ax.plot(
+                weeks,
+                avg_counts,
                 color=settings.line_color,
                 linewidth=settings.linewidth,
-                zorder=2,
             )
 
-            ax.axvspan(11.5, 18.5, color="lightgreen", alpha=0.3, zorder=0)
-            ax.axvspan(18.5, 34.5, color="green", alpha=0.3, zorder=0)
+            # ----- global average line -----
+            ax.axhline(
+                data.global_avg,
+                color="red",
+                linestyle="--",
+                label="Global Avg",
+            )
 
-            y_min, y_max = ax.get_ylim()
-            y_label = y_min + 0.9 * (y_max - y_min)
-            for x, txt in [(5, settings.rest_label), (15, settings.prep_label), (26.5, settings.play_label), (45, settings.rest_label)]:
-                ax.text(x, y_label, txt, ha="center", va="center", fontsize=12, bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.0}, zorder=7)
+            # ----- vertical separation lines -----
+            for vline in settings.vline_weeks:
+                ax.axvline(vline, color="gray", linestyle="--", alpha=0.5)
 
-            combined_labels = [f"{w}\n{m}" for w, m in zip(settings.week_ticks, settings.month_labels, strict=False)]
+            # ----- X-axis ticks & month labels -----
             ax.set_xticks(settings.week_ticks)
-            ax.set_xticklabels(combined_labels, ha="right", fontsize=8)
-            ax.set_xlabel("Week / Month of Year", fontsize=8)
-            ax.set_ylabel("Average messages per week (2017-2025)", fontsize=8)
-            ax.set_title("Golf season, decoded by WhatsApp heartbeat", fontsize=24)
+            ax.set_xticklabels(settings.month_labels, rotation=0)
+
+            # ----- titles / labels -----
+            ax.set_title(settings.title or "Weekly Message Averages (DAC)")
+            ax.set_xlabel(settings.xlabel or "Week of Year")
+            ax.set_ylabel(settings.ylabel or "Average Messages")
+
+            ax.legend()
             plt.tight_layout()
             return fig
+
         except Exception as e:
             logger.exception(f"Time plot failed: {e}")
             return None
@@ -332,59 +318,91 @@ class PlotManager:
             if not all(col in emoji_counts_df.columns for col in required):
                 logger.error("emoji_counts_df missing required columns")
                 return None
+
             n = len(emoji_counts_df)
-            fig, ax = plt.subplots(figsize=(max(n * 0.2, 8), 8))
+            fig, ax = plt.subplots(figsize=(max(n * 0.05, 8), 8))  # Narrower per emoji
             ax2 = ax.twinx()
+
             x_pos = np.arange(n)
-            ax.bar(x_pos, emoji_counts_df["percent_once"], color=settings.bar_color, align="edge", width=0.5)
-            ax.set_ylabel("Likelihood (%) of an emoji in a random message", fontsize=12, labelpad=20)
-            ax.set_title(settings.title or "Emoji Distribution", fontsize=20)
-            ax.spines["top"].set_visible(False)
-            ax.spines["right"].set_visible(False)
-            ax.spines["left"].set_position(("outward", 20))
-            ax.set_xlim(-0.5, n)
-            ax.set_xticks([])
+
+            # === THIN LINES INSTEAD OF BARS ===
+            ax.vlines(
+                x=x_pos,
+                ymin=0,
+                ymax=emoji_counts_df["percent_once"],
+                color=settings.bar_color,
+                linewidth=0.8,        # Thin line
+                alpha=0.8,
+                label="Emoji %"
+            )
+
+            # Optional: tiny markers at top
+            ax.plot(
+                x_pos,
+                emoji_counts_df["percent_once"],
+                'o',
+                markersize=2,
+                color=settings.bar_color,
+                alpha=0.6
+            )
+
+            ax.set_ylabel("Likelihood (%)", fontsize=12, labelpad=10)
+            ax.set_title(settings.title or "Emoji Distribution (MAAP)", fontsize=16, pad=20)
+            ax.set_xlim(-0.5, n - 0.5)
+            ax.set_xticks([])  # No x-ticks — too many
+
+            # === Cumulative Line ===
             cum = emoji_counts_df["percent_once"].cumsum()
-            ax2.plot(x_pos + 0.25, cum, color=settings.cumulative_color, label="Cumulative %")
+            ax2.plot(
+                x_pos,
+                cum,
+                color=settings.cumulative_color,
+                linewidth=settings.line_width,
+                label=settings.cum_label,
+            )
+
+            # Threshold line
             idx_thresh = None
             if (cum >= settings.cum_threshold).any():
                 idx_thresh = np.where(cum >= settings.cum_threshold)[0][0]
-                ax.axvspan(-0.5, idx_thresh + 0.5, facecolor="lightgreen", alpha=0.2)
-                ax.axvline(idx_thresh + 0.5, color=settings.cumulative_color, linestyle="--", linewidth=1)
-                left_mid = idx_thresh / 2
-                right_mid = (idx_thresh + 0.5) + (n - idx_thresh - 1) / 2
-                y_txt = ax.get_ylim()[0] - 1.5
-                ax.text(left_mid, y_txt, f"<-- {idx_thresh + 1} emojis -->", ha="center", fontsize=12)
-                ax.text(right_mid, y_txt, f"<-- {n} emojis -->", ha="center", fontsize=12)
-            if idx_thresh is not None:
                 ax2.axhline(settings.cum_threshold, color=settings.cumulative_color, linestyle="--", linewidth=1)
-            ax2.set_ylabel("Cumulative %", fontsize=12, labelpad=20)
+                ax.axvspan(-0.5, idx_thresh + 0.5, facecolor="lightgreen", alpha=0.15)
+
+            ax2.set_ylabel("Cumulative %", fontsize=12, labelpad=10, color=settings.cumulative_color)
             ax2.set_ylim(0, 100)
             ax2.set_yticks(np.arange(0, 101, 10))
-            ax2.spines["right"].set_position(("outward", 20))
-            ax2.tick_params(axis="y", labelsize=10, colors=settings.cumulative_color)
-            ax2.spines["right"].set_color(settings.cumulative_color)
+            ax2.tick_params(axis='y', colors=settings.cumulative_color)
+
+            # === Top N Table (Bottom) ===
             top = emoji_counts_df.head(settings.top_n)
-            cum_top = top["percent_once"].cumsum()
+            cum_top = top["percent_once"].cumsum().round(1)
             table_data = [
-                [str(i + 1) for i in range(len(top))],
+                [f"{i+1}" for i in range(len(top))],
                 [row["emoji"] for _, row in top.iterrows()],
-                [f"{c:.0f}" for c in top["count_once"]],
-                [f"{c:.1f}%" for c in cum_top],
+                [f"{c:,.0f}" for c in top["count_once"]],
+                [f"{c}%" for c in cum_top],
             ]
-            col_w = 0.8 / len(top)
-            ax.table(
+            col_width = 0.8 / len(top)
+            table = ax.table(
                 cellText=table_data,
                 rowLabels=["Rank", "Emoji", "Count", "Cum"],
-                colWidths=[col_w] * len(top),
+                colWidths=[col_width] * len(top),
                 loc="bottom",
-                bbox=[0.1, -0.45, 0.8, 0.3],
-            ).auto_set_font_size(False)
-            fig.text(0.5, 0.27, "Top 25:", ha="center", fontsize=12)
-            ax2.legend(loc="upper left", fontsize=8)
+                bbox=[0.1, -0.5, 0.8, 0.35],
+            )
+            table.auto_set_font_size(False)
+            table.set_fontsize(9)
+
+            fig.text(0.5, 0.28, f"Top {settings.top_n} Emojis", ha="center", fontsize=11)
+
+            # === Legends ===
+            ax2.legend(loc="upper left", fontsize=9)
+            # ax.legend(loc="upper right", fontsize=9)  # Optional
+
             plt.tight_layout()
-            plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)
+            plt.subplots_adjust(bottom=0.35)
             return fig
+
         except Exception as e:
             logger.exception(f"Distribution plot failed: {e}")
             return None

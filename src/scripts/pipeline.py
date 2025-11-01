@@ -24,15 +24,17 @@ from loguru import logger
 
 from src.data_editor import DataEditor
 from src.data_preparation import DataPreparation
-from src.plot_manager import CategoriesPlotSettings, PlotManager
+from src.plot_manager import (
+    CategoriesPlotSettings,
+    DistributionPlotSettings,  # ← ADDED
+    PlotManager,
+)
 from src.file_manager import FileManager
 
 from .script0 import Script0
 from .script1 import Script1
 from .script2 import Script2
-# from .script3 import Script3  # Add later
-# from .script4 import Script4
-# from .script5 import Script5
+from .script3 import Script3  # ← ADDED
 
 
 # === Pipeline Class ===
@@ -97,7 +99,7 @@ class Pipeline:
             # Load enriched CSV (whatsapp_all_enriched-*.csv)
             df = file_manager.get_latest_preprocessed_df()
             if df is None or df.empty:
-                logger.info("No enriched CSV or Script0 requested → forcing Script0.")
+                logger.info("No enriched CSV or Script0 requested - forcing Script0.")
                 scripts = [0] + [s for s in scripts if s != 0]
 
             # === Script Registry ===
@@ -109,15 +111,19 @@ class Pipeline:
                 ),
                 1: (
                     Script1,
-                    [file_manager, data_preparation, plot_manager, image_dir, tables_dir],
-                    df  # Pass df
+                    [file_manager, data_preparation, plot_manager, image_dir, tables_dir, df],
+                    None
                 ),
                 2: (
                     Script2,
                     [file_manager, data_preparation, plot_manager, image_dir],
                     df  # Pass df
                 ),
-                # 3: (Script3, [...], df),
+                3: (  # ← ADDED
+                    Script3,
+                    [file_manager, data_editor, data_preparation, plot_manager, image_dir, df],
+                    None
+                ),
                 # 4: (Script4, [...], df),
                 # 5: (Script5, [...], df),
             }
@@ -132,7 +138,7 @@ class Pipeline:
 
                 # Unpack entry
                 cls, base_args, df_arg = script_registry[script_id]
-                args = base_args.copy()
+                args = base_args.copy()  # e.g. [file_manager, ..., image_dir]
 
                 # Inject config for Script1
                 if script_id == 1:
@@ -142,9 +148,13 @@ class Pipeline:
                         title="Anthony's participation is significantly lower for the 3rd group",
                         subtitle="Too much to handle or too much crap?",
                     )
-                    args.append(config_obj)  # config first
+                    args.append(config_obj)
 
-                # Inject df if provided
+                # Inject config for Script3
+                if script_id == 3:
+                    args.append(DistributionPlotSettings())  # ← settings
+
+                # Inject df if provided (after settings)
                 if df_arg is not None and script_id in {1, 2, 3, 4, 5}:
                     args.append(df_arg)
 
@@ -204,3 +214,6 @@ class Pipeline:
 # NEW: Script1 receives df and config
 # NEW: Clean, robust, production-ready
 # NEW: Removed duplicate config append for Script1 (2025-11-01)
+# NEW: Added Script3 with correct df injection order (2025-11-01)
+# NEW: df appended after settings to match Script3.__init__ (2025-11-01)
+# NEW: DistributionPlotSettings injected for Script3 (2025-11-01)
