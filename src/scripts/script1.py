@@ -1,29 +1,70 @@
 # scripts/script1.py
+"""
+Build the combined yearly bar chart comparing Anthony vs non-Anthony messages.
+
+Uses :meth:`src.plot_manager.PlotManager.build_visual_categories`.
+"""
+
+# === Imports ===
 from pathlib import Path
-from typing import Optional
-from .base import BaseScript
+from typing import Any
+
+from src.constants import Columns
 from src.plot_manager import CategoriesPlotSettings
 
+from .base import BaseScript
 
+
+# === Script 1 ===
 class Script1(BaseScript):
     """Build the combined yearly bar chart (categories)."""
 
-    def __init__(self, file_manager, plot_manager, image_dir: Path,
-                 group_authors, non_anthony_group, anthony_group, sorted_groups,
-                 settings: Optional[CategoriesPlotSettings] = None):
-        super().__init__(file_manager, plot_manager=plot_manager,
-                         settings=settings or CategoriesPlotSettings())
+    def __init__(
+        self,
+        file_manager,
+        plot_manager,
+        image_dir: Path,
+        group_authors: Any,
+        non_anthony_group: Any,
+        anthony_group: Any,
+        sorted_groups: Any,
+        settings: CategoriesPlotSettings | None = None,
+    ) -> None:
+        super().__init__(
+            file_manager, plot_manager=plot_manager, settings=settings or CategoriesPlotSettings()
+        )
         self.image_dir = image_dir
         self.group_authors = group_authors
         self.non_anthony_group = non_anthony_group
         self.anthony_group = anthony_group
         self.sorted_groups = sorted_groups
 
-    def run(self):
+    def run(self) -> Optional[Path]:
+        """Generate and save the categories bar chart."""
         fig = self.plot_manager.build_visual_categories(
-            self.group_authors, self.non_anthony_group,
-            self.anthony_group, self.sorted_groups, self.settings
+            self.group_authors,
+            self.non_anthony_group,
+            self.anthony_group,
+            self.sorted_groups,
+            self.settings,
         )
         if fig is None:
-            return self.log_error("Failed to create yearly bar chart.")
+            self.log_error("Failed to create yearly bar chart.")
+            return None
         return self.save_figure(fig, self.image_dir, "yearly_bar_chart_combined")
+
+
+# === CODING STANDARD (APPLY TO ALL CODE) ===
+# - `# === Module Docstring ===` before """
+# - Google-style docstrings
+# - `# === Section Name ===` for all blocks
+# - Inline: `# One space, sentence case`
+# - Tags: `# TODO:`, `# NOTE:`, `# NEW: (YYYY-MM-DD)`, `# FIXME:`
+# - Type hints in function signatures
+# - Examples: with >>>
+# - No long ----- lines
+# - No mixed styles
+# - Add markers #NEW at the end of the module capturing the latest changes. There can be a list of more #NEW lines.
+
+
+# NEW: Refactored with Google docstring and return type (2025-10-31)

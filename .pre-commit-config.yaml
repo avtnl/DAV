@@ -1,13 +1,62 @@
+# .pre-commit-config.yaml
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.5
+    rev: v0.6.9
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
+
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.11.2
     hooks:
       - id: mypy
         additional_dependencies: []
         args: [--show-error-codes]
+
+  - repo: local
+    hooks:
+      - id: enforce-module-docstring-header
+        name: Require "# === Module Docstring ==="
+        language: system
+        entry: >-
+          powershell -Command "if ((Get-Content $args[0] -TotalCount 1) -notmatch '^# === Module Docstring ===$') {
+            Write-Error 'Missing header in $args[0]'; exit 1 }"
+        files: \.py$
+        types: [python]
+
+      - id: forbid-path-comments
+        name: Ban path comments like "# src/main.py"
+        language: system
+        entry: >-
+          powershell -Command "if (Select-String -Path $args[0] -Pattern '^\s*#\s*.+\.py$') {
+            Write-Error 'Path comment in $args[0]'; exit 1 }"
+        files: \.py$
+        types: [python]
+
+      - id: enforce-section-comments
+        name: Section comments must be "# === Name ==="
+        language: system
+        entry: >-
+          powershell -Command "if (Select-String -Path $args[0] -Pattern '^\s*#\s*===\s*[^= ]| [^= ]+\s*===\s*$') {
+            Write-Error 'Bad section comment in $args[0]'; exit 1 }"
+        files: \.py$
+        types: [python]
+
+      - id: enforce-coding-standard-footer
+        name: Must have CODING STANDARD block at end
+        language: system
+        entry: >-
+          powershell -Command "if (-not (Select-String -Path $args[0] -Pattern '# === CODING STANDARD')) {
+            Write-Error 'Missing footer in $args[0]'; exit 1 }"
+        files: \.py$
+        types: [python]
+
+      - id: enforce-new-markers
+        name: Must have at least one # NEW: line with date
+        language: system
+        entry: >-
+          powershell -Command "if (-not (Select-String -Path $args[0] -Pattern '# NEW: .* \(20\d{2}-[01]\d-[0-3]\d\)')) {
+            Write-Error 'Missing # NEW: in $args[0]'; exit 1 }"
+        files: \.py$
+        types: [python]

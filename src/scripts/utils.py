@@ -1,6 +1,30 @@
-import pandas as pd
+# scripts/utils.py
+"""
+Utility functions shared across scripts.
 
-def prepare_category_data(data_preparation, df, logger) -> tuple[pd.DataFrame, dict, dict, dict, list]:
+Currently provides data preparation for category-based visualizations.
+"""
+
+# === Imports ===
+from typing import Tuple, Optional
+
+import pandas as pd
+from loguru import logger
+
+
+# === Category Data Prep ===
+def prepare_category_data(
+    data_preparation, df: Optional[pd.DataFrame], logger
+) -> Tuple[Optional[pd.DataFrame], Optional[dict], Optional[dict], Optional[dict], Optional[list]]:
+    """
+    Prepare inputs for category visualizations.
+
+    Returns
+    -------
+    tuple
+        (df_out, group_authors, non_anthony_group, anthony_group, sorted_groups)
+        or (None, None, None, None, None) on failure.
+    """
     if df is None or df.empty:
         logger.error("prepare_category_data: df is None or empty.")
         return None, None, None, None, None
@@ -22,3 +46,19 @@ def prepare_category_data(data_preparation, df, logger) -> tuple[pd.DataFrame, d
     except Exception as e:
         logger.exception(f"Error in prepare_category_data: {e}")
         return None, None, None, None, None
+
+
+# === CODING STANDARD (APPLY TO ALL CODE) ===
+# - `# === Module Docstring ===` before """
+# - Google-style docstrings
+# - `# === Section Name ===` for all blocks
+# - Inline: `# One space, sentence case`
+# - Tags: `# TODO:`, `# NOTE:`, `# NEW: (YYYY-MM-DD)`, `# FIXME:`
+# - Type hints in function signatures
+# - Examples: with >>>
+# - No long ----- lines
+# - No mixed styles
+# - Add markers #NEW at the end of the module capturing the latest changes. There can be a list of more #NEW lines.
+
+
+# NEW: Added full return type annotation and Google docstring (2025-10-31)

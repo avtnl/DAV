@@ -1,31 +1,55 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import seaborn as sns
-import numpy as np
-from collections import Counter, defaultdict
-from loguru import logger
-import warnings
-import matplotlib.font_manager as fm
-import networkx as nx
+# === Module Docstring ===
+"""
+Plot manager for the WhatsApp Chat Analyzer.
+
+Creates all visualisations used in the analysis pipeline:
+* Bar charts (categories)
+* Time-series line plots
+* Emoji distribution plots
+* Arc diagrams of relationships
+* Bubble plots (words vs punctuation)
+* Dimensionality-reduction scatter plots (PCA / t-SNE)
+
+All column references are resolved through :class:`constants.Columns`.
+All UI strings (titles, axis labels, legends) are derived from the
+``.human`` property of the same enum – guaranteeing a single source of
+truth for both data access and presentation.
+
+Examples
+--------
+>>> from plot_manager import PlotManager
+>>> pm = PlotManager()
+>>> fig = pm.build_visual_categories(...)
+"""
+
+# === Imports ===
 import itertools
-import emoji
-import re
-from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import pairwise_distances
-from sklearn.cluster import KMeans
+import warnings
+from typing import List, Dict, Any, Optional, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from loguru import logger
+from matplotlib import patches
 from matplotlib.patches import Ellipse
-from scipy.stats import chi2
 from pydantic import BaseModel, Field
-from typing import List, Optional, Tuple, Dict
+from scipy.stats import chi2
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from sklearn.metrics import pairwise_distances
+
+from constants import Columns, Groups, PlotType, GroupByPeriod, PlotFeed
 
 # Suppress FutureWarning from seaborn/pandas
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
+
+# === Settings Models ===
 class PlotSettings(BaseModel):
-    """Base settings for all plots."""
+    """Base settings for every plot (figure size, titles, axis labels)."""
+
     title: str = ""
     xlabel: str = ""
     ylabel: str = ""
@@ -33,119 +57,159 @@ class PlotSettings(BaseModel):
     rotation: int = 0
     legend_title: Optional[str] = None
 
+
 class ColorSettings(PlotSettings):
-    """Extended settings for colored plots."""
+    """Adds a colour palette to the base settings."""
+
     color_palette: str = "coolwarm"
 
+
 class DimReductionSettings(BaseModel):
-    """Settings for dimensionality reduction."""
+    """Hyper-parameters for dimensionality reduction."""
+
     n_top_features: int = 15
     perplexity: int = 30
     metric: str = "euclidean"
 
+
 class PMNoMessageContentSettings(ColorSettings):
-    """Settings for non-message content visualizations."""
+    """Settings for non-message-content scatter plots."""
+
     group_color_map: Dict[str, str] = {
-        'maap': 'blue',
-        'golfmaten': 'red',
-        'dac': 'green'
+        Groups.MAAP.value: "blue",
+        Groups.GOLFMATEN.value: "red",
+        Groups.DAC.value: "green",
     }
     anthony_color_map: Dict[str, str] = {
-        'maap': 'lightblue',
-        'golfmaten': 'lightcoral',
-        'dac': 'lightgreen'
+        Groups.MAAP.value: "lightblue",
+        Groups.GOLFMATEN.value: "lightcoral",
+        Groups.DAC.value: "lightgreen",
     }
     draw_ellipse: bool = False
     alpha_per_group: float = 0.6
     alpha_global: float = 0.6
-    plot_type: str = 'both'  # 'per_group', 'global', or 'both'
+    plot_type: str = PlotFeed.BOTH.value  # 'per_group', 'global', or 'both'
+
 
 class CategoriesPlotSettings(ColorSettings):
-    """Settings for categories bar chart."""
+    """Bar-chart settings for the categories visualisation."""
+
     bar_width: float = 0.4
-    overall_avg_label: str = 'Overall average messages per Author'
-    arrow_color: str = 'red'
+    overall_avg_label: str = "Overall average messages per Author"
+    arrow_color: str = "red"
     arrow_lw: int = 5
     arrow_mutation_scale: int = 20
 
+
 class TimePlotSettings(PlotSettings):
-    """Settings for time-based line plot."""
+    """Line-plot settings for the weekly activity visualisation."""
+
     vline_weeks: List[float] = [11.5, 18.5, 34.5]
     week_ticks: List[int] = [1, 5, 9, 14, 18, 23, 27, 31, 36, 40, 44, 49]
-    month_labels: List[str] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    month_labels: List[str] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
     rest_label: str = "---------Rest---------"
     prep_label: str = "---Prep---"
     play_label: str = "---------Play---------"
     line_color: str = "black"
     linewidth: float = 2.5
 
+
 class DistributionPlotSettings(PlotSettings):
-    """Settings for emoji distribution plot."""
-    bar_color: str = 'purple'
+    """Settings for the emoji distribution bar + cumulative line plot."""
+
+    bar_color: str = "purple"
     cumulative_color: str = "orange"
     cum_threshold: int = 75
     top_n: int = 25
 
-class BubblePlotSettings(ColorSettings):
-    """Settings for bubble plots."""
-    green_shades: List[str] = ['#00CC00', '#1AFF1A', '#33FF33', '#4DFF4D', '#66FF66', '#80FF80', '#99FF99', '#B3FFB3', '#CCFFCC', '#E6FFE6']
-    red_shades: List[str] = ['#CC0000', '#FF1A1A', '#FF3333', '#FF4D4D', '#FF6666', '#FF8080', '#FF9999', '#FFB3B3', '#FFCCCC', '#FFE6E6']
-    gray_shades: List[str] = ['#1A1A1A', '#333333', '#4D4D4D', '#666666', '#808080', '#999999', '#B3B3B3', '#CCCCCC', '#E6E6E6', '#F2F2F2']
-    title: str = "More words = More Punctuations, but Emojis reduce number of Punctuations!"
-    xlabel: str = "Average Number of Words per Message"
-    ylabel: str = "Average Number of Punctuations per Message"
-    figsize: Tuple[int, int] = (12, 8)
 
 class BubbleNewPlotSettings(PlotSettings):
-    """Settings for the new bubble plot."""
-    group_colors: Dict[str, str] = Field(default_factory=lambda: {
-        'maap': 'lightblue',
-        'dac': 'lightgreen',
-        'golfmaten': 'orange',
-        'tillies': 'gray'
-    })
-    trendline_color: str = 'red'
+    """Settings for the new bubble plot (words vs punctuation)."""
+
+    group_colors: Dict[str, str] = Field(
+        default_factory=lambda: {
+            Groups.MAAP.value: "lightblue",
+            Groups.DAC.value: "lightgreen",
+            Groups.GOLFMATEN.value: "orange",
+            Groups.TILLIES.value: "gray",
+        }
+    )
+    trendline_color: str = "red"
     bubble_alpha: float = 0.6
     trendline_alpha: float = 0.8
     min_bubble_size: int = 50
     max_bubble_size: int = 500
-    legend_scale_factor: float = 1.0 / 3.0  # Scale legend sizes to 1/3 of plot bubble sizes
+    legend_scale_factor: float = 1.0 / 3.0  # Legend bubbles = 1/3 of plot bubbles
+
 
 class ArcPlotSettings(ColorSettings):
+    """Arc-diagram settings for relationship visualisation."""
+
     amplifier: int = 3
-    married_couples: List[Tuple[str, str]] = Field(default_factory=lambda: [("Anja Berkemeijer", "Phons Berkemeijer"), ("Madeleine", "Anthony van Tilburg")])
-    arc_types: List[Tuple[str, str | None, float, int]] = Field(default_factory=lambda: [
-        ("triple", "lightgray", 0.4, 1),
-        ("pair", "gray", 0.55, 2),
-        ("total", None, 0.7, 3)
-    ])
-    total_colors: Dict[str, str] = Field(default_factory=lambda: {"married": "red", "other": "blue"})
-    special_x_offsets: Dict[Tuple[str, str, str], float] = Field(default_factory=lambda: {
-        ("Anthony van Tilburg", "Phons Berkemeijer", "triple"): -0.1,
-        ("Anthony van Tilburg", "Phons Berkemeijer", "pair"): -0.2
-    })
-    special_label_y_offsets: Dict[Tuple[str, str], float] = Field(default_factory=lambda: {
-        ("Anthony van Tilburg", "Phons Berkemeijer"): -0.5
-    })
-    excluded_columns: List[str] = Field(default_factory=lambda: ['type', 'author', 'num_days', 'total_messages', '#participants'])
+    married_couples: List[Tuple[str, str]] = Field(
+        default_factory=lambda: [
+            ("Anja Berkemeijer", "Phons Berkemeijer"),
+            ("Madeleine", "Anthony van Tilburg"),
+        ]
+    )
+    arc_types: List[Tuple[str, Optional[str], float, int]] = Field(
+        default_factory=lambda: [
+            ("triple", "lightgray", 0.4, 1),
+            ("pair", "gray", 0.55, 2),
+            ("total", None, 0.7, 3),
+        ]
+    )
+    total_colors: Dict[str, str] = Field(
+        default_factory=lambda: {"married": "red", "other": "blue"}
+    )
+    special_x_offsets: Dict[Tuple[str, str, str], float] = Field(
+        default_factory=lambda: {
+            ("Anthony van Tilburg", "Phons Berkemeijer", "triple"): -0.1,
+            ("Anthony van Tilburg", "Phons Berkemeijer", "pair"): -0.2,
+        }
+    )
+    special_label_y_offsets: Dict[Tuple[str, str], float] = Field(
+        default_factory=lambda: {("Anthony van Tilburg", "Phons Berkemeijer"): -0.5}
+    )
+    excluded_columns: List[str] = Field(
+        default_factory=lambda: [
+            "type",
+            Columns.AUTHOR.value,
+            "num_days",
+            "total_messages",
+            "#participants",
+        ]
+    )
     node_size: int = 2000
-    node_color: str = 'lightblue'
-    node_edge_color: str = 'black'
+    node_color: str = "lightblue"
+    node_edge_color: str = "black"
     node_fontsize: int = 10
-    node_fontweight: str = 'bold'
+    node_fontweight: str = "bold"
     label_fontsize: int = 8
-    label_bbox: Dict = Field(default_factory=lambda: dict(facecolor='white', alpha=0.8, edgecolor='none'))
+    label_bbox: Dict[str, Any] = Field(
+        default_factory=lambda: {
+            "facecolor": "white",
+            "alpha": 0.8,
+            "edgecolor": "none",
+        }
+    )
     title_template: str = "Messaging Interactions in {group} Group\n(Red: Married Couples, Blue: Others, Gray: Pairs, Lightgray: Triples)"
 
-class BasePlot:
-    """Base class for creating plots with common behavior."""
-    def __init__(self, settings: PlotSettings):
-        self.settings = settings
-        self.fig = None
-        self.ax = None
 
-    def create_figure(self):
-        """Create and configure figure based on settings."""
+# === Helper Classes ===
+class BasePlot:
+    """Thin wrapper that creates a Matplotlib figure with common settings."""
+
+    def __init__(self, settings: PlotSettings) -> None:
+        self.settings = settings
+        self.fig: Optional[plt.Figure] = None
+        self.ax: Optional[plt.Axes] = None
+
+    def create_figure(self) -> Tuple[plt.Figure, plt.Axes]:
+        """Create the figure and axes, apply title / labels."""
         self.fig, self.ax = plt.subplots(figsize=self.settings.figsize)
         self.ax.set_xlabel(self.settings.xlabel)
         self.ax.set_ylabel(self.settings.ylabel)
@@ -156,727 +220,1084 @@ class BasePlot:
         plt.tight_layout()
         return self.fig, self.ax
 
-    def get_figure(self):
-        """Return figure, creating if needed."""
+    def get_figure(self) -> plt.Figure:
+        """Return the figure, creating it if necessary."""
         if self.fig is None:
             self.create_figure()
-        return self.fig
+        return self.fig  # type: ignore[return-value]
 
+
+# === Main Plot Manager ===
 class PlotManager:
-    def __init__(self):
-        # Set font to Segoe UI Emoji for emoji support
+    """Orchestrates every visualisation defined in the analysis pipeline."""
+
+    def __init__(self) -> None:
+        # Set emoji-capable font
         try:
-            plt.rcParams['font.family'] = 'Segoe UI Emoji'
-        except:
-            logger.warning("Segoe UI Emoji font not found. Falling back to default font. Some emojis may not render correctly.")
-            plt.rcParams['font.family'] = 'DejaVu Sans'
+            plt.rcParams["font.family"] = "Segoe UI Emoji"
+        except Exception:  # pragma: no cover
+            logger.warning(
+                "Segoe UI Emoji not available – falling back to DejaVu Sans."
+            )
+            plt.rcParams["font.family"] = "DejaVu Sans"
 
-    def _prepare_features(self, feature_df, groupby_period=None, settings: DimReductionSettings = DimReductionSettings()):
+    # --------------------------------------------------------------------- #
+    # === Private helpers – feature preparation & reduction ===
+    # --------------------------------------------------------------------- #
+    def _prepare_features(
+        self,
+        feature_df: pd.DataFrame,
+        groupby_period: Optional[str] = None,
+        settings: DimReductionSettings = DimReductionSettings(),
+    ) -> np.ndarray:
         """
-        Used in Script 11.
-        Prepare features: drop non-numeric, select top by variance, no normalization.
+        Drop identifier columns, keep top-variance numeric features.
 
+        Args:
+            feature_df: Input DataFrame with raw features.
+            groupby_period: Optional ``week`` / ``month`` / ``year`` column to drop.
+            settings: Dimensionality-reduction hyper-parameters.
+
+        Returns:
+            Numpy array of selected numeric features (no scaling).
         """
-        drop_columns = ['author', 'year', 'whatsapp_group']
-        if groupby_period and groupby_period in ['week', 'month', 'year']:
+        drop_columns = [
+            Columns.AUTHOR.value,
+            Columns.YEAR.value,
+            Columns.WHATSAPP_GROUP.value,
+        ]
+        if groupby_period in {
+            GroupByPeriod.WEEK.value,
+            GroupByPeriod.MONTH.value,
+            GroupByPeriod.YEAR.value,
+        }:
             drop_columns.append(groupby_period)
-        drop_columns = [col for col in drop_columns if col in feature_df.columns]
-        numerical_features = feature_df.drop(drop_columns, axis=1)
+
+        drop_columns = [c for c in drop_columns if c in feature_df.columns]
+        numerical_features = feature_df.drop(columns=drop_columns)
+
         variances = numerical_features.var()
-        logger.info(f"Feature variances:\n{variances.sort_values(ascending=False).to_string()}")
+        logger.info(
+            f"Feature variances:\n{variances.sort_values(ascending=False).to_string()}"
+        )
+
         top_features = variances.nlargest(settings.n_top_features).index
         if len(top_features) < numerical_features.shape[1]:
-            logger.info(f"Selected top {len(top_features)} features by variance: {list(top_features)}")
+            logger.info(
+                f"Selected top {len(top_features)} features: {list(top_features)}"
+            )
         else:
-            logger.info("Using all features")
-        numerical_features = numerical_features[top_features]
-        logger.info(f"Prepared numerical features (no scaling) with shape {numerical_features.shape}")
-        return numerical_features.values  # Convert to NumPy array for compatibility
+            logger.info("Using all numeric features")
 
-    def _get_reducer(self, method, n_samples, settings: DimReductionSettings = DimReductionSettings()):
+        numerical_features = numerical_features[top_features]
+        logger.info(
+            f"Prepared numerical features (shape {numerical_features.shape})"
+        )
+        return numerical_features.values  # type: ignore[no-any-return]
+
+    def _get_reducer(
+        self,
+        method: str,
+        n_samples: int,
+        settings: DimReductionSettings = DimReductionSettings(),
+    ):
         """
-        Used in Scripts 7 and 11.
-        Get reducer based on method and settings.
+        Instantiate PCA or t-SNE reducer with safe perplexity.
+
+        Args:
+            method: ``pca`` or ``tsne``.
+            n_samples: Number of observations.
+            settings: Reduction hyper-parameters.
+
+        Returns:
+            Fitted reducer instance.
         """
         perplexity = min(settings.perplexity, n_samples - 1)
-        if method == 'pca':
+        if method == PlotType.PCA.value:
             return PCA(n_components=2)
-        elif method == 'tsne':
-            return TSNE(n_components=2, perplexity=perplexity, random_state=42, metric=settings.metric)
-        else:
-            raise ValueError(f"Unknown reduction method: {method}")
+        if method == PlotType.TSNE.value:
+            return TSNE(
+                n_components=2,
+                perplexity=perplexity,
+                random_state=42,
+                metric=settings.metric,
+            )
+        raise ValueError(f"Unknown reduction method: {method}")
 
-    def _plot_per_group(self, X_reduced, feature_df, method, settings: PMNoMessageContentSettings):
+    # --------------------------------------------------------------------- #
+    # === Private scatter-plot helpers (per-group / global) ===
+    # --------------------------------------------------------------------- #
+    def _plot_per_group(
+        self,
+        X_reduced: np.ndarray,
+        feature_df: pd.DataFrame,
+        method: str,
+        settings: PMNoMessageContentSettings,
+    ) -> List[Dict[str, Any]]:
         """
-        Used in Script 11.
-        Per-group scatter plots colored by author, with optional ellipses.
+        Scatter points per WhatsApp group, colour by author, optional ellipses.
+
+        Returns:
+            List of dicts ``{'fig': fig, 'filename': name}``.
         """
-        figs = []
-        unique_groups = feature_df['whatsapp_group'].unique()
-        for group in unique_groups:
-            mask = feature_df['whatsapp_group'] == group
+        figs: List[Dict[str, Any]] = []
+        for group in feature_df[Columns.WHATSAPP_GROUP.value].unique():
+            mask = feature_df[Columns.WHATSAPP_GROUP.value] == group
             if not mask.any():
                 continue
+
             X_group = X_reduced[mask]
             group_df = feature_df[mask]
-            authors = group_df['author']
+            authors = group_df[Columns.AUTHOR.value]
             unique_authors = list(set(authors))
-            colors = sns.color_palette(settings.color_palette, len(unique_authors))
-            author_color_map = dict(zip(unique_authors, colors))
+            palette = sns.color_palette(settings.color_palette, len(unique_authors))
+            author_color_map = dict(zip(unique_authors, palette, strict=False))
+
             fig, ax = plt.subplots(figsize=settings.figsize)
-            for i in range(len(X_group)):
-                auth = authors.iloc[i]
-                ax.scatter(X_group[i, 0], X_group[i, 1], c=[author_color_map[auth]], label=auth if list(authors).index(auth) == i else None)
+            for i, auth in enumerate(authors):
+                ax.scatter(
+                    X_group[i, 0],
+                    X_group[i, 1],
+                    c=[author_color_map[auth]],
+                    label=auth if authors.tolist().index(auth) == i else None,
+                )
+
             if settings.draw_ellipse:
                 for auth in unique_authors:
-                    auth_mask = group_df['author'] == auth
+                    auth_mask = group_df[Columns.AUTHOR.value] == auth
                     if auth_mask.sum() < 2:
-                        logger.warning(f"Skipping ellipse for {auth} in {group}: insufficient points")
+                        logger.warning(
+                            f"Ellipse skipped for {auth} in {group}: <2 points"
+                        )
                         continue
                     auth_points = X_group[auth_mask]
-                    self.draw_confidence_ellipse(auth_points, ax, alpha=settings.alpha_per_group, facecolor=author_color_map[auth], edgecolor='black', zorder=0)
+                    self.draw_confidence_ellipse(
+                        auth_points,
+                        ax,
+                        alpha=settings.alpha_per_group,
+                        facecolor=author_color_map[auth],
+                        edgecolor="black",
+                        zorder=0,
+                    )
+
             ax.set_title(f"Author Clustering in {group} ({method.upper()})")
-            ax.set_xlabel('Component 1', labelpad=2)
-            ax.set_ylabel('Component 2', labelpad=2)
+            ax.set_xlabel("Component 1", labelpad=2)
+            ax.set_ylabel("Component 2", labelpad=2)
             ax.legend(title="Author")
             plt.tight_layout(pad=0.5)
-            figs.append({'fig': fig, 'filename': f"no_message_content_per_group_{group}_{method}"})
+            figs.append(
+                {
+                    "fig": fig,
+                    "filename": f"no_message_content_per_group_{group}_{method}",
+                }
+            )
             plt.show()
         return figs
 
-    def _plot_global(self, X_reduced, feature_df, method, settings: PMNoMessageContentSettings):
+    def _plot_global(
+        self,
+        X_reduced: np.ndarray,
+        feature_df: pd.DataFrame,
+        method: str,
+        settings: PMNoMessageContentSettings,
+    ) -> Dict[str, Any]:
         """
-        Global scatter plot colored by group, with Anthony special and optional ellipses.
-        Used in Script 11.
+        Global scatter coloured by group (Anthony special handling).
+
+        Returns:
+            Dict ``{'fig': fig, 'filename': name}``.
         """
         fig, ax = plt.subplots(figsize=settings.figsize)
+
         for i in range(len(X_reduced)):
-            group = feature_df['whatsapp_group'].iloc[i]
-            auth = feature_df['author'].iloc[i]
-            if auth == 'Anthony van Tilburg':
-                color = settings.anthony_color_map.get(group, 'gray')
+            group = feature_df.iloc[i][Columns.WHATSAPP_GROUP.value]
+            auth = feature_df.iloc[i][Columns.AUTHOR.value]
+
+            if auth == "Anthony van Tilburg":
+                color = settings.anthony_color_map.get(group, "gray")
             else:
-                color = settings.group_color_map.get(group, 'black')
-            ax.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[color], label=None, alpha=0.6)
+                color = settings.group_color_map.get(group, "black")
+
+            ax.scatter(
+                X_reduced[i, 0], X_reduced[i, 1], c=[color], label=None, alpha=0.6
+            )
+
         if settings.draw_ellipse:
-            unique_groups = feature_df['whatsapp_group'].unique()
-            for group in unique_groups:
-                mask = feature_df['whatsapp_group'] == group
+            for group in feature_df[Columns.WHATSAPP_GROUP.value].unique():
+                mask = feature_df[Columns.WHATSAPP_GROUP.value] == group
                 if not mask.any() or len(X_reduced[mask]) < 2:
-                    logger.warning(f"Skipping ellipse for group {group}: insufficient points")
+                    logger.warning(f"Ellipse skipped for group {group}: <2 points")
                     continue
                 group_points = X_reduced[mask]
-                self.draw_confidence_ellipse(group_points, ax, alpha=settings.alpha_global, facecolor=settings.group_color_map.get(group, 'gray'), edgecolor='black', zorder=0)
-        legend_elements = [patches.Patch(color=v, label=k) for k, v in settings.group_color_map.items()]
-        legend_elements += [patches.Patch(color=v, label=f"Anthony ({k})") for k, v in settings.anthony_color_map.items()]
-        ax.set_title("Riding the Wave of WhatsApp: Group Patterns in Messaging Behavior")
-        ax.set_xlabel('Component 1', labelpad=2)
-        ax.set_ylabel('Component 2', labelpad=2)
+                self.draw_confidence_ellipse(
+                    group_points,
+                    ax,
+                    alpha=settings.alpha_global,
+                    facecolor=settings.group_color_map.get(group, "gray"),
+                    edgecolor="black",
+                    zorder=0,
+                )
+
+        legend_elements = [
+            patches.Patch(color=v, label=k) for k, v in settings.group_color_map.items()
+        ]
+        legend_elements += [
+            patches.Patch(color=v, label=f"Anthony ({k})")
+            for k, v in settings.anthony_color_map.items()
+        ]
+
+        ax.set_title(
+            "Riding the Wave of WhatsApp: Group Patterns in Messaging Behavior"
+        )
+        ax.set_xlabel("Component 1", labelpad=2)
+        ax.set_ylabel("Component 2", labelpad=2)
         ax.legend(handles=legend_elements, title="Group / Anthony")
         plt.tight_layout(pad=0.5)
         plt.show()
-        return {'fig': fig, 'filename': f"no_message_content_global_{method}"}
 
-    def build_visual_categories(self, group_authors, non_anthony_group, anthony_group, sorted_groups, settings: CategoriesPlotSettings = CategoriesPlotSettings()):
+        return {"fig": fig, "filename": f"no_message_content_global_{method}"}
+
+    # --------------------------------------------------------------------- #
+    # === Public visualisation builders ===
+    # --------------------------------------------------------------------- #
+    def build_visual_categories(
+        self,
+        group_authors: pd.DataFrame,
+        non_anthony_group: pd.DataFrame,
+        anthony_group: pd.DataFrame,
+        sorted_groups: List[str],
+        settings: CategoriesPlotSettings = CategoriesPlotSettings(),
+    ) -> Optional[plt.Figure]:
         """
-        Part of Script1.
-        Create a bar chart comparing non-Anthony average messages and Anthony's messages
+        Bar chart comparing non-Anthony average vs Anthony messages per group.
+
+        Args:
+            group_authors: Unused (kept for API compatibility).
+            non_anthony_group: DataFrame with ``non_anthony_avg`` and ``num_authors``.
+            anthony_group: DataFrame with ``anthony_messages``.
+            sorted_groups: Ordered list of group identifiers.
+            settings: Visual styling.
+
+        Returns:
+            Matplotlib figure or ``None`` on error.
         """
         try:
             fig, ax = plt.subplots(figsize=settings.figsize)
             positions = np.arange(len(sorted_groups))
 
-            ax.bar(positions, non_anthony_group['non_anthony_avg'], width=settings.bar_width, color='lightgray', label='Average number of messages Non-Anthony')
-            ax.bar(positions + settings.bar_width / 2, anthony_group['anthony_messages'], width=settings.bar_width, color='blue', label='Number of messages Anthony')
+            # Non-Anthony bars
+            ax.bar(
+                positions,
+                non_anthony_group["non_anthony_avg"],
+                width=settings.bar_width,
+                color="lightgray",
+                label="Average messages (non-Anthony)",
+            )
+            # Anthony bars
+            ax.bar(
+                positions + settings.bar_width / 2,
+                anthony_group["anthony_messages"],
+                width=settings.bar_width,
+                color="blue",
+                label="Anthony messages",
+            )
 
-            overall_avg = (non_anthony_group['non_anthony_avg'] * non_anthony_group['num_authors'] + anthony_group['anthony_messages']).sum() / (non_anthony_group['num_authors'].sum() + len(sorted_groups))
-            ax.axhline(y=overall_avg, color='black', linestyle='--', linewidth=1.5, label=settings.overall_avg_label)
-            logger.info(f"Overall average messages across all groups: {overall_avg:.2f}")
+            # Overall average line
+            overall_avg = (
+                non_anthony_group["non_anthony_avg"]
+                * non_anthony_group["num_authors"]
+                + anthony_group["anthony_messages"]
+            ).sum() / (non_anthony_group["num_authors"].sum() + len(sorted_groups))
+            ax.axhline(
+                y=overall_avg,
+                color="black",
+                linestyle="--",
+                linewidth=1.5,
+                label=settings.overall_avg_label,
+            )
+            logger.info(f"Overall average messages: {overall_avg:.2f}")
 
-            maap_idx = sorted_groups.index('maap') if 'maap' in sorted_groups else None
-            if maap_idx is not None:
+            # Special arrow for the 'maap' group
+            if Groups.MAAP.value in sorted_groups:
+                maap_idx = sorted_groups.index(Groups.MAAP.value)
                 x_pos = positions[maap_idx] + 0.75 * settings.bar_width
-                y_start = non_anthony_group['non_anthony_avg'].iloc[maap_idx]
-                y_end = anthony_group['anthony_messages'].iloc[maap_idx]
-                ax.annotate('', xy=(x_pos, y_end), xytext=(x_pos, y_start),
-                            arrowprops=dict(arrowstyle='-|>', color=settings.arrow_color, lw=settings.arrow_lw, mutation_scale=settings.arrow_mutation_scale))
-                ax.annotate('', xy=(x_pos, y_start), xytext=(x_pos, y_end),
-                            arrowprops=dict(arrowstyle='-|>', color=settings.arrow_color, lw=settings.arrow_lw, mutation_scale=settings.arrow_mutation_scale))
-                logger.info(f"Block arrows for maap: from (x={x_pos:.2f}, y={y_start:.2f}) to (x={x_pos:.2f}, y={y_end:.2f})")
+                y_start = non_anthony_group["non_anthony_avg"].iloc[maap_idx]
+                y_end = anthony_group["anthony_messages"].iloc[maap_idx]
 
-            xtick_labels = [f"{group} ({num_authors:.1f})" for group, num_authors in zip(sorted_groups, non_anthony_group['num_authors'])]
+                for y_from, y_to in [(y_start, y_end), (y_end, y_start)]:
+                    ax.annotate(
+                        "",
+                        xy=(x_pos, y_to),
+                        xytext=(x_pos, y_from),
+                        arrowprops=dict(
+                            arrowstyle="-|>",
+                            color=settings.arrow_color,
+                            lw=settings.arrow_lw,
+                            mutation_scale=settings.arrow_mutation_scale,
+                        ),
+                    )
+
+            # X-axis labels with author count
+            xtick_labels = [
+                f"{g} ({n:.0f})"
+                for g, n in zip(
+                    sorted_groups, non_anthony_group["num_authors"], strict=False
+                )
+            ]
             ax.set_xticks(positions + settings.bar_width / 2)
             ax.set_xticklabels(xtick_labels)
-            ax.set_xlabel(settings.xlabel)
-            ax.set_ylabel(settings.ylabel)
+            ax.set_xlabel(settings.xlabel or "WhatsApp Group")
+            ax.set_ylabel(settings.ylabel or "Messages")
 
-            ax.text(0.5, 1.08, "Too much to handle or too much crap?",
-                    fontsize=16, ha='center', va='bottom', transform=ax.transAxes)
-            ax.text(0.5, 1.02, "Anthony's participation is significant lower for 1st whatsapp group",
-                    fontsize=12, ha='center', va='bottom', transform=ax.transAxes)            
+            # Subtitle annotations
+            ax.text(
+                0.5,
+                1.08,
+                "Too much to handle or too much crap?",
+                fontsize=16,
+                ha="center",
+                va="bottom",
+                transform=ax.transAxes,
+            )
+            ax.text(
+                0.5,
+                1.02,
+                "Anthony's participation is significantly lower for the first group",
+                fontsize=12,
+                ha="center",
+                va="bottom",
+                transform=ax.transAxes,
+            )
 
             ax.legend()
             plt.tight_layout()
             plt.show()
             return fig
-        except Exception as e:
-            logger.exception(f"Failed to build bar chart: {e}")
+        except Exception as e:  # pragma: no cover
+            logger.exception(f"Categories plot failed: {e}")
             return None
 
-    def build_visual_time(self, p, average_all, settings: TimePlotSettings = TimePlotSettings()):
+    def build_visual_time(
+        self,
+        p: pd.DataFrame,
+        average_all: pd.DataFrame,
+        settings: TimePlotSettings = TimePlotSettings(),
+    ) -> Optional[plt.Figure]:
         """
-        Part of Script2.
-        Create a line plot showing average message counts per week.
+        Weekly activity line plot with shaded periods (rest / prep / play).
+
+        Args:
+            p: Unused (kept for API compatibility).
+            average_all: DataFrame with ``isoweek`` and ``avg_count_all``.
+            settings: Styling.
+
+        Returns:
+            Matplotlib figure or ``None`` on error.
         """
         try:
-            weeks_1_12_35_53_all = average_all[
-                (average_all["isoweek"].between(1, 12)) | (average_all["isoweek"].between(35, 53))
-            ]["avg_count_all"].mean()
-            weeks_12_19_all = average_all[
-                average_all["isoweek"].between(12, 19)
-            ]["avg_count_all"].mean()
-            weeks_19_35_all = average_all[
-                (average_all["isoweek"].between(19, 35))
-            ]["avg_count_all"].mean()
+            # Pre-compute period averages
+            weeks_rest = (
+                average_all["isoweek"].between(1, 12)
+                | average_all["isoweek"].between(35, 53)
+            )
+            weeks_prep = average_all["isoweek"].between(12, 19)
+            weeks_play = average_all["isoweek"].between(19, 35)
+
+            avg_rest = average_all.loc[weeks_rest, "avg_count_all"].mean()
+            avg_prep = average_all.loc[weeks_prep, "avg_count_all"].mean()
+            avg_play = average_all.loc[weeks_play, "avg_count_all"].mean()
 
             fig, ax = plt.subplots(figsize=settings.figsize)
 
+            # Vertical period separators
             for week in settings.vline_weeks:
                 ax.axvline(x=week, color="gray", linestyle="--", alpha=0.5, zorder=1)
 
-            ax.hlines(y=weeks_1_12_35_53_all, xmin=1, xmax=11.5, colors="black", linestyles="--", alpha=0.7, zorder=5)
-            ax.hlines(y=weeks_1_12_35_53_all, xmin=34.5, xmax=52, colors="black", linestyles="--", alpha=0.7, zorder=5)
-            ax.hlines(y=weeks_12_19_all, xmin=11.5, xmax=18.5, colors="black", linestyles="--", alpha=0.7, zorder=5)
-            ax.hlines(y=weeks_19_35_all, xmin=18.5, xmax=34.5, colors="black", linestyles="--", alpha=0.7, zorder=5)
+            # Horizontal average lines per period
+            for xmin, xmax, yval in [
+                (1, 11.5, avg_rest),
+                (34.5, 52, avg_rest),
+                (11.5, 18.5, avg_prep),
+                (18.5, 34.5, avg_play),
+            ]:
+                ax.hlines(
+                    y=yval,
+                    xmin=xmin,
+                    xmax=xmax,
+                    colors="black",
+                    linestyles="--",
+                    alpha=0.7,
+                    zorder=5,
+                )
 
-            sns.lineplot(data=average_all, x="isoweek", y="avg_count_all", ax=ax, color=settings.line_color, linewidth=settings.linewidth, zorder=2)
+            # Main time series
+            sns.lineplot(
+                data=average_all,
+                x=Columns.ISOWEEK.value,
+                y="avg_count_all",
+                ax=ax,
+                color=settings.line_color,
+                linewidth=settings.linewidth,
+                zorder=2,
+            )
 
+            # Period shading
+            ax.axvspan(11.5, 18.5, color="lightgreen", alpha=0.3, zorder=0)
+            ax.axvspan(18.5, 34.5, color="green", alpha=0.3, zorder=0)
+
+            # Period labels (centered vertically)
             y_min, y_max = ax.get_ylim()
             y_label = y_min + 0.9 * (y_max - y_min)
-            ax.text(5, y_label, settings.rest_label, ha="center", va="center", fontsize=12, bbox=dict(boxstyle="round", facecolor="white", alpha=0.0, edgecolor=None), zorder=7)
-            ax.text(15, y_label, settings.prep_label, ha="center", va="center", fontsize=12, bbox=dict(boxstyle="round", facecolor="lightgreen", alpha=0.0, edgecolor="gray"), zorder=7)
-            ax.text(26.5, y_label, settings.play_label, ha="center", va="center", fontsize=12, bbox=dict(boxstyle="round", facecolor="green", alpha=0.0, edgecolor=None), zorder=7)
-            ax.text(45, y_label, settings.rest_label, ha="center", va="center", fontsize=12, bbox=dict(boxstyle="round", facecolor="white", alpha=0.0, edgecolor="gray"), zorder=7)
+            for x, txt in [(5, settings.rest_label), (15, settings.prep_label), (26.5, settings.play_label), (45, settings.rest_label)]:
+                ax.text(
+                    x,
+                    y_label,
+                    txt,
+                    ha="center",
+                    va="center",
+                    fontsize=12,
+                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.0),
+                    zorder=7,
+                )
 
-            ax.axvspan(xmin=11.5, xmax=18.5, color="lightgreen", alpha=0.3, zorder=0)
-            ax.axvspan(xmin=18.5, xmax=34.5, color="green", alpha=0.3, zorder=0)
-
-            combined_labels = [f"{week}\n{month}" for week, month in zip(settings.week_ticks, settings.month_labels)]
+            # X-axis with week + month
+            combined_labels = [
+                f"{w}\n{m}"
+                for w, m in zip(settings.week_ticks, settings.month_labels, strict=False)
+            ]
             ax.set_xticks(settings.week_ticks)
             ax.set_xticklabels(combined_labels, ha="right", fontsize=8)
-            ax.set_xlabel("Week/ Month of Year", fontsize=8)
-            ax.set_ylabel("Average message count per week (2017 - 2025)", fontsize=8)
-            plt.title("Golf season, decoded by WhatsApp heartbeat", fontsize=24)
+            ax.set_xlabel("Week / Month of Year", fontsize=8)
+            ax.set_ylabel("Average messages per week (2017-2025)", fontsize=8)
+            ax.set_title("Golf season, decoded by WhatsApp heartbeat", fontsize=24)
 
             plt.show()
             return fig
-        except Exception as e:
-            logger.exception(f"Failed to build time-based plot: {e}")
+        except Exception as e:  # pragma: no cover
+            logger.exception(f"Time plot failed: {e}")
             return None
 
-    def build_visual_distribution(self, emoji_counts_df, settings: DistributionPlotSettings = DistributionPlotSettings()):
+    def build_visual_distribution(
+        self,
+        emoji_counts_df: pd.DataFrame,
+        settings: DistributionPlotSettings = DistributionPlotSettings(),
+    ) -> Optional[plt.Figure]:
         """
-        Part of Script3.
-        Create a bar plot showing emoji distribution.
+        Bar + cumulative line plot showing emoji usage distribution.
+
+        Args:
+            emoji_counts_df: Must contain ``emoji``, ``count_once``, ``percent_once``.
+            settings: Styling.
+
+        Returns:
+            Matplotlib figure or ``None`` on error.
         """
+        required = ["emoji", "count_once", "percent_once"]
+        if not all(col in emoji_counts_df.columns for col in required):
+            logger.error("emoji_counts_df missing required columns")
+            return None
+
         try:
-            required_columns = ['emoji', 'count_once', 'percent_once']
-            if emoji_counts_df is None or emoji_counts_df.empty or not all(col in emoji_counts_df.columns for col in required_columns):
-                logger.error("No valid emoji_counts_df or required columns missing. Skipping distribution plot.")
-                return None
-
-            logger.info(f"Emoji usage counts:\n{emoji_counts_df.to_string()}")
-
-            if emoji_counts_df.empty:
-                logger.error("No emojis found in 'maap' group. Skipping distribution plot.")
-                return None
-
-            num_emojis = len(emoji_counts_df)
-            fig, ax = plt.subplots(figsize=(max(num_emojis * 0.2, 8), 8))
+            n = len(emoji_counts_df)
+            fig, ax = plt.subplots(figsize=(max(n * 0.2, 8), 8))
             ax2 = ax.twinx()
-            x_positions = np.arange(num_emojis)
-            bars = ax.bar(x_positions, emoji_counts_df['percent_once'], color=settings.bar_color, align='edge', width=0.5)
-            ax.set_ylabel("Likelihood (%) of finding an Emoji in a random chosen message", fontsize=12, labelpad=20)
-            ax.set_title(settings.title, fontsize=20)
-            ax.spines['top'].set_visible(False)
-            ax.spines['right'].set_visible(False)
-            ax.spines['left'].set_position(('outward', 20))
-            ax.tick_params(axis='y', labelsize=10)
-            ax.set_xlim(-0.5, num_emojis)
-            ylim_bottom, ylim_top = ax.get_ylim()
-            ax.set_ylim(ylim_bottom - 3, ylim_top)
+
+            x_pos = np.arange(n)
+            ax.bar(
+                x_pos,
+                emoji_counts_df["percent_once"],
+                color=settings.bar_color,
+                align="edge",
+                width=0.5,
+            )
+            ax.set_ylabel(
+                "Likelihood (%) of an emoji in a random message",
+                fontsize=12,
+                labelpad=20,
+            )
+            ax.set_title(settings.title or "Emoji Distribution", fontsize=20)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.spines["left"].set_position(("outward", 20))
+            ax.set_xlim(-0.5, n)
             ax.set_xticks([])
 
-            cumulative_once = emoji_counts_df['percent_once'].cumsum()
+            cum = emoji_counts_df["percent_once"].cumsum()
+            ax2.plot(
+                x_pos + 0.25,
+                cum,
+                color=settings.cumulative_color,
+                label="Cumulative %",
+            )
 
-            idx_once = None
-            cum_once_np = np.array(cumulative_once)
-            if len(cum_once_np) > 0 and np.any(cum_once_np >= settings.cum_threshold):
-                idx_once = np.where(cum_once_np >= settings.cum_threshold)[0][0]
-                x_once = idx_once + 1
-                y_once = len(emoji_counts_df)
-                ax.axvspan(-0.5, idx_once + 0.5, facecolor="lightgreen", alpha=0.2)
-                ax.axvline(x=idx_once + 0.5, color=settings.cumulative_color, linestyle="--", linewidth=1)
-                left_mid = idx_once / 2
-                right_mid = (idx_once + 0.5) + (y_once - idx_once - 1) / 2
-                y_text = ylim_bottom - 1.5
-                ax.text(left_mid, y_text, f"<-- {x_once} emojis -->", ha='center', fontsize=12)
-                ax.text(right_mid, y_text, f"<-- {y_once} emojis -->", ha='center', fontsize=12)
+            # Highlight threshold
+            idx_thresh = None
+            if (cum >= settings.cum_threshold).any():
+                idx_thresh = np.where(cum >= settings.cum_threshold)[0][0]
+                ax.axvspan(-0.5, idx_thresh + 0.5, facecolor="lightgreen", alpha=0.2)
+                ax.axvline(
+                    idx_thresh + 0.5,
+                    color=settings.cumulative_color,
+                    linestyle="--",
+                    linewidth=1,
+                )
+                left_mid = idx_thresh / 2
+                right_mid = (idx_thresh + 0.5) + (n - idx_thresh - 1) / 2
+                y_txt = ax.get_ylim()[0] - 1.5
+                ax.text(left_mid, y_txt, f"<-- {idx_thresh+1} emojis -->", ha="center", fontsize=12)
+                ax.text(right_mid, y_txt, f"<-- {n} emojis -->", ha="center", fontsize=12)
 
-            ax2.plot(x_positions + 0.25, cumulative_once, color=settings.cumulative_color, label="Cumulative %")
-            if idx_once is not None:
-                ax2.axhline(y=settings.cum_threshold, color=settings.cumulative_color, linestyle="--", linewidth=1, xmin=-0.5, xmax=num_emojis + 0.5)
-            ax2.set_ylabel("Cumulative Percentage (%)", fontsize=12, labelpad=20)
+            if idx_thresh is not None:
+                ax2.axhline(
+                    settings.cum_threshold,
+                    color=settings.cumulative_color,
+                    linestyle="--",
+                    linewidth=1,
+                )
+
+            ax2.set_ylabel("Cumulative %", fontsize=12, labelpad=20)
             ax2.set_ylim(0, 100)
             ax2.set_yticks(np.arange(0, 101, 10))
-            ax2.spines['right'].set_position(('outward', 20))
-            ax2.tick_params(axis='y', labelsize=10, colors=settings.cumulative_color)
-            ax2.spines['right'].set_color(settings.cumulative_color)
+            ax2.spines["right"].set_position(("outward", 20))
+            ax2.tick_params(axis="y", labelsize=10, colors=settings.cumulative_color)
+            ax2.spines["right"].set_color(settings.cumulative_color)
 
-            top_25_once = emoji_counts_df.head(settings.top_n)
-            cum_once_top = top_25_once['percent_once'].cumsum()
+            # Top-N table
+            top = emoji_counts_df.head(settings.top_n)
+            cum_top = top["percent_once"].cumsum()
             table_data = [
-                [str(i+1) for i in range(len(top_25_once))],
-                [f"{row['emoji']}" for _, row in top_25_once.iterrows()],
-                [f"{count:.0f}" for count in top_25_once['count_once']],
-                [f"{cum:.1f}%" for cum in cum_once_top]
+                [str(i + 1) for i in range(len(top))],
+                [row["emoji"] for _, row in top.iterrows()],
+                [f"{c:.0f}" for c in top["count_once"]],
+                [f"{c:.1f}%" for c in cum_top],
             ]
-            col_width = 0.8 / len(top_25_once)
-            table = ax.table(cellText=table_data,
-                             rowLabels=["Rank", "Emoji", "Count", "Cum"],
-                             colWidths=[col_width] * len(top_25_once),
-                             loc='bottom',
-                             bbox=[0.1, -0.45, 0.8, 0.3])
-            table.auto_set_font_size(False)
-            table.set_fontsize(10)
-            table.scale(1, 1.5)
+            col_w = 0.8 / len(top)
+            ax.table(
+                cellText=table_data,
+                rowLabels=["Rank", "Emoji", "Count", "Cum"],
+                colWidths=[col_w] * len(top),
+                loc="bottom",
+                bbox=[0.1, -0.45, 0.8, 0.3],
+            ).auto_set_font_size(False)
+            fig.text(0.5, 0.27, "Top 25:", ha="center", fontsize=12)
+            ax2.legend(loc="upper left", fontsize=8)
 
-            fig.text(0.5, 0.27, "Top 25:", ha='center', fontsize=12)
-            ax2.legend(loc='upper left', fontsize=8)
             plt.tight_layout()
             plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)
             plt.show()
             return fig
-        except Exception as e:
-            logger.exception(f"Failed to build distribution plot: {e}")
+        except Exception as e:  # pragma: no cover
+            logger.exception(f"Distribution plot failed: {e}")
             return None
 
-    def build_visual_relationships_arc(self, combined_df, group, settings: ArcPlotSettings = ArcPlotSettings()):
+    def build_visual_relationships_arc(
+        self,
+        combined_df: pd.DataFrame,
+        group: str,
+        settings: ArcPlotSettings = ArcPlotSettings(),
+    ) -> Optional[plt.Figure]:
         """
-        Part of Script4.
-        Arc diagram for relationships.
+        Arc diagram visualising pair-wise message volumes.
 
+        Args:
+            combined_df: Must contain ``type``, ``author`` and participant columns.
+            group: Human-readable group name for the title.
+            settings: Geometry & styling.
+
+        Returns:
+            Matplotlib figure or ``None`` on error.
         """
         if combined_df is None or combined_df.empty:
-            logger.error("No valid DataFrame provided for building visual relationships_4 plot.")
+            logger.error("Empty DataFrame for arc diagram")
             return None
+
         try:
-            # Extract authors
-            participant_cols = [col for col in combined_df.columns if col not in settings.excluded_columns]
+            participant_cols = [
+                c
+                for c in combined_df.columns
+                if c not in settings.excluded_columns
+            ]
             authors = sorted(set(participant_cols))
-
-            # Create figure
-            fig, ax = plt.subplots(figsize=settings.figsize)
-            ax.set_aspect('equal')
-
-            # Position authors around a circle
             n = len(authors)
             angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
             radius = 1.0
-            pos = {author: (radius * np.cos(angle), radius * np.sin(angle)) for author, angle in zip(authors, angles)}
+            pos = {
+                a: (radius * np.cos(ang), radius * np.sin(ang))
+                for a, ang in zip(authors, angles, strict=False)
+            }
 
-            # Initialize weights
-            pair_weights = {}
-            triple_weights = {}
-            total_weights = {}
+            pair_weights: Dict[frozenset, float] = {}
+            triple_weights: Dict[frozenset, float] = {}
+            total_weights: Dict[frozenset, float] = {}
 
-            # Process Pairs
-            pairs_df = combined_df[combined_df['type'] == 'Pairs']
-            for _, row in pairs_df.iterrows():
-                a1, a2 = [a.strip() for a in row['author'].split(' & ')]
+            # ----- Pairs -----
+            pairs = combined_df[combined_df["type"] == "Pairs"]
+            for _, row in pairs.iterrows():
+                a1, a2 = [s.strip() for s in row[Columns.AUTHOR.value].split(" & ")]
                 key = frozenset([a1, a2])
-                weight = row['total_messages']
-                pair_weights[key] = weight
-                total_weights[key] = total_weights.get(key, 0) + weight
+                pair_weights[key] = row["total_messages"]
+                total_weights[key] = total_weights.get(key, 0) + row["total_messages"]
 
-            # Process Non-participant (triples)
-            triples_df = combined_df[combined_df['type'] == 'Non-participant']
-            for _, row in triples_df.iterrows():
-                participants = [col for col in participant_cols if row[col] != 0]
+            # ----- Triples (non-participant) -----
+            triples = combined_df[combined_df["type"] == "Non-participant"]
+            for _, row in triples.iterrows():
+                participants = [c for c in participant_cols if row[c] != 0]
                 if len(participants) != len(authors) - 1:
-                    logger.warning(f"Unexpected number of participants in row: {len(participants)}. Skipping.")
                     continue
-                total_msg = row['total_messages']
-                pct_dict = {}
+                total_msg = row["total_messages"]
+                pct = {}
                 for p in participants:
-                    val_str = row[p]
-                    if isinstance(val_str, str):
+                    val = row[p]
+                    if isinstance(val, str):
                         try:
-                            msg_pct_str = val_str.split('%')[0]
-                            pct_dict[p] = int(msg_pct_str) / 100
-                        except (ValueError, IndexError):
-                            logger.warning(f"Invalid percentage format for {p}: {val_str}. Skipping.")
+                            pct[p] = int(val.split("%")[0]) / 100
+                        except Exception:
                             continue
                 for i, j in itertools.combinations(participants, 2):
-                    if i in pct_dict and j in pct_dict:
-                        pair_weight = (pct_dict[i] + pct_dict[j]) * total_msg
+                    if i in pct and j in pct:
+                        w = (pct[i] + pct[j]) * total_msg
                         key = frozenset([i, j])
-                        triple_weights[key] = triple_weights.get(key, 0) + pair_weight
-                        total_weights[key] = total_weights.get(key, 0) + pair_weight
+                        triple_weights[key] = triple_weights.get(key, 0) + w
+                        total_weights[key] = total_weights.get(key, 0) + w
+
             if not total_weights:
-                logger.error("No edges found after processing pairs and triples.")
+                logger.error("No edges after processing")
                 return None
 
-            # Get max weight for scaling linewidths
-            max_weight = max(total_weights.values(), default=1)
+            max_w = max(total_weights.values(), default=1)
+            weights_dict = {
+                "pair": pair_weights,
+                "triple": triple_weights,
+                "total": total_weights,
+            }
 
-            # Weights dict
-            weights_dict = {'pair': pair_weights, 'triple': triple_weights, 'total': total_weights}
+            fig, ax = plt.subplots(figsize=settings.figsize)
+            ax.set_aspect("equal")
 
-            # Draw arcs
-            for arc_type, color, height_offset, zorder in settings.arc_types:
-                weights = weights_dict.get(arc_type, {})
-                for key, weight in weights.items():
+            for arc_type, color, h_off, z in settings.arc_types:
+                for key, w in weights_dict.get(arc_type, {}).items():
                     a1, a2 = list(key)
                     x1, y1 = pos[a1]
                     x2, y2 = pos[a2]
                     xm = (x1 + x2) / 2
                     ym = (y1 + y2) / 2
-                    dist = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
-                    height = dist * height_offset
-                    # Set color for total
-                    if arc_type == 'total':
-                        pair_tuple = (a1, a2) if a1 < a2 else (a2, a1)
-                        is_married = pair_tuple in settings.married_couples or (a2, a1) in settings.married_couples
-                        color = settings.total_colors['married'] if is_married else settings.total_colors['other']
-                    # X offset
+                    dist = np.hypot(x2 - x1, y2 - y1)
+                    height = dist * h_off
+
+                    # Total-arc colour logic
+                    if arc_type == "total":
+                        pair_t = (a1, a2) if a1 < a2 else (a2, a1)
+                        married = pair_t in settings.married_couples or (
+                            a2,
+                            a1,
+                        ) in settings.married_couples
+                        color = (
+                            settings.total_colors["married"]
+                            if married
+                            else settings.total_colors["other"]
+                        )
+
+                    # X-offset for crowded labels
                     sorted_pair = tuple(sorted([a1, a2]))
-                    offset_key = (*sorted_pair, arc_type)
-                    x_offset = settings.special_x_offsets.get(offset_key, 0)
-                    # Scale line width
-                    width = (1 + 5 * (weight / max_weight)) * settings.amplifier
-                    # Draw arc
+                    x_off = settings.special_x_offsets.get(
+                        (*sorted_pair, arc_type), 0
+                    )
+
+                    # Line width scaling
+                    lw = (1 + 5 * (w / max_w)) * settings.amplifier
+
                     t = np.linspace(0, 1, 100)
-                    x = (1 - t)**2 * x1 + 2 * (1 - t) * t * (xm + x_offset) + t**2 * x2
-                    y = (1 - t)**2 * y1 + 2 * (1 - t) * t * (ym + height) + t**2 * y2
-                    ax.plot(x, y, color=color, linewidth=width, zorder=zorder)
-                    # Add label only for total arcs
-                    if arc_type == 'total':
-                        label_x = (x1 + x2) / 2
-                        label_y = (y1 + y2) / 2 + height * 0.5
-                        label_offset_key = tuple(sorted([a1, a2]))
-                        label_y += settings.special_label_y_offsets.get(label_offset_key, 0)
-                        ax.text(label_x, label_y, f"{int(round(weight))}", ha='center', va='center', fontsize=settings.label_fontsize,
-                                bbox=settings.label_bbox, zorder=zorder + 1)
+                    x = (1 - t) ** 2 * x1 + 2 * (1 - t) * t * (xm + x_off) + t**2 * x2
+                    y = (1 - t) ** 2 * y1 + 2 * (1 - t) * t * (ym + height) + t**2 * y2
+                    ax.plot(x, y, color=color, linewidth=lw, zorder=z)
 
-            # Draw nodes
-            for author, (x, y) in pos.items():
-                ax.scatter([x], [y], s=settings.node_size, color=settings.node_color, edgecolors=settings.node_edge_color, zorder=4)
-                ax.text(x, y, author, ha='center', va='center', fontsize=settings.node_fontsize, fontweight=settings.node_fontweight, zorder=5)
+                    if arc_type == "total":
+                        lbl_x = (x1 + x2) / 2
+                        lbl_y = (y1 + y2) / 2 + height * 0.5
+                        lbl_y += settings.special_label_y_offsets.get(
+                            tuple(sorted([a1, a2])), 0
+                        )
+                        ax.text(
+                            lbl_x,
+                            lbl_y,
+                            f"{round(w)}",
+                            ha="center",
+                            va="center",
+                            fontsize=settings.label_fontsize,
+                            bbox=settings.label_bbox,
+                            zorder=z + 1,
+                        )
+
+            # Nodes
+            for auth, (x, y) in pos.items():
+                ax.scatter(
+                    [x],
+                    [y],
+                    s=settings.node_size,
+                    color=settings.node_color,
+                    edgecolors=settings.node_edge_color,
+                    zorder=4,
+                )
+                ax.text(
+                    x,
+                    y,
+                    auth,
+                    ha="center",
+                    va="center",
+                    fontsize=settings.node_fontsize,
+                    fontweight=settings.node_fontweight,
+                    zorder=5,
+                )
+
             ax.set_title(settings.title_template.format(group=group))
-            ax.axis('off')
+            ax.axis("off")
             plt.tight_layout()
             plt.show()
             return fig
-        except Exception as e:
-            logger.exception(f"Failed to build arc diagram: {e}")
+        except Exception as e:  # pragma: no cover
+            logger.exception(f"Arc diagram failed: {e}")
             return None
 
-    def build_visual_relationships_bubble(self, feature_df, settings: BubbleNewPlotSettings = BubbleNewPlotSettings()):
+    def build_visual_relationships_bubble(
+        self,
+        feature_df: pd.DataFrame,
+        settings: BubbleNewPlotSettings = BubbleNewPlotSettings(),
+    ) -> Optional[plt.Figure]:
         """
-        Part of Script5.
-        
-        Create a bubble plot of average words vs average punctuation, with bubble size as message count,
-        one bubble per author per WhatsApp group, and a single red trendline. Legend bubble sizes are scaled
-        to match the original scale, while plot bubbles are three times larger.
-        
+        Bubble plot: words vs punctuation, size = message count.
+
         Args:
-            feature_df (pandas.DataFrame): DataFrame with 'whatsapp_group', 'author', 'avg_words', 'avg_punct', 'message_count' columns.
-            settings (BubbleNewPlotSettings): Plot settings including group colors and trendline style.
-        
+            feature_df: Must contain ``whatsapp_group``, ``author``,
+                        ``avg_words``, ``avg_punct``, ``message_count``.
+            settings: Colours, scaling, trendline.
+
         Returns:
-            matplotlib.figure.Figure or None: Figure object for the bubble plot, or None if creation fails.
+            Matplotlib figure or ``None`` on error.
         """
-        if feature_df is None or feature_df.empty:
-            logger.error("No valid DataFrame provided for building bubble plot.")
+        required = {
+            Columns.WHATSAPP_GROUP.value,
+            Columns.AUTHOR.value,
+            Columns.AVG_WORDS.value,
+            Columns.AVG_PUNCT.value,
+            Columns.MESSAGE_COUNT.value,
+        }
+        if not required.issubset(feature_df.columns):
+            logger.error("Bubble plot missing required columns")
             return None
+
         try:
-            # Check required columns with aliases
-            required_cols = {
-                'whatsapp_group': 'whatsapp_group',
-                'author': 'author',
-                'avg_words': ['avg_words'],
-                'avg_punct': ['avg_punct'],
-                'message_count': ['message_count']
-            }
-            missing_cols = []
-            for expected, aliases in required_cols.items():
-                if isinstance(aliases, list):
-                    if not any(alias in feature_df.columns for alias in aliases):
-                        missing_cols.append(expected)
-                elif aliases not in feature_df.columns:
-                    missing_cols.append(expected)
-            if missing_cols:
-                logger.error(f"Missing required columns. Expected {list(required_cols.keys())}, found {feature_df.columns.tolist()}")
-                return None
-
-            # Map aliases to actual columns
-            x_col = next(col for col in required_cols['avg_words'] if col in feature_df.columns)
-            y_col = next(col for col in required_cols['avg_punct'] if col in feature_df.columns)
-            size_col = next(col for col in required_cols['message_count'] if col in feature_df.columns)
-
-            # Create figure
             fig, ax = plt.subplots(figsize=settings.figsize)
-            
-            # Normalize bubble sizes based on message_count and scale by 3 for plot
-            min_size, max_size = settings.min_bubble_size, settings.max_bubble_size
-            message_counts = feature_df[size_col]
-            size_scale = (message_counts - message_counts.min()) / (message_counts.max() - message_counts.min()) if message_counts.max() != message_counts.min() else 1.0
-            bubble_sizes = (min_size + (max_size - min_size) * size_scale) * 3  # Three times larger for plot
 
-            # Plot bubbles for each author per group
-            for group in settings.group_colors.keys():
-                group_df = feature_df[feature_df['whatsapp_group'] == group]
-                if not group_df.empty:
-                    scatter = ax.scatter(group_df[x_col], group_df[y_col],
-                                        s=bubble_sizes[group_df.index], alpha=settings.bubble_alpha,
-                                        color=settings.group_colors[group], label=group)
+            msg = feature_df[Columns.MESSAGE_COUNT.value]
+            size_scale = (
+                (msg - msg.min()) / (msg.max() - msg.min())
+                if msg.max() != msg.min()
+                else 1.0
+            )
+            bubble_sizes = (
+                settings.min_bubble_size
+                + (settings.max_bubble_size - settings.min_bubble_size) * size_scale
+            ) * 3  # Plot bubbles 3x larger
 
-            # Add trendline (linear fit) across all data
-            x = feature_df[x_col]
-            y = feature_df[y_col]
-            coefficients = np.polyfit(x, y, 1)  # Linear fit (degree 1)
-            trendline = np.poly1d(coefficients)
-            ax.plot(x, trendline(x), color=settings.trendline_color, alpha=settings.trendline_alpha)
+            for grp, col in settings.group_colors.items():
+                mask = feature_df[Columns.WHATSAPP_GROUP.value] == grp
+                sub = feature_df[mask]
+                if sub.empty:
+                    continue
+                ax.scatter(
+                    sub[Columns.AVG_WORDS.value],
+                    sub[Columns.AVG_PUNCT.value],
+                    s=bubble_sizes[mask],
+                    alpha=settings.bubble_alpha,
+                    color=col,
+                    label=grp,
+                )
 
-            # Customize plot and legend
-            ax.set_title(settings.title or "Average Words vs Punctuation by Author per Group")
-            ax.set_xlabel(settings.xlabel or "Average Words per Message")
-            ax.set_ylabel(settings.ylabel or "Average Punctuation per Message")
-            # Create legend with scaled sizes
-            legend_handles = [plt.scatter([], [], s=min_size * settings.legend_scale_factor, c=color, alpha=settings.bubble_alpha, label=group)
-                            for group, color in settings.group_colors.items()]
-            ax.legend(handles=legend_handles, title="WhatsApp Group", bbox_to_anchor=(1.05, 1), loc='upper left')
-            ax.grid(True, linestyle='--', alpha=0.7)
+            # Trendline (linear fit across *all* points)
+            x = feature_df[Columns.AVG_WORDS.value]
+            y = feature_df[Columns.AVG_PUNCT.value]
+            coef = np.polyfit(x, y, 1)
+            trend = np.poly1d(coef)
+            ax.plot(x, trend(x), color=settings.trendline_color, alpha=settings.trendline_alpha)
+
+            ax.set_title(
+                settings.title
+                or f"{Columns.AVG_WORDS.human} vs {Columns.AVG_PUNCT.human}"
+            )
+            ax.set_xlabel(settings.xlabel or Columns.AVG_WORDS.human)
+            ax.set_ylabel(settings.ylabel or Columns.AVG_PUNCT.human)
+
+            # Legend with scaled-down bubbles
+            legend_handles = [
+                plt.scatter(
+                    [],
+                    [],
+                    s=settings.min_bubble_size * settings.legend_scale_factor,
+                    c=col,
+                    alpha=settings.bubble_alpha,
+                    label=grp,
+                )
+                for grp, col in settings.group_colors.items()
+            ]
+            ax.legend(
+                handles=legend_handles,
+                title="WhatsApp Group",
+                bbox_to_anchor=(1.05, 1),
+                loc="upper left",
+            )
+            ax.grid(True, linestyle="--", alpha=0.7)
 
             plt.tight_layout()
             plt.show()
             return fig
-        except Exception as e:
-            logger.exception(f"Failed to build bubble plot: {e}")
+        except Exception as e:  # pragma: no cover
+            logger.exception(f"Bubble plot failed: {e}")
             return None
 
-    def draw_confidence_ellipse(self, data, ax, alpha=0.95, facecolor='none', edgecolor='black', zorder=0):
-        """
-        Used by Script10.
-        Draw confidence ellipse (unchanged, as it's already abstract).
-        """
+    def draw_confidence_ellipse(
+        self,
+        data: np.ndarray,
+        ax: plt.Axes,
+        alpha: float = 0.95,
+        facecolor: str = "none",
+        edgecolor: str = "black",
+        zorder: int = 0,
+    ) -> None:
+        """Add a confidence ellipse to *ax* (95 % default)."""
         if len(data) < 2:
             return
         cov = np.cov(data, rowvar=False)
-        mean_x = np.mean(data[:, 0])
-        mean_y = np.mean(data[:, 1])
-        lambda_, v = np.linalg.eig(cov)
-        lambda_ = np.sqrt(lambda_)
+        mean = data.mean(axis=0)
+        eig_val, eig_vec = np.linalg.eig(cov)
         scale = np.sqrt(chi2.ppf(alpha, 2))
-        ellipse = Ellipse(xy=(mean_x, mean_y),
-                          width=lambda_[0] * scale * 2, height=lambda_[1] * scale * 2,
-                          angle=np.rad2deg(np.arccos(v[0, 0])),
-                          edgecolor=edgecolor, facecolor=facecolor, alpha=0.3, zorder=zorder)
+        ellipse = Ellipse(
+            xy=mean,
+            width=np.sqrt(eig_val[0]) * scale * 2,
+            height=np.sqrt(eig_val[1]) * scale * 2,
+            angle=np.rad2deg(np.arccos(eig_vec[0, 0])),
+            edgecolor=edgecolor,
+            facecolor=facecolor,
+            alpha=0.3,
+            zorder=zorder,
+        )
         ax.add_patch(ellipse)
-        logger.debug(f"Drew {alpha*100:.0f}% confidence ellipse with center ({mean_x:.2f}, {mean_y:.2f}) and scale {scale:.2f}")
 
-    def build_visual_no_message_content(self, feature_df, plot_type: str = 'both', dr_settings: DimReductionSettings = DimReductionSettings(), nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings(), settings: Optional[PlotSettings] = None):
+    def build_visual_no_message_content(
+        self,
+        feature_df: pd.DataFrame,
+        plot_type: str = PlotFeed.BOTH.value,
+        dr_settings: DimReductionSettings = DimReductionSettings(),
+        nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings(),
+        settings: Optional[PlotSettings] = None,
+    ) -> Optional[List[Dict[str, Any]]]:
         """
-        Part of Script 10.
-        
-        Non-message content visualizations using configs.
+        PCA / t-SNE visualisations of non-message features.
 
         Args:
-            feature_df (pandas.DataFrame): Feature matrix with relevant columns.
-            plot_type (str): Dimensionality reduction method ('both', 'pca', or 'tsne').
-            dr_settings (DimReductionSettings): Dimensionality reduction settings.
-            nmc_settings (PMNoMessageContentSettings): Settings for group and Anthony color maps.
-            settings (Optional[PlotSettings]): Legacy settings for backward compatibility (optional).
+            feature_df: Numeric + identifier columns.
+            plot_type: ``both`` / ``pca`` / ``tsne``.
+            dr_settings: Reduction hyper-parameters.
+            nmc_settings: Colour / ellipse options.
+            settings: Legacy – ignored (kept for backward compatibility).
 
         Returns:
-            list: List of dictionaries containing figures and filenames, or None if creation fails.
+            List of ``{'fig': fig, 'filename': name}`` or ``None``.
         """
-        if settings is not None and not isinstance(settings, (DimReductionSettings, PMNoMessageContentSettings)):
-            logger.warning("Received legacy 'settings' parameter. Using default dr_settings and nmc_settings instead. Update caller to use dr_settings and nmc_settings.")
-            dr_settings = DimReductionSettings()
-            nmc_settings = PMNoMessageContentSettings()
+        if settings is not None:
+            logger.warning("Legacy `settings` ignored – use dr_settings / nmc_settings")
 
-        # Validate plot_type
-        if plot_type not in ['both', 'pca', 'tsne']:
-            logger.error(f"Invalid plot_type: {plot_type}. Must be 'both', 'pca', or 'tsne'.")
+        if plot_type not in {
+            PlotFeed.BOTH.value,
+            PlotType.PCA.value,
+            PlotType.TSNE.value,
+        }:
+            logger.error(f"Invalid plot_type: {plot_type}")
             return None
 
         try:
-            figs = []
-            numerical_features = self._prepare_features(feature_df, settings=dr_settings)
-            # Determine methods based on plot_type
-            methods = ['pca', 'tsne'] if plot_type == 'both' else [plot_type]
+            X = self._prepare_features(feature_df, settings=dr_settings)
+            methods = (
+                [PlotType.PCA.value, PlotType.TSNE.value]
+                if plot_type == PlotFeed.BOTH.value
+                else [plot_type]
+            )
+            results: List[Dict[str, Any]] = []
+
             for method in methods:
                 reducer = self._get_reducer(method, len(feature_df), dr_settings)
-                X_reduced = reducer.fit_transform(numerical_features)
-                distances = pairwise_distances(X_reduced, metric=dr_settings.metric)
-                logger.info(f"{method.upper()} embedding: Mean pairwise distance: {distances.mean():.2f}, Std: {distances.std():.2f}")
-                if nmc_settings.plot_type in ['per_group', 'both']:
-                    figs.extend(self._plot_per_group(X_reduced, feature_df, method, nmc_settings))
-                if nmc_settings.plot_type in ['global', 'both']:
-                    figs.append(self._plot_global(X_reduced, feature_df, method, nmc_settings))
-            logger.info(f"Created {len(figs)} visualizations for non-message content.")
-            return figs
-        except Exception as e:
-            logger.exception(f"Failed to build non-message content visualizations: {e}")
+                X_red = reducer.fit_transform(X)
+
+                dist = pairwise_distances(X_red, metric=dr_settings.metric)
+                logger.info(
+                    f"{method.upper()} – mean distance {dist.mean():.2f} (±{dist.std():.2f})"
+                )
+
+                if nmc_settings.plot_type in {PlotFeed.PER_GROUP.value, PlotFeed.BOTH.value}:
+                    results.extend(
+                        self._plot_per_group(X_red, feature_df, method, nmc_settings)
+                    )
+                if nmc_settings.plot_type in {PlotFeed.GLOBAL.value, PlotFeed.BOTH.value}:
+                    results.append(
+                        self._plot_global(X_red, feature_df, method, nmc_settings)
+                    )
+
+            logger.info(f"Created {len(results)} non-message-content plots")
+            return results
+        except Exception as e:  # pragma: no cover
+            logger.exception(f"Non-message-content visualisation failed: {e}")
             return None
 
-    def plot_month_correlations(self, correlations):
-        """
-        Create a bar plot visualizing correlations between 'month' and numerical features.
-
-        Args:
-            correlations (pandas.Series): Series of correlation coefficients with feature names as index.
-
-        Returns:
-            matplotlib.figure.Figure or None: Figure object for the bar plot, or None if creation fails.
-        """
+    # --------------------------------------------------------------------- #
+    # === Additional public helpers (correlation, trends, interactions) ===
+    # --------------------------------------------------------------------- #
+    def plot_month_correlations(self, correlations: pd.Series) -> Optional[plt.Figure]:
+        """Bar plot of Pearson correlation between month and numeric features."""
         if correlations is None or correlations.empty:
-            logger.error("No valid correlations provided for plotting")
+            logger.error("No correlations to plot")
             return None
-
         try:
             fig, ax = plt.subplots(figsize=(12, 6))
-            bars = ax.bar(correlations.index, correlations.values, color='skyblue')
+            bars = ax.bar(
+                correlations.index, correlations.values, color="skyblue"
+            )
             ax.set_title("Correlation of Features with Month")
             ax.set_xlabel("Features")
-            ax.set_ylabel("Pearson Correlation Coefficient")
+            ax.set_ylabel("Pearson r")
             ax.set_ylim(-1, 1)
-            ax.axhline(0, color='black', linestyle='--', linewidth=0.5)
-            ax.grid(True, axis='y', linestyle='--', alpha=0.7)
+            ax.axhline(0, color="black", linestyle="--", linewidth=0.5)
+            ax.grid(True, axis="y", linestyle="--", alpha=0.7)
 
-            # Add correlation values on top of bars
             for bar in bars:
-                height = bar.get_height()
-                ax.text(bar.get_x() + bar.get_width() / 2, height,
-                        f'{height:.3f}', ha='center', va='bottom' if height >= 0 else 'top')
+                h = bar.get_height()
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    h,
+                    f"{h:.3f}",
+                    ha="center",
+                    va="bottom" if h >= 0 else "top",
+                )
 
-            # Rotate x-axis labels for readability
-            plt.xticks(rotation=45, ha='right')
+            plt.xticks(rotation=45, ha="right")
             plt.tight_layout()
             plt.show()
-
-            logger.info("Created month correlations bar plot")
             return fig
-        except Exception as e:
-            logger.exception(f"Failed to create month correlations plot: {e}")
+        except Exception as e:  # pragma: no cover
+            logger.exception(f"Month-correlation plot failed: {e}")
             return None
 
-    def plot_feature_trends(self, feature_df, feature_name, settings: PlotSettings = PlotSettings()):
-        """Feature trends box plot using config."""
-        if feature_df is None or feature_df.empty or feature_name not in feature_df.columns:
-            logger.error(f"No valid DataFrame or feature '{feature_name}' provided for trend plotting")
+    def plot_feature_trends(
+        self,
+        feature_df: pd.DataFrame,
+        feature_name: str,
+        settings: PlotSettings = PlotSettings(),
+    ) -> Optional[plt.Figure]:
+        """Box-plot of a numeric feature across months."""
+        if feature_name not in feature_df.columns:
+            logger.error(f"Feature {feature_name} not in DataFrame")
             return None
         try:
             fig, ax = plt.subplots(figsize=settings.figsize)
-            sns.boxplot(x='month', y=feature_name, data=feature_df, ax=ax)
-            ax.set_title(settings.title)
-            ax.set_xlabel(settings.xlabel)
-            ax.set_ylabel(settings.ylabel)
+            sns.boxplot(
+                x=Columns.MONTH.value, y=feature_name, data=feature_df, ax=ax
+            )
+            ax.set_title(settings.title or f"{feature_name} by Month")
+            ax.set_xlabel(settings.xlabel or Columns.MONTH.human)
+            ax.set_ylabel(settings.ylabel or feature_name)
             plt.tight_layout()
             plt.show()
-            logger.info(f"Created trend box plot for {feature_name}")
             return fig
-        except Exception as e:
-            logger.exception(f"Failed to plot {feature_name} trends: {e}")
+        except Exception as e:  # pragma: no cover
+            logger.exception(f"Feature-trend plot failed: {e}")
             return None
 
-    def build_visual_interactions(self, feature_df, method='tsne', settings: DimReductionSettings = DimReductionSettings(), nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings()):
+    def build_visual_interactions(
+        self,
+        feature_df: pd.DataFrame,
+        method: str = PlotType.TSNE.value,
+        settings: DimReductionSettings = DimReductionSettings(),
+        nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings(),
+    ) -> Tuple[Optional[plt.Figure], Optional[plt.Figure]]:
         """
-        Part of Script 7.
+        Two interaction visualisations (author-coloured & group-coloured).
 
-        Create two 2D visualizations for interaction features using PCA or t-SNE.
-        First plot: Colors by author, with 'Anthony van Tilburg' points for each group-year and overall.
-        Second plot: Colors by group ('maap': blue, 'golfmaten': red, 'dac': green) and
-        'Anthony van Tilburg' points by group (light blue for 'maap', light red for 'golfmaten',
-        light green for 'dac', gray for overall).
-    
-        Args:
-            feature_df (pandas.DataFrame): Feature matrix with 'author_year' or 'author_year_group' index and 'whatsapp_group' column.
-            method (str): 'pca' or 'tsne'.
-            settings (DimReductionSettings): Dimensionality reduction settings.
-            nmc_settings (PMNoMessageContentSettings): Settings for group and Anthony color maps.
-    
         Returns:
-            tuple: (matplotlib.figure.Figure, matplotlib.figure.Figure) or (None, None) if creation fails.
+            (author_fig, group_fig) – either may be ``None`` on error.
         """
-        if not isinstance(settings, DimReductionSettings):
-            logger.warning("Settings must be an instance of DimReductionSettings. Using default DimReductionSettings.")
-            settings = DimReductionSettings()
-        
         try:
+            # Drop non-numeric identifier
+            X = feature_df.drop(
+                columns=[Columns.WHATSAPP_GROUP.value], errors="ignore"
+            ).values
+            reducer = self._get_reducer(method, len(feature_df), settings)
+            X_red = reducer.fit_transform(X)
+
             labels = feature_df.index.values
+            authors = [lbl.split("_")[0] for lbl in labels]
+            uniq_auth = list(set(authors))
+            pal = sns.color_palette("husl", len(uniq_auth))
+            auth_map = dict(zip(uniq_auth, pal, strict=False))
 
-            # First plot: All Authors
-            # Drop non-numeric columns to ensure only numeric data is used for reduction
-            X = feature_df.drop(['whatsapp_group'], axis=1, errors='ignore').values
-            reducer = self._get_reducer(method, len(labels), settings)
-            X_reduced = reducer.fit_transform(X)
-
-            # Extract authors from labels (author_year)
-            authors = [label.split('_')[0] for label in labels]  # Assuming no '_' in names
-            unique_authors = list(set(authors))
-            colors = sns.color_palette("husl", len(unique_authors))
-            author_color_map = dict(zip(unique_authors, colors))
-            fig, ax = plt.subplots(figsize=(10, 8))
-            for i, label in enumerate(labels):
-                auth = label.split('_')[0]
-                ax.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[author_color_map[auth]], label=auth if authors.index(auth) == i else None)
-                # ax.annotate(label, (X_reduced[i, 0], X_reduced[i, 1]), fontsize=8, ha='right')
-            ax.set_title(f"Interaction Dynamics of Authors Over Years ({method.upper()})")
-            ax.set_xlabel('Component 1')
-            ax.set_ylabel('Component 2')
-            ax.legend(title="Author")
+            # ---- Author plot ----
+            fig1, ax1 = plt.subplots(figsize=(10, 8))
+            for i, lbl in enumerate(labels):
+                auth = lbl.split("_")[0]
+                ax1.scatter(
+                    X_red[i, 0],
+                    X_red[i, 1],
+                    c=[auth_map[auth]],
+                    label=auth if authors.index(auth) == i else None,
+                )
+            ax1.set_title(f"Interaction Dynamics – Authors ({method.upper()})")
+            ax1.set_xlabel("Component 1")
+            ax1.set_ylabel("Component 2")
+            ax1.legend(title="Author")
             plt.tight_layout()
             plt.show()
-            logger.info(f"Created interaction visualization with {method.upper()}.")
 
-            # Second plot: Color by group, with special colors for Anthony van Tilburg
+            # ---- Group plot (Anthony special) ----
             fig2, ax2 = plt.subplots(figsize=(10, 8))
-            group_color_map = nmc_settings.group_color_map
-            anthony_color_map = nmc_settings.anthony_color_map
-            legend_elements = [
-                patches.Patch(color=v, label=k) for k, v in group_color_map.items()
+            legend_elems = [
+                patches.Patch(color=v, label=k) for k, v in nmc_settings.group_color_map.items()
             ]
-            legend_elements += [
-                patches.Patch(color=v, label=f"Anthony van Tilburg ({k})") for k, v in anthony_color_map.items()
+            legend_elems += [
+                patches.Patch(color=v, label=f"Anthony ({k})")
+                for k, v in nmc_settings.anthony_color_map.items()
             ]
-            legend_elements.append(patches.Patch(color='gray', label='Anthony van Tilburg (overall)'))
-            for i, label in enumerate(labels):
-                author = label.split('_')[0]
-                group = feature_df.iloc[i]['whatsapp_group']
-                if author == 'Anthony van Tilburg':
-                    # Check if the label is group-specific or overall
-                    if group == 'overall':
-                        color = 'gray'
-                    else:
-                        color = anthony_color_map.get(group, 'black')  # Use group-specific color for Anthony
+            legend_elems.append(
+                patches.Patch(color="gray", label="Anthony (overall)")
+            )
+
+            for i, lbl in enumerate(labels):
+                auth = lbl.split("_")[0]
+                grp = feature_df.iloc[i][Columns.WHATSAPP_GROUP.value]
+                if auth == "Anthony van Tilburg":
+                    color = (
+                        "gray"
+                        if grp == "overall"
+                        else nmc_settings.anthony_color_map.get(grp, "black")
+                    )
                 else:
-                    color = group_color_map.get(group, 'black')  # Fallback for non-Anthony authors
-                ax2.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[color], label=None)
-                # ax2.annotate(label, (X_reduced[i, 0], X_reduced[i, 1]), fontsize=8, ha='right')
-            ax2.set_title(f"Interaction Dynamics by Group ({method.upper()})")
-            ax2.set_xlabel('Component 1')
-            ax2.set_ylabel('Component 2')
-            ax2.legend(handles=legend_elements, title="Group Membership")
+                    color = nmc_settings.group_color_map.get(grp, "black")
+                ax2.scatter(X_red[i, 0], X_red[i, 1], c=[color])
+
+            ax2.set_title(f"Interaction Dynamics – Groups ({method.upper()})")
+            ax2.set_xlabel("Component 1")
+            ax2.set_ylabel("Component 2")
+            ax2.legend(handles=legend_elems, title="Group")
             plt.tight_layout()
             plt.show()
-            if method.lower() == 'pca':
-                loadings = pd.DataFrame(reducer.components_.T, index=feature_df.drop(['whatsapp_group'], axis=1, errors='ignore').columns, columns=['Component 1', 'Component 2'])
-                logger.info(f"PCA Loadings:\n{loadings.to_string()}")
-            logger.info(f"Created interaction visualizations with {method.upper()}.")
+
+            if method == PlotType.PCA.value:
+                loads = pd.DataFrame(
+                    reducer.components_.T,
+                    index=feature_df.drop(
+                        columns=[Columns.WHATSAPP_GROUP.value], errors="ignore"
+                    ).columns,
+                    columns=["Component 1", "Component 2"],
+                )
+                logger.info(f"PCA loadings:\n{loads}")
+
             return fig1, fig2
-        except Exception as e:
-            logger.exception(f"Failed to build interaction visualizations: {e}")
-            return None, None    
+        except Exception as e:  # pragma: no cover
+            logger.exception(f"Interaction visualisations failed: {e}")
+            return None, None
