@@ -1,7 +1,10 @@
-from constants import DATE_TIME
-import pandas as pd
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+
+from constants import DATE_TIME
+
 
 class FileManager:
     """
@@ -18,7 +21,7 @@ class FileManager:
         reports_base (str): Base directory for report files.
     """
 
-    def __init__(self, input_base: str, output_base: str, reports_base: str):
+    def __init__(self, input_base: str, output_base: str, reports_base: str) -> None:
         """
         Initializes FileManager and ensures output directories exist.
 
@@ -36,7 +39,6 @@ class FileManager:
         self.plots_base.mkdir(parents=True, exist_ok=True)
         self.reports_base.mkdir(parents=True, exist_ok=True)
 
-
     def read_csv(self, filename: str) -> pd.DataFrame:
         """
         Reads a CSV file from either the input_base or output_base directory,
@@ -51,10 +53,14 @@ class FileManager:
         # Determine source directory based on filename convention
         if "_amended_" in filename:
             full_path = self.output_base / filename
-            print(f"[{datetime.now().strftime('%H:%M:%S')}][FileManager] Reading AMENDED CSV: {full_path.as_posix()}")
+            print(
+                f"[{datetime.now().strftime('%H:%M:%S')}][FileManager] Reading AMENDED CSV: {full_path.as_posix()}"
+            )
         else:
             full_path = self.input_base / filename
-            print(f"[{datetime.now().strftime('%H:%M:%S')}][FileManager] Reading INPUT CSV: {full_path.as_posix()}")
+            print(
+                f"[{datetime.now().strftime('%H:%M:%S')}][FileManager] Reading INPUT CSV: {full_path.as_posix()}"
+            )
 
         # Check if file exists
         if not full_path.exists():
@@ -65,7 +71,6 @@ class FileManager:
         # Read the CSV
         return pd.read_csv(full_path)
 
-
     def write_csv(self, df: pd.DataFrame, filename: str) -> str:
         """
         Writes a DataFrame to a CSV file in the output_base directory.
@@ -75,12 +80,13 @@ class FileManager:
             filename (str): Target filename for the CSV.
         """
         full_path = self.output_base / f"{filename}_{DATE_TIME}.csv"
-        print(f"[{datetime.now().strftime('%H:%M:%S')}][FileManager] Writing file: {full_path.as_posix()}")
+        print(
+            f"[{datetime.now().strftime('%H:%M:%S')}][FileManager] Writing file: {full_path.as_posix()}"
+        )
         df.to_csv(full_path, index=False)
         return full_path.name  # Return filename only
 
-
-    def write_report_csv(self, df: pd.DataFrame, filename: str):
+    def write_report_csv(self, df: pd.DataFrame, filename: str) -> None:
         """
         Writes a DataFrame to a CSV file in the reports_base directory,
         appending DATE_TIME to avoid Excel file locking issues.
@@ -94,5 +100,7 @@ class FileManager:
         # Ensure the directory exists
         full_path.parent.mkdir(parents=True, exist_ok=True)
 
-        print(f"[{datetime.now().strftime('%H:%M:%S')}][FileManager] Writing REPORT file: {full_path.as_posix()}")
+        print(
+            f"[{datetime.now().strftime('%H:%M:%S')}][FileManager] Writing REPORT file: {full_path.as_posix()}"
+        )
         df.to_csv(full_path, index=False)

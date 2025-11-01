@@ -1,21 +1,24 @@
-import seaborn as sns
+import sys
+import tomllib
+import warnings
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import pandas as pd
-from pathlib import Path
+import seaborn as sns
 from loguru import logger
-import warnings
-import tomllib
-import re
-import pytz
-from datetime import datetime
-import numpy as np
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Read configuration
     logger.debug("Loading configuration from config.toml")
     configfile = Path("config.toml").resolve()
@@ -25,7 +28,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -73,7 +76,7 @@ def main():
     logger.info(average_data.head())
 
     # Plotting
-    fig, ax = plt.subplots(figsize=(14, 6))
+    _fig, ax = plt.subplots(figsize=(14, 6))
     colors = sns.color_palette("husl", len(years))  # Distinct colors for each year
 
     # Plot each year's data
@@ -113,7 +116,20 @@ def main():
     )
 
     # Set x-axis to show months 1 to 12 with month names
-    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    month_names = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ]
     ax.set_xticks(range(1, 13))  # Show all months
     ax.set_xticklabels(month_names, rotation=45, ha="right", fontsize=10)
     ax.set_xlabel("Month")
@@ -128,5 +144,6 @@ def main():
     logger.info(f"Saved plot: {output_path}")
     plt.show()
 
+
 if __name__ == "__main__":
-    main()    
+    main()

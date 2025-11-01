@@ -1,10 +1,10 @@
 # src/dashboard/tabs/tab_time.py
-import streamlit as st
 import plotly.graph_objects as go
-import pandas as pd
+import streamlit as st
 from config import COL
 
-def render_time_tab(df_filtered):
+
+def render_time_tab(df_filtered) -> None:
     st.header("Time – Avg Messages per Week")
 
     # ------------------------------------------------------------------
@@ -43,14 +43,16 @@ def render_time_tab(df_filtered):
     # 5. Plot
     # ------------------------------------------------------------------
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=list(range(1, 54)),
-        y=avg_per_week.values,
-        mode='lines+markers',
-        line=dict(color="#1f77b4", width=3),
-        marker=dict(size=6),
-        name="Avg Messages"
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=list(range(1, 54)),
+            y=avg_per_week.values,
+            mode="lines+markers",
+            line={"color": "#1f77b4", "width": 3},
+            marker={"size": 6},
+            name="Avg Messages",
+        )
+    )
 
     # Get year range from data
     year_min = df_final[COL["year"]].min()
@@ -58,12 +60,12 @@ def render_time_tab(df_filtered):
 
     fig.update_layout(
         title=f"Average Messages per Week – {selected_group}<br>"
-              f"Years: {year_min}–{year_max} ({years_in_data} year(s))",
+        f"Years: {year_min}–{year_max} ({years_in_data} year(s))",
         xaxis_title="Week of Year",
         yaxis_title="Avg Messages",
-        xaxis=dict(tickmode='linear', tick0=1, dtick=1),
+        xaxis={"tickmode": "linear", "tick0": 1, "dtick": 1},
         height=600,
-        showlegend=False
+        showlegend=False,
     )
 
     st.plotly_chart(fig, use_container_width=True)

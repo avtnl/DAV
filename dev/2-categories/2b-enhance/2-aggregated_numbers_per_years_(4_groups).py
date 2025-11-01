@@ -1,20 +1,25 @@
-import seaborn as sns
+import sys
+import tomllib
+import warnings
+from datetime import datetime
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import pandas as pd
-from pathlib import Path
-from loguru import logger
-import warnings
-import tomllib
-import re
 import pytz
-from datetime import datetime
+from loguru import logger
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Read configuration
     logger.debug("Loading configuration from config.toml")
     configfile = Path("config.toml").resolve()
@@ -24,7 +29,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -36,7 +41,7 @@ def main():
         "current_2a": "golfmaten",
         "current_2b": "golfmaten",
         "current_3": "dac",
-        "current_4": "tillies"
+        "current_4": "tillies",
     }
 
     # Load and validate data files
@@ -59,16 +64,18 @@ def main():
     # Check if any DataFrames were loaded
     if not dataframes:
         logger.error("No valid data files were loaded. Exiting.")
-        exit(1)
+        sys.exit(1)
 
     # Concatenate DataFrames
     logger.debug("Concatenating DataFrames")
     try:
         df = pd.concat(dataframes.values(), ignore_index=True)
-        logger.info(f"Concatenated DataFrame with {len(df)} rows and columns: {df.columns.tolist()}")
+        logger.info(
+            f"Concatenated DataFrame with {len(df)} rows and columns: {df.columns.tolist()}"
+        )
     except Exception as e:
         logger.exception(f"Failed to concatenate DataFrames: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Verify the result
     logger.info(f"Unique WhatsApp groups: {df['whatsapp_group'].unique().tolist()}")
@@ -91,15 +98,17 @@ def main():
     logger.info(f"DataFrame filtered: {rows_before} rows reduced to {rows_after} rows")
 
     # Save processed DataFrame
-    now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
+    now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
     output = processed / f"whatsapp_all-{now}"
     try:
         df.to_csv(output.with_suffix(".csv"), index=False)
         df.to_parquet(output.with_suffix(".parq"), index=False)
-        logger.info(f"DataFrame saved as: {output.with_suffix('.csv')} and {output.with_suffix('.parq')}")
+        logger.info(
+            f"DataFrame saved as: {output.with_suffix('.csv')} and {output.with_suffix('.parq')}"
+        )
     except Exception as e:
         logger.exception(f"Failed to save DataFrame: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Ensure timestamp is datetime
     df["timestamp"] = pd.to_datetime(df["timestamp"])
@@ -110,22 +119,35 @@ def main():
     df["isoweek"] = df["timestamp"].dt.isocalendar().week
     df["year-week"] = df["timestamp"].dt.strftime("%Y-%W")
     df["year-month"] = df["timestamp"].dt.strftime("%Y-%m")
-    logger.debug(f"Added date, year, month, isoweek, year-week, and year-month columns. DataFrame columns: {df.columns.tolist()}")
+    logger.debug(
+        f"Added date, year, month, isoweek, year-week, and year-month columns. DataFrame columns: {df.columns.tolist()}"
+    )
 
     # Count messages per day per WhatsApp group per author
-    daily_counts = df.groupby(["date", "whatsapp_group", "author"]).size().reset_index(name="message_count")
-    logger.info(f"Messages counted per day per WhatsApp group per Author. Resulting shape: {daily_counts.shape}")
+    daily_counts = (
+        df.groupby(["date", "whatsapp_group", "author"]).size().reset_index(name="message_count")
+    )
+    logger.info(
+        f"Messages counted per day per WhatsApp group per Author. Resulting shape: {daily_counts.shape}"
+    )
     logger.debug(f"Daily counts head:\n{daily_counts.head().to_string()}")
 
     # Calculate average message count per day per WhatsApp group, excluding "Anthony van Tilburg"
-    avg_counts = daily_counts[daily_counts["author"] != "Anthony van Tilburg"].groupby(["date", "whatsapp_group"])["message_count"].mean().reset_index(name="avg_message_count")
+    avg_counts = (
+        daily_counts[daily_counts["author"] != "Anthony van Tilburg"]
+        .groupby(["date", "whatsapp_group"])["message_count"]
+        .mean()
+        .reset_index(name="avg_message_count")
+    )
     logger.info(f"Average message counts computed. Resulting shape: {avg_counts.shape}")
     logger.debug(f"Average counts head:\n{avg_counts.head().to_string()}")
 
     # Merge average counts back into daily_counts
     daily_counts = daily_counts.merge(avg_counts, on=["date", "whatsapp_group"], how="left")
     daily_counts["avg_message_count"] = daily_counts["avg_message_count"].fillna(0)
-    logger.info(f"Merged average message counts into daily_counts. New columns: {daily_counts.columns.tolist()}")
+    logger.info(
+        f"Merged average message counts into daily_counts. New columns: {daily_counts.columns.tolist()}"
+    )
 
     # Add year to daily_counts for consistency
     daily_counts = daily_counts.merge(df[["date", "year"]].drop_duplicates(), on="date", how="left")
@@ -142,30 +164,40 @@ def main():
         group_df = df[df["whatsapp_group"] == group]
         # Get authors for this group, excluding Anthony
         authors = {auth: auth[:2] for auth in group_authors[group] if auth != "Anthony van Tilburg"}
-        authors["Anthony van Tilburg"] = "AvT" if "Anthony van Tilburg" in group_authors[group] else None
-        ordered_labels = [label for auth, label in authors.items() if auth != "Anthony van Tilburg"] + ["AvT"] if authors.get("Anthony van Tilburg") else []
+        authors["Anthony van Tilburg"] = (
+            "AvT" if "Anthony van Tilburg" in group_authors[group] else None
+        )
+        ordered_labels = (
+            [label for auth, label in authors.items() if auth != "Anthony van Tilburg"] + ["AvT"]
+            if authors.get("Anthony van Tilburg")
+            else []
+        )
 
         # Count messages per year and author
-        yearly_counts = group_df.groupby(["whatsapp_group", "year", "author"]).size().reset_index(name="message_count")
+        yearly_counts = (
+            group_df.groupby(["whatsapp_group", "year", "author"])
+            .size()
+            .reset_index(name="message_count")
+        )
         logger.debug(f"Yearly counts for {group}:\n{yearly_counts.head().to_string()}")
 
         # Pivot to get authors as columns
         yearly_pivot = yearly_counts.pivot_table(
-            index="whatsapp_group",
-            columns=["year", "author"],
-            values="message_count",
-            fill_value=0
+            index="whatsapp_group", columns=["year", "author"], values="message_count", fill_value=0
         ).astype(int)
 
         # Calculate average for non-Anthony authors
-        non_anthony_authors = [auth for auth in group_authors[group] if auth != "Anthony van Tilburg"]
+        non_anthony_authors = [
+            auth for auth in group_authors[group] if auth != "Anthony van Tilburg"
+        ]
         non_anthony_counts = yearly_counts[yearly_counts["author"].isin(non_anthony_authors)]
-        avg_yearly = non_anthony_counts.groupby(["whatsapp_group", "year"])["message_count"].mean().reset_index(name="Avg_Non_Anthony")
+        avg_yearly = (
+            non_anthony_counts.groupby(["whatsapp_group", "year"])["message_count"]
+            .mean()
+            .reset_index(name="Avg_Non_Anthony")
+        )
         avg_pivot = avg_yearly.pivot_table(
-            index="whatsapp_group",
-            columns="year",
-            values="Avg_Non_Anthony",
-            fill_value=0
+            index="whatsapp_group", columns="year", values="Avg_Non_Anthony", fill_value=0
         )
 
         # Combine pivots
@@ -176,12 +208,19 @@ def main():
         # Reorder columns: non-Anthony authors, average, Anthony
         ordered_columns = []
         for year in range(2015, 2026):
-            for label in ordered_labels[:-1] if "Anthony van Tilburg" in group_authors[group] else ordered_labels:
+            for label in (
+                ordered_labels[:-1]
+                if "Anthony van Tilburg" in group_authors[group]
+                else ordered_labels
+            ):
                 if f"{year}_{label}" in combined_pivot.columns:
                     ordered_columns.append(f"{year}_{label}")
             if f"{year}_Avg_Non_Anthony" in combined_pivot.columns:
                 ordered_columns.append(f"{year}_Avg_Non_Anthony")
-            if "Anthony van Tilburg" in group_authors[group] and f"{year}_AvT" in combined_pivot.columns:
+            if (
+                "Anthony van Tilburg" in group_authors[group]
+                and f"{year}_AvT" in combined_pivot.columns
+            ):
                 ordered_columns.append(f"{year}_AvT")
         combined_pivot = combined_pivot[ordered_columns]
 
@@ -189,33 +228,56 @@ def main():
         logger.info(combined_pivot.to_string())
 
     # Plot messages per year for each WhatsApp group
-    yearly_counts = df.groupby(["whatsapp_group", "year", "author"]).size().reset_index(name="message_count")
+    yearly_counts = (
+        df.groupby(["whatsapp_group", "year", "author"]).size().reset_index(name="message_count")
+    )
     logger.debug(f"Yearly counts head:\n{yearly_counts.head().to_string()}")
 
     for group in df["whatsapp_group"].unique():
         group_data = yearly_counts[yearly_counts["whatsapp_group"] == group]
-        fig, ax = plt.subplots(figsize=(12, 6))
+        _fig, ax = plt.subplots(figsize=(12, 6))
 
         # Get authors for this group
-        non_anthony_authors = [auth for auth in group_authors[group] if auth != "Anthony van Tilburg"]
+        non_anthony_authors = [
+            auth for auth in group_authors[group] if auth != "Anthony van Tilburg"
+        ]
 
         # Plot non-Anthony authors
         non_anthony_data = group_data[group_data["author"].isin(non_anthony_authors)]
         for author in non_anthony_data["author"].unique():
             author_data = non_anthony_data[non_anthony_data["author"] == author]
-            ax.plot(author_data["year"], author_data["message_count"], 
-                    color="lightgray", alpha=0.5, label="_nolegend_")
+            ax.plot(
+                author_data["year"],
+                author_data["message_count"],
+                color="lightgray",
+                alpha=0.5,
+                label="_nolegend_",
+            )
 
         # Plot average of non-Anthony authors
-        avg_yearly = non_anthony_data.groupby(["whatsapp_group", "year"])["message_count"].mean().reset_index(name="avg_message_count")
-        ax.plot(avg_yearly["year"], avg_yearly["avg_message_count"], 
-                color="black", linewidth=2, label="Avg (Non-Anthony)")
+        avg_yearly = (
+            non_anthony_data.groupby(["whatsapp_group", "year"])["message_count"]
+            .mean()
+            .reset_index(name="avg_message_count")
+        )
+        ax.plot(
+            avg_yearly["year"],
+            avg_yearly["avg_message_count"],
+            color="black",
+            linewidth=2,
+            label="Avg (Non-Anthony)",
+        )
 
         # Plot Anthony van Tilburg
         anthony_data = group_data[group_data["author"] == "Anthony van Tilburg"]
         if not anthony_data.empty:
-            ax.plot(anthony_data["year"], anthony_data["message_count"], 
-                    color="red", linewidth=2, label="Anthony van Tilburg")
+            ax.plot(
+                anthony_data["year"],
+                anthony_data["message_count"],
+                color="red",
+                linewidth=2,
+                label="Anthony van Tilburg",
+            )
 
         # Set x-axis with year labels
         years = range(2015, 2026)
@@ -230,6 +292,7 @@ def main():
         plt.savefig(output_path, dpi=300, bbox_inches="tight")
         logger.info(f"Saved yearly plot: {output_path}")
         plt.show()
+
 
 if __name__ == "__main__":
     main()

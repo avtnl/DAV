@@ -1,6 +1,6 @@
 # === Module Docstring ===
 """
-WhatsApp Chat Analyzer – Data Editor
+WhatsApp Chat Analyzer - Data Editor
 
 Cleans and enriches raw WhatsApp message data into a feature-complete DataFrame.
 Applies text processing, emoji/punctuation analysis, response time, daily stats,
@@ -12,7 +12,6 @@ All column names use :class:`constants.Columns` for consistency.
 # === Imports ===
 import re
 import string
-from typing import List
 
 import emoji
 import nltk
@@ -40,7 +39,7 @@ class DataEditor:
     def __init__(self) -> None:
         """Initialize regex patterns, emoji sets, stopwords, and author initials map."""
         self.emoji_pattern = re.compile(
-            r"["  # noqa: E501
+            r"["
             r"\U0001f600-\U0001f64f"  # emoticons
             r"\U0001f300-\U0001f5ff"  # symbols & pictographs
             r"\U0001f680-\U0001f6ff"  # transport & map symbols
@@ -65,9 +64,9 @@ class DataEditor:
         # Initials map – applied to all author columns
         self.initials_map = {
             "Nico Dofferhoff": "ND",
-            "Loek van der Laan": "LL",
+            "Loek Laan": "LL",
             "Herma Hollander": "HH",
-            "Hieke van Heusden": "HvH",
+            "Hieke Heusden van": "HvH",
             "Irene Bienema": "IB",
             "Anthony van Tilburg": "AvT",
             "Anja Berkemeijer": "AB",
@@ -76,6 +75,9 @@ class DataEditor:
             "Rob Haasbroek": "RH",
             "Hugo Brouwer": "HB",
             "Martin Kat": "MK",
+            "Jochem Caspers": "JC",
+            "Esmée Horn": "EH",
+            "Floorjosje": "FJ",
         }
 
     # === Step 0: Message Cleaning ===
@@ -88,10 +90,11 @@ class DataEditor:
         Returns:
             pd.DataFrame | None: Cleaned DataFrame or None on error.
         """
-        if df is None or df.empty:
-            logger.error("No valid DataFrame provided for cleaning deleted media patterns")
-            return None
         try:
+            if df is None or df.empty:
+                logger.error("No valid DataFrame provided for cleaning deleted media patterns")
+                return None
+
             # Initialize feature columns
             df[Columns.HAS_EMOJI] = False
             df[Columns.NUMBER_OF_EMOJIS] = 0
@@ -99,9 +102,13 @@ class DataEditor:
             df[Columns.WAS_DELETED] = False
             df["number_of_changes_to_group"] = 0  # Internal only
             for col in [
-                Columns.PICTURES_DELETED, Columns.VIDEOS_DELETED, Columns.AUDIOS_DELETED,
-                Columns.GIFS_DELETED, Columns.STICKERS_DELETED, Columns.DOCUMENTS_DELETED,
-                Columns.VIDEONOTES_DELETED
+                Columns.PICTURES_DELETED,
+                Columns.VIDEOS_DELETED,
+                Columns.AUDIOS_DELETED,
+                Columns.GIFS_DELETED,
+                Columns.STICKERS_DELETED,
+                Columns.DOCUMENTS_DELETED,
+                Columns.VIDEONOTES_DELETED,
             ]:
                 df[col] = 0
             df[Columns.MESSAGE_CLEANED] = df[Columns.MESSAGE]
@@ -164,9 +171,13 @@ class DataEditor:
                 total_media_deleted = sum(
                     row[col]
                     for col in [
-                        Columns.PICTURES_DELETED, Columns.VIDEOS_DELETED, Columns.AUDIOS_DELETED,
-                        Columns.GIFS_DELETED, Columns.STICKERS_DELETED, Columns.DOCUMENTS_DELETED,
-                        Columns.VIDEONOTES_DELETED
+                        Columns.PICTURES_DELETED,
+                        Columns.VIDEOS_DELETED,
+                        Columns.AUDIOS_DELETED,
+                        Columns.GIFS_DELETED,
+                        Columns.STICKERS_DELETED,
+                        Columns.DOCUMENTS_DELETED,
+                        Columns.VIDEONOTES_DELETED,
                     ]
                 )
                 if total_media_deleted > 0:
@@ -223,7 +234,9 @@ class DataEditor:
         Returns:
             pd.Series: Message number that day (1-based).
         """
-        return df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.TIMESTAMP].transform("cumcount") + 1
+        return (
+            df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.TIMESTAMP].transform("cumcount") + 1
+        )
 
     def length_chat(self, text) -> int:
         """Length of cleaned message.
@@ -271,7 +284,7 @@ class DataEditor:
         return df[Columns.AUTHOR].shift(-1).fillna("")
 
     # === Step 4: Emoji / Punctuation ===
-    def list_of_all_emojis(self, text: str) -> List[str]:
+    def list_of_all_emojis(self, text: str) -> list[str]:
         """List all individual emojis in message.
 
         Args:
@@ -284,7 +297,7 @@ class DataEditor:
             return []
         return [c for c in text if c in emoji.EMOJI_DATA and c not in self.ignore_emojis]
 
-    def list_of_connected_emojis(self, text: str) -> List[str]:
+    def list_of_connected_emojis(self, text: str) -> list[str]:
         """Find sequences of 2+ connected emojis.
 
         Args:
@@ -321,7 +334,7 @@ class DataEditor:
         """
         return self.count_punctuations(text) > 0
 
-    def list_of_all_punctuations(self, text: str) -> List[str]:
+    def list_of_all_punctuations(self, text: str) -> list[str]:
         """List all standalone punctuation.
 
         Args:
@@ -334,8 +347,8 @@ class DataEditor:
             return []
         return re.findall(self.punctuation_pattern, text)
 
-    def list_of_connected_punctuations(self, text: str) -> List[str]:
-        """Find sequences of 2+ punctuation.
+    def list_of_connected_punctuations(self, text: str) -> list[str]:
+        """Find sequences of 2+ connected punctuation.
 
         Args:
             text (str): Input message.
@@ -356,23 +369,25 @@ class DataEditor:
         Returns:
             bool: True if ends with emoji.
         """
-        if not isinstance(text, str) or not text.strip():
+        if not isinstance(text, str) or not text:
             return False
-        return text.strip()[-1] in emoji.EMOJI_DATA and text.strip()[-1] not in self.ignore_emojis
+        return text[-1] in emoji.EMOJI_DATA and text[-1] not in self.ignore_emojis
 
-    def emoji_ending_chat(self, text: str) -> List[str]:
-        """Extract trailing emoji sequence.
+    def emoji_ending_chat(self, text: str) -> str:
+        """Last emoji in message.
 
         Args:
             text (str): Input message.
 
         Returns:
-            List[str]: Reversed and corrected ending emojis.
+            str: Last emoji or empty.
         """
-        if not isinstance(text, str):
-            return []
-        match = re.search(self.emoji_pattern, text.strip()[::-1])
-        return list(match.group(0)[::-1]) if match else []
+        if not isinstance(text, str) or not text:
+            return ""
+        for c in reversed(text):
+            if c in emoji.EMOJI_DATA and c not in self.ignore_emojis:
+                return c
+        return ""
 
     def ends_with_punctuation(self, text: str) -> bool:
         """Check if message ends with punctuation.
@@ -381,261 +396,176 @@ class DataEditor:
             text (str): Input message.
 
         Returns:
-            bool: True if ends with !?.,;:
+            bool: True if ends with punctuation.
         """
-        if not isinstance(text, str) or not text.strip():
+        if not isinstance(text, str) or not text:
             return False
-        return text.strip()[-1] in "!?.,;:"
+        return re.match(self.punctuation_pattern, text[-1]) is not None
 
-    def punctuation_ending_chat(self, df: pd.DataFrame) -> pd.Series:
-        """Apply ends_with_punctuation to cleaned message.
+    def punctuation_ending_chat(self, text: str) -> str:
+        """Last punctuation in message.
 
         Args:
-            df (pd.DataFrame): Input with message_cleaned.
+            text (str): Input message.
 
         Returns:
-            pd.Series: Boolean per row.
+            str: Last punctuation or empty.
         """
-        return df[Columns.MESSAGE_CLEANED].apply(self.ends_with_punctuation)
+        if not isinstance(text, str) or not text:
+            return ""
+        for c in reversed(text):
+            if re.match(self.punctuation_pattern, c):
+                return c
+        return ""
 
     def calc_pct_emojis(self, df: pd.DataFrame) -> pd.Series:
-        """Percentage of message length that is emojis.
+        """Percentage emojis in message.
 
         Args:
-            df (pd.DataFrame): Input with number_of_emojis and length_chat.
+            df (pd.DataFrame): Input with emojis and length.
 
         Returns:
-            pd.Series: Emoji percentage (0–1).
+            pd.Series: Emoji percentage.
         """
-        return (df[Columns.NUMBER_OF_EMOJIS] / df[Columns.LENGTH_CHAT].replace(0, np.nan)).fillna(0)
+        return (df[Columns.NUMBER_OF_EMOJIS] / df[Columns.LENGTH_CHAT]) * 100
 
     def calc_pct_punctuations(self, df: pd.DataFrame) -> pd.Series:
-        """Percentage of message length that is punctuation.
+        """Percentage punctuation in message.
 
         Args:
-            df (pd.DataFrame): Input with number_of_punctuations and length_chat.
+            df (pd.DataFrame): Input with punctuation and length.
 
         Returns:
-            pd.Series: Punctuation percentage (0–1).
+            pd.Series: Punctuation percentage.
         """
-        return (df[Columns.NUMBER_OF_PUNCTUATIONS] / df[Columns.LENGTH_CHAT].replace(0, np.nan)).fillna(0)
+        return (df[Columns.NUMBER_OF_PUNCTUATIONS] / df[Columns.LENGTH_CHAT]) * 100
 
     # === Step 5: Daily Percentages ===
     def calc_day_pct_length_chat(self, df: pd.DataFrame) -> pd.Series:
-        """Daily percentage of total chat length.
+        """Percentage of day's total characters.
 
         Args:
-            df (pd.DataFrame): Input with length_chat and timestamp.
+            df (pd.DataFrame): Input with timestamp and length.
 
         Returns:
-            pd.Series: Daily contribution.
+            pd.Series: Daily character percentage.
         """
-        daily = df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.LENGTH_CHAT].transform("sum")
-        return (df[Columns.LENGTH_CHAT] / daily.replace(0, np.nan)).fillna(0)
+        daily_total = df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.LENGTH_CHAT].transform(
+            "sum"
+        )
+        return (df[Columns.LENGTH_CHAT] / daily_total) * 100
 
     def calc_day_pct_length_emojis(self, df: pd.DataFrame) -> pd.Series:
-        """Daily percentage of total emojis.
+        """Percentage of day's total emojis.
 
         Args:
-            df (pd.DataFrame): Input with number_of_emojis and timestamp.
+            df (pd.DataFrame): Input with timestamp and emojis.
 
         Returns:
-            pd.Series: Daily emoji share.
+            pd.Series: Daily emoji percentage.
         """
-        daily = df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.NUMBER_OF_EMOJIS].transform("sum")
-        return (df[Columns.NUMBER_OF_EMOJIS] / daily.replace(0, np.nan)).fillna(0)
+        daily_total = df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.NUMBER_OF_EMOJIS].transform(
+            "sum"
+        )
+        return (df[Columns.NUMBER_OF_EMOJIS] / daily_total) * 100
 
     def calc_day_pct_length_punctuations(self, df: pd.DataFrame) -> pd.Series:
-        """Daily percentage of total punctuations.
+        """Percentage of day's total punctuation.
 
         Args:
-            df (pd.DataFrame): Input with number_of_punctuations and timestamp.
+            df (pd.DataFrame): Input with timestamp and punctuation.
 
         Returns:
-            pd.Series: Daily punctuation share.
+            pd.Series: Daily punctuation percentage.
         """
-        daily = df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.NUMBER_OF_PUNCTUATIONS].transform("sum")
-        return (df[Columns.NUMBER_OF_PUNCTUATIONS] / daily.replace(0, np.nan)).fillna(0)
+        daily_total = df.groupby(df[Columns.TIMESTAMP].dt.date)[
+            Columns.NUMBER_OF_PUNCTUATIONS
+        ].transform("sum")
+        return (df[Columns.NUMBER_OF_PUNCTUATIONS] / daily_total) * 100
 
     def number_of_unique_participants_that_day(self, df: pd.DataFrame) -> pd.Series:
-        """Number of unique authors per day.
+        """Unique authors per day.
 
         Args:
-            df (pd.DataFrame): Input with author and timestamp.
+            df (pd.DataFrame): Input with timestamp and author.
 
         Returns:
-            pd.Series: Unique count per day.
+            pd.Series: Unique authors that day.
         """
         return df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.AUTHOR].transform("nunique")
 
     def calc_day_pct_authors(self, df: pd.DataFrame) -> pd.Series:
-        """Percentage of daily messages by author.
+        """Percentage of day's messages by author.
+
+        Args:
+            df (pd.DataFrame): Input with timestamp and author.
+
+        Returns:
+            pd.Series: Author's daily message percentage.
+        """
+        daily_total = df.groupby(df[Columns.TIMESTAMP].dt.date).size()
+        daily_author = df.groupby([df[Columns.TIMESTAMP].dt.date, Columns.AUTHOR]).size()
+        pct = (daily_author / daily_total.reindex(daily_author.index.get_level_values(0))) * 100
+        return pct.reindex(
+            df.set_index([df[Columns.TIMESTAMP].dt.date, Columns.AUTHOR]).index
+        ).values
+
+    def find_sequence_authors(self, df: pd.DataFrame) -> pd.Series:
+        """Sequence of authors that day.
+
+        Args:
+            df (pd.DataFrame): Input with timestamp and author.
+
+        Returns:
+            pd.Series: Author sequence per day.
+        """
+        return df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.AUTHOR].transform(
+            lambda g: g.tolist()
+        )
+
+    def find_sequence_response_times(self, df: pd.DataFrame) -> pd.Series:
+        """Sequence of response times that day.
 
         Args:
             df (pd.DataFrame): Input with timestamp.
 
         Returns:
-            pd.Series: Author’s share of daily messages.
+            pd.Series: Response time sequence per day.
         """
-        daily = df.groupby(df[Columns.TIMESTAMP].dt.date).size()
-        return (
-            df.groupby(df[Columns.TIMESTAMP].dt.date).cumcount().add(1)
-            / daily.reindex(df[Columns.TIMESTAMP].dt.date).values
-        )
-
-    def find_sequence_authors(self, df: pd.DataFrame) -> pd.Series:
-        """List of authors in order per day.
-
-        Args:
-            df (pd.DataFrame): Input with author and timestamp.
-
-        Returns:
-            pd.Series: List of authors per day.
-        """
-        return (
-            df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.AUTHOR]
-            .apply(list)
-            .reindex(df[Columns.TIMESTAMP].dt.date)
-            .values
-        )
-
-    def find_sequence_response_times(self, df: pd.DataFrame) -> pd.Series:
-        """List of response times per day.
-
-        Args:
-            df (pd.DataFrame): Input with response_time and timestamp.
-
-        Returns:
-            pd.Series: List of response times per day.
-        """
-        return (
-            df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.RESPONSE_TIME]
-            .apply(list)
-            .reindex(df[Columns.TIMESTAMP].dt.date)
-            .values
+        return df.groupby(df[Columns.TIMESTAMP].dt.date)[Columns.RESPONSE_TIME].transform(
+            lambda g: g.tolist()
         )
 
     # === Step 6: Text Features ===
-    def has_emoji(self, text: str) -> bool:
-        """Check if message contains any valid emoji (excluding skin tones).
-
-        Args:
-            text (str): Input message.
-
-        Returns:
-            bool: True if contains emoji.
-        """
-        if not isinstance(text, str):
-            return False
-        return any(char in emoji.EMOJI_DATA and char not in self.ignore_emojis for char in text)
-
-    def count_emojis(self, text: str) -> int:
-        """Count number of valid emojis in message.
-
-        Args:
-            text (str): Input message.
-
-        Returns:
-            int: Count of emojis.
-        """
-        if not isinstance(text, str):
-            return 0
-        return len([c for c in text if c in emoji.EMOJI_DATA and c not in self.ignore_emojis])
-
-    def has_link(self, text: str) -> bool:
-        """Detect URLs in message.
-
-        Args:
-            text (str): Input message.
-
-        Returns:
-            bool: True if URL found.
-        """
-        if not isinstance(text, str):
-            return False
-        return bool(self.url_pattern.search(text))
-
-    def was_deleted(self, message: str) -> bool:
-        """Detect deleted message in Dutch.
-
-        Args:
-            message (str): Input message.
-
-        Returns:
-            bool: True if message was deleted.
-        """
-        if not isinstance(message, str):
-            return False
-        return bool(re.search(r"Dit bericht is verwijderd\.", message, flags=re.IGNORECASE))
-
-    def changes_to_grouppicture(self, message: str) -> int:
-        """Count group picture change notifications.
-
-        Args:
-            message (str): Input message.
-
-        Returns:
-            int: Number of group picture changes.
-        """
-        if not isinstance(message, str):
-            return 0
-        return len(re.findall(r"heeft de groepsafbeelding gewijzigd", message, flags=re.IGNORECASE))
-
-    def _clean_for_word_analysis(self, text: str) -> str:
-        """Remove emojis, numbers, and punctuation for word analysis.
-
-        Args:
-            text (str): Input message.
-
-        Returns:
-            str: Cleaned text for tokenization.
-        """
-        if not isinstance(text, str):
-            return ""
-        text = re.sub(self.emoji_pattern, "", text)
-        text = re.sub(
-            r"""
-            (?:[\$€£¥]\s*)?      # currency + space
-            \d+(?:[.,]\d+)*       # digits + fraction
-            (?:%\s?)?             # optional %
-            [.,=]*                # trailing
-        """,
-            " ",
-            text,
-            flags=re.VERBOSE,
-        )
-        text = re.sub(f"[{re.escape(BROAD_PUNCTUATION)}]+", " ", text)
-        return re.sub(r"\s+", " ", text).strip()
-
     def count_words(self, text: str) -> int:
-        """Count words containing letters, @, or &.
+        """Count words after removing punctuation and stopwords.
 
         Args:
             text (str): Input message.
 
         Returns:
-            int: Number of valid words.
+            int: Word count.
         """
-        cleaned = self._clean_for_word_analysis(text)
-        if not cleaned:
+        if not isinstance(text, str):
             return 0
-        tokens = word_tokenize(cleaned)
-        return len([t for t in tokens if any(c.isalpha() or c in {"@", "&"} for c in t)])
+        text = re.sub(f"[{re.escape(BROAD_PUNCTUATION)}]", " ", text)
+        words = word_tokenize(text.lower())
+        return len([w for w in words if w not in self.stopwords and w.isalpha()])
 
     def avg_word_length(self, text: str) -> float:
-        """Compute average length of valid words.
+        """Average word length.
 
         Args:
             text (str): Input message.
 
         Returns:
-            float: Average word length (0.0 if no words).
+            float: Average length or 0.
         """
-        cleaned = self._clean_for_word_analysis(text)
-        if not cleaned:
+        if not isinstance(text, str):
             return 0.0
-        tokens = word_tokenize(cleaned)
-        words = [t for t in tokens if any(c.isalpha() or c in {"@", "&"} for c in t)]
+        text = re.sub(f"[{re.escape(BROAD_PUNCTUATION)}]", " ", text)
+        words = word_tokenize(text.lower())
+        words = [w for w in words if w not in self.stopwords and w.isalpha()]
         return sum(len(w) for w in words) / len(words) if words else 0.0
 
     def starts_with_emoji(self, text: str) -> bool:
@@ -647,45 +577,49 @@ class DataEditor:
         Returns:
             bool: True if starts with emoji.
         """
-        if not isinstance(text, str) or not text.strip():
+        if not isinstance(text, str) or not text:
             return False
-        return bool(re.match(self.emoji_pattern, text.strip()))
+        return text[0] in emoji.EMOJI_DATA and text[0] not in self.ignore_emojis
 
-    def emoji_starting_chat(self, text: str) -> List[str]:
-        """Extract sequence of emojis at start of message.
+    def emoji_starting_chat(self, text: str) -> str:
+        """First emoji in message.
 
         Args:
             text (str): Input message.
 
         Returns:
-            List[str]: List of starting emojis.
+            str: First emoji or empty.
         """
-        if not isinstance(text, str):
-            return []
-        match = re.match(self.emoji_pattern, text.strip())
-        return list(match.group(0)) if match else []
+        if not isinstance(text, str) or not text:
+            return ""
+        for c in text:
+            if c in emoji.EMOJI_DATA and c not in self.ignore_emojis:
+                return c
+        return ""
 
     def has_question_mark(self, text: str) -> bool:
-        """Check for question mark in message.
+        """Check for question mark.
 
         Args:
             text (str): Input message.
 
         Returns:
-            bool: True if contains '?'.
+            bool: True if contains ?.
         """
         return isinstance(text, str) and "?" in text
 
     def ends_with_question_mark(self, text: str) -> bool:
-        """Check if message ends with question mark.
+        """Check if ends with question mark.
 
         Args:
             text (str): Input message.
 
         Returns:
-            bool: True if ends with '?'.
+            bool: True if ends with ?.
         """
-        return isinstance(text, str) and text.strip() and text.strip()[-1] == "?"
+        if not isinstance(text, str) or not text:
+            return False
+        return text[-1] == "?"
 
     def count_capitals(self, text: str) -> int:
         """Count uppercase letters.
@@ -694,62 +628,61 @@ class DataEditor:
             text (str): Input message.
 
         Returns:
-            int: Number of capital letters.
+            int: Uppercase count.
         """
         return sum(1 for c in text if c.isupper()) if isinstance(text, str) else 0
 
     def has_capitals(self, text: str) -> bool:
-        """Check for any uppercase letters.
+        """Check for uppercase letters.
 
         Args:
             text (str): Input message.
 
         Returns:
-            bool: True if contains capitals.
+            bool: True if contains uppercase.
         """
         return isinstance(text, str) and any(c.isupper() for c in text)
 
-    def list_of_connected_capitals(self, text: str) -> List[str]:
-        """Find sequences of 2+ uppercase letters.
+    def list_of_connected_capitals(self, text: str) -> list[str]:
+        """Find sequences of 2+ uppercase words.
 
         Args:
             text (str): Input message.
 
         Returns:
-            List[str]: List of capital sequences.
+            List[str]: Uppercase sequences.
         """
-        return re.findall(r"[A-Z]{2,}", text) if isinstance(text, str) else []
+        if not isinstance(text, str):
+            return []
+        return re.findall(r"\b[A-Z]{2,}\b", text)
 
     def starts_with_capital(self, text: str) -> bool:
-        """Check if message starts with capital, @, or &.
+        """Check if starts with uppercase.
 
         Args:
             text (str): Input message.
 
         Returns:
-            bool: True if starts with capital or special.
+            bool: True if starts with uppercase.
         """
-        if not isinstance(text, str) or not text.strip():
+        if not isinstance(text, str) or not text:
             return False
-        first = text.strip()[0]
-        return first.isupper() or first in {"@", "&"}
+        return text[0].isupper()
 
     def capitalized_words_ratio(self, text: str) -> float:
-        """Ratio of capitalized words to total words.
+        """Ratio of capitalized words.
 
         Args:
             text (str): Input message.
 
         Returns:
-            float: Capitalized word ratio.
+            float: Capitalized ratio or 0.
         """
         if not isinstance(text, str):
             return 0.0
-        words = self._clean_for_word_analysis(text).split()
-        if not words:
-            return 0.0
+        words = word_tokenize(text)
         caps = [w for w in words if w[0].isupper()]
-        return len(caps) / len(words)
+        return len(caps) / len(words) if words else 0.0
 
     def count_number_characters(self, text: str) -> int:
         """Count digit characters.
@@ -796,7 +729,7 @@ class DataEditor:
         return len([m for m in pattern.finditer(text) if re.search(r"\d", m.group(0))])
 
     def has_attachment(self, row: pd.Series) -> bool:
-        """Check if Rowe has any media attachment.
+        """Check if row has any media attachment.
 
         Args:
             row (pd.Series): DataFrame row.
@@ -881,10 +814,11 @@ class DataEditor:
             >>> editor = DataEditor()
             >>> final_df = editor.organize_extended_df(raw_df)
         """
-        if df is None or df.empty:
-            logger.error("No valid DataFrame provided for organizing")
-            return None
         try:
+            if df is None or df.empty:
+                logger.error("No valid DataFrame provided for organizing")
+                return None
+
             # 0. Clean messages
             df = self.clean_for_deleted_media_patterns(df)
             if df is None:
@@ -907,15 +841,29 @@ class DataEditor:
             df[Columns.RESPONSE_TIME] = self.response_time(df)
 
             # 4. Emoji / Punctuation
-            df[Columns.LIST_OF_ALL_EMOJIS] = df[Columns.MESSAGE_CLEANED].apply(self.list_of_all_emojis)
-            df[Columns.LIST_OF_CONNECTED_EMOJIS] = df[Columns.MESSAGE_CLEANED].apply(self.list_of_connected_emojis)
-            df[Columns.NUMBER_OF_PUNCTUATIONS] = df[Columns.MESSAGE_CLEANED].apply(self.count_punctuations)
+            df[Columns.LIST_OF_ALL_EMOJIS] = df[Columns.MESSAGE_CLEANED].apply(
+                self.list_of_all_emojis
+            )
+            df[Columns.LIST_OF_CONNECTED_EMOJIS] = df[Columns.MESSAGE_CLEANED].apply(
+                self.list_of_connected_emojis
+            )
+            df[Columns.NUMBER_OF_PUNCTUATIONS] = df[Columns.MESSAGE_CLEANED].apply(
+                self.count_punctuations
+            )
             df[Columns.HAS_PUNCTUATION] = df[Columns.MESSAGE_CLEANED].apply(self.has_punctuation)
-            df[Columns.LIST_OF_ALL_PUNCTUATIONS] = df[Columns.MESSAGE_CLEANED].apply(self.list_of_all_punctuations)
-            df[Columns.LIST_OF_CONNECTED_PUNCTUATIONS] = df[Columns.MESSAGE_CLEANED].apply(self.list_of_connected_punctuations)
+            df[Columns.LIST_OF_ALL_PUNCTUATIONS] = df[Columns.MESSAGE_CLEANED].apply(
+                self.list_of_all_punctuations
+            )
+            df[Columns.LIST_OF_CONNECTED_PUNCTUATIONS] = df[Columns.MESSAGE_CLEANED].apply(
+                self.list_of_connected_punctuations
+            )
             df[Columns.ENDS_WITH_EMOJI] = df[Columns.MESSAGE_CLEANED].apply(self.ends_with_emoji)
-            df[Columns.EMOJI_ENDING_CHAT] = df[Columns.MESSAGE_CLEANED].apply(self.emoji_ending_chat)
-            df[Columns.ENDS_WITH_PUNCTUATION] = df[Columns.MESSAGE_CLEANED].apply(self.ends_with_punctuation)
+            df[Columns.EMOJI_ENDING_CHAT] = df[Columns.MESSAGE_CLEANED].apply(
+                self.emoji_ending_chat
+            )
+            df[Columns.ENDS_WITH_PUNCTUATION] = df[Columns.MESSAGE_CLEANED].apply(
+                self.ends_with_punctuation
+            )
             df[Columns.PUNCTUATION_ENDING_CHAT] = self.punctuation_ending_chat(df)
             df[Columns.PCT_EMOJIS] = self.calc_pct_emojis(df)
             df[Columns.PCT_PUNCTUATIONS] = self.calc_pct_punctuations(df)
@@ -924,7 +872,9 @@ class DataEditor:
             df[Columns.X_DAY_PCT_LENGTH_CHAT] = self.calc_day_pct_length_chat(df)
             df[Columns.X_DAY_PCT_LENGTH_EMOJIS] = self.calc_day_pct_length_emojis(df)
             df[Columns.X_DAY_PCT_LENGTH_PUNCTUATIONS] = self.calc_day_pct_length_punctuations(df)
-            df[Columns.X_NUMBER_OF_UNIQUE_PARTICIPANTS_THAT_DAY] = self.number_of_unique_participants_that_day(df)
+            df[Columns.X_NUMBER_OF_UNIQUE_PARTICIPANTS_THAT_DAY] = (
+                self.number_of_unique_participants_that_day(df)
+            )
             df[Columns.X_DAY_PCT_MESSAGES_OF_AUTHOR] = self.calc_day_pct_authors(df)
             df[Columns.Y_SEQUENCE_AUTHORS_THAT_DAY] = self.find_sequence_authors(df)
             df[Columns.Y_SEQUENCE_RESPONSE_TIMES_THAT_DAY] = self.find_sequence_response_times(df)
@@ -932,17 +882,35 @@ class DataEditor:
             # 6. Text features
             df[Columns.NUMBER_OF_WORDS] = df[Columns.MESSAGE_CLEANED].apply(self.count_words)
             df[Columns.AVG_WORD_LENGTH] = df[Columns.MESSAGE_CLEANED].apply(self.avg_word_length)
-            df[Columns.STARTS_WITH_EMOJI] = df[Columns.MESSAGE_CLEANED].apply(self.starts_with_emoji)
-            df[Columns.EMOJI_STARTING_CHAT] = df[Columns.MESSAGE_CLEANED].apply(self.emoji_starting_chat)
-            df[Columns.HAS_QUESTION_MARK] = df[Columns.MESSAGE_CLEANED].apply(self.has_question_mark)
-            df[Columns.ENDS_WITH_QUESTION_MARK] = df[Columns.MESSAGE_CLEANED].apply(self.ends_with_question_mark)
+            df[Columns.STARTS_WITH_EMOJI] = df[Columns.MESSAGE_CLEANED].apply(
+                self.starts_with_emoji
+            )
+            df[Columns.EMOJI_STARTING_CHAT] = df[Columns.MESSAGE_CLEANED].apply(
+                self.emoji_starting_chat
+            )
+            df[Columns.HAS_QUESTION_MARK] = df[Columns.MESSAGE_CLEANED].apply(
+                self.has_question_mark
+            )
+            df[Columns.ENDS_WITH_QUESTION_MARK] = df[Columns.MESSAGE_CLEANED].apply(
+                self.ends_with_question_mark
+            )
             df[Columns.NUMBER_OF_CAPITALS] = df[Columns.MESSAGE_CLEANED].apply(self.count_capitals)
             df[Columns.HAS_CAPITALS] = df[Columns.MESSAGE_CLEANED].apply(self.has_capitals)
-            df[Columns.LIST_OF_CONNECTED_CAPITALS] = df[Columns.MESSAGE_CLEANED].apply(self.list_of_connected_capitals)
-            df[Columns.STARTS_WITH_CAPITAL] = df[Columns.MESSAGE_CLEANED].apply(self.starts_with_capital)
-            df[Columns.CAPITALIZED_WORDS_RATIO] = df[Columns.MESSAGE_CLEANED].apply(self.capitalized_words_ratio)
-            df[Columns.NUMBER_OF_NUMBER_CHARACTERS] = df[Columns.MESSAGE_CLEANED].apply(self.count_number_characters)
-            df[Columns.HAS_NUMBER_CHARACTERS] = df[Columns.MESSAGE_CLEANED].apply(self.has_number_characters)
+            df[Columns.LIST_OF_CONNECTED_CAPITALS] = df[Columns.MESSAGE_CLEANED].apply(
+                self.list_of_connected_capitals
+            )
+            df[Columns.STARTS_WITH_CAPITAL] = df[Columns.MESSAGE_CLEANED].apply(
+                self.starts_with_capital
+            )
+            df[Columns.CAPITALIZED_WORDS_RATIO] = df[Columns.MESSAGE_CLEANED].apply(
+                self.capitalized_words_ratio
+            )
+            df[Columns.NUMBER_OF_NUMBER_CHARACTERS] = df[Columns.MESSAGE_CLEANED].apply(
+                self.count_number_characters
+            )
+            df[Columns.HAS_NUMBER_CHARACTERS] = df[Columns.MESSAGE_CLEANED].apply(
+                self.has_number_characters
+            )
             df[Columns.NUMBER_OF_NUMBERS] = df[Columns.MESSAGE_CLEANED].apply(self.count_numbers)
             df[Columns.HAS_ATTACHMENT] = df.apply(self.has_attachment, axis=1)
             df[Columns.NUMBER_OF_PICTURES_VIDEOS] = df.apply(self.number_of_pictures_videos, axis=1)
@@ -953,38 +921,79 @@ class DataEditor:
             df = df[~df[Columns.EARLY_LEAVER]].reset_index(drop=True)
 
             # 8. Create whatsapp_group_temp
-            df["whatsapp_group_temp"] = np.where(df[Columns.AUTHOR] == "AvT", "AvT", df[Columns.WHATSAPP_GROUP])
+            df["whatsapp_group_temp"] = np.where(
+                df[Columns.AUTHOR] == "AvT", "AvT", df[Columns.WHATSAPP_GROUP]
+            )
             logger.info("Created 'whatsapp_group_temp' (AvT isolated)")
 
             # 9. Final column order
             organized_columns = [
-                Columns.WHATSAPP_GROUP, "whatsapp_group_temp", Columns.TIMESTAMP,
-                Columns.YEAR, Columns.MONTH, Columns.WEEK, Columns.DAY_OF_WEEK,
-                Columns.AUTHOR, Columns.ACTIVE_YEARS, Columns.EARLY_LEAVER,
-                Columns.NUMBER_OF_CHATS_THAT_DAY, Columns.LENGTH_CHAT, Columns.NUMBER_OF_WORDS,
-                Columns.AVG_WORD_LENGTH, Columns.PREVIOUS_AUTHOR, Columns.RESPONSE_TIME,
-                Columns.NEXT_AUTHOR, Columns.HAS_LINK, Columns.WAS_DELETED,
-                Columns.PICTURES_DELETED, Columns.VIDEOS_DELETED, Columns.NUMBER_OF_PICTURES_VIDEOS,
-                Columns.AUDIOS_DELETED, Columns.GIFS_DELETED, Columns.STICKERS_DELETED,
-                Columns.DOCUMENTS_DELETED, Columns.VIDEONOTES_DELETED, Columns.HAS_ATTACHMENT,
-                Columns.NUMBER_OF_EMOJIS, Columns.HAS_EMOJI, Columns.LIST_OF_ALL_EMOJIS,
-                Columns.LIST_OF_CONNECTED_EMOJIS, Columns.STARTS_WITH_EMOJI, Columns.EMOJI_STARTING_CHAT,
-                Columns.ENDS_WITH_EMOJI, Columns.EMOJI_ENDING_CHAT, Columns.PCT_EMOJIS,
-                Columns.NUMBER_OF_PUNCTUATIONS, Columns.HAS_PUNCTUATION, Columns.LIST_OF_ALL_PUNCTUATIONS,
-                Columns.LIST_OF_CONNECTED_PUNCTUATIONS, Columns.ENDS_WITH_PUNCTUATION,
-                Columns.HAS_QUESTION_MARK, Columns.ENDS_WITH_QUESTION_MARK, Columns.PUNCTUATION_ENDING_CHAT,
-                Columns.PCT_PUNCTUATIONS, Columns.NUMBER_OF_CAPITALS, Columns.HAS_CAPITALS,
-                Columns.LIST_OF_CONNECTED_CAPITALS, Columns.STARTS_WITH_CAPITAL,
-                Columns.CAPITALIZED_WORDS_RATIO, Columns.NUMBER_OF_NUMBER_CHARACTERS,
-                Columns.HAS_NUMBER_CHARACTERS, Columns.NUMBER_OF_NUMBERS, Columns.MESSAGE_CLEANED,
-                Columns.X_DAY_PCT_LENGTH_CHAT, Columns.X_DAY_PCT_LENGTH_EMOJIS,
-                Columns.X_DAY_PCT_LENGTH_PUNCTUATIONS, Columns.X_NUMBER_OF_UNIQUE_PARTICIPANTS_THAT_DAY,
-                Columns.X_DAY_PCT_MESSAGES_OF_AUTHOR, Columns.Y_SEQUENCE_AUTHORS_THAT_DAY,
+                Columns.WHATSAPP_GROUP,
+                "whatsapp_group_temp",
+                Columns.TIMESTAMP,
+                Columns.YEAR,
+                Columns.MONTH,
+                Columns.WEEK,
+                Columns.DAY_OF_WEEK,
+                Columns.AUTHOR,
+                Columns.ACTIVE_YEARS,
+                Columns.EARLY_LEAVER,
+                Columns.NUMBER_OF_CHATS_THAT_DAY,
+                Columns.LENGTH_CHAT,
+                Columns.NUMBER_OF_WORDS,
+                Columns.AVG_WORD_LENGTH,
+                Columns.PREVIOUS_AUTHOR,
+                Columns.RESPONSE_TIME,
+                Columns.NEXT_AUTHOR,
+                Columns.HAS_LINK,
+                Columns.WAS_DELETED,
+                Columns.PICTURES_DELETED,
+                Columns.VIDEOS_DELETED,
+                Columns.NUMBER_OF_PICTURES_VIDEOS,
+                Columns.AUDIOS_DELETED,
+                Columns.GIFS_DELETED,
+                Columns.STICKERS_DELETED,
+                Columns.DOCUMENTS_DELETED,
+                Columns.VIDEONOTES_DELETED,
+                Columns.HAS_ATTACHMENT,
+                Columns.NUMBER_OF_EMOJIS,
+                Columns.HAS_EMOJI,
+                Columns.LIST_OF_ALL_EMOJIS,
+                Columns.LIST_OF_CONNECTED_EMOJIS,
+                Columns.STARTS_WITH_EMOJI,
+                Columns.EMOJI_STARTING_CHAT,
+                Columns.ENDS_WITH_EMOJI,
+                Columns.EMOJI_ENDING_CHAT,
+                Columns.PCT_EMOJIS,
+                Columns.NUMBER_OF_PUNCTUATIONS,
+                Columns.HAS_PUNCTUATION,
+                Columns.LIST_OF_ALL_PUNCTUATIONS,
+                Columns.LIST_OF_CONNECTED_PUNCTUATIONS,
+                Columns.ENDS_WITH_PUNCTUATION,
+                Columns.HAS_QUESTION_MARK,
+                Columns.ENDS_WITH_QUESTION_MARK,
+                Columns.PUNCTUATION_ENDING_CHAT,
+                Columns.PCT_PUNCTUATIONS,
+                Columns.NUMBER_OF_CAPITALS,
+                Columns.HAS_CAPITALS,
+                Columns.LIST_OF_CONNECTED_CAPITALS,
+                Columns.STARTS_WITH_CAPITAL,
+                Columns.CAPITALIZED_WORDS_RATIO,
+                Columns.NUMBER_OF_NUMBER_CHARACTERS,
+                Columns.HAS_NUMBER_CHARACTERS,
+                Columns.NUMBER_OF_NUMBERS,
+                Columns.MESSAGE_CLEANED,
+                Columns.X_DAY_PCT_LENGTH_CHAT,
+                Columns.X_DAY_PCT_LENGTH_EMOJIS,
+                Columns.X_DAY_PCT_LENGTH_PUNCTUATIONS,
+                Columns.X_NUMBER_OF_UNIQUE_PARTICIPANTS_THAT_DAY,
+                Columns.X_DAY_PCT_MESSAGES_OF_AUTHOR,
+                Columns.Y_SEQUENCE_AUTHORS_THAT_DAY,
                 Columns.Y_SEQUENCE_RESPONSE_TIMES_THAT_DAY,
             ]
             df = df[organized_columns]
             logger.info(
-                f"Final DF: {len(df)} rows, {len(df.columns)} cols – all authors are initials"
+                f"Final DF: {len(df)} rows, {len(df.columns)} cols - all authors are initials"
             )
             return df
 

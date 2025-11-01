@@ -1,26 +1,33 @@
-import seaborn as sns
-import matplotlib.pyplot as plt
-import pandas as pd
-from pathlib import Path
-from loguru import logger
-import warnings
-import tomllib
 import re
-import numpy as np
+import sys
+import tomllib
+import warnings
+from pathlib import Path
+
 import emoji
-import matplotlib.font_manager as fm
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from loguru import logger
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Set font to Segoe UI Emoji for emoji support
     try:
-        plt.rcParams['font.family'] = 'Segoe UI Emoji'
+        plt.rcParams["font.family"] = "Segoe UI Emoji"
     except:
-        logger.warning("Segoe UI Emoji font not found. Falling back to default font. Some emojis may not render correctly.")
-        plt.rcParams['font.family'] = 'DejaVu Sans'
+        logger.warning(
+            "Segoe UI Emoji font not found. Falling back to default font. Some emojis may not render correctly."
+        )
+        plt.rcParams["font.family"] = "DejaVu Sans"
 
     # Read configuration
     logger.debug("Loading configuration from config.toml")
@@ -31,7 +38,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -43,7 +50,7 @@ def main():
         logger.warning(
             "Datafile does not exist. First run src/preprocess.py, and check the timestamp!"
         )
-        exit(1)
+        sys.exit(1)
     df = pd.read_parquet(datafile)
     logger.info(df)
 
@@ -55,19 +62,23 @@ def main():
 
     # Define regex patterns for cleaning
     non_media_patterns = [
-        (r'Dit bericht is verwijderd\.', "message deleted", re.IGNORECASE),
-        (r'(?:Anthony van Tilburg|Anja Berkemeijer|Phons Berkemeijer|Madeleine) heeft de groepsafbeelding gewijzigd', "grouppicture", re.IGNORECASE)
+        (r"Dit bericht is verwijderd\.", "message deleted", re.IGNORECASE),
+        (
+            r"(?:Anthony van Tilburg|Anja Berkemeijer|Phons Berkemeijer|Madeleine) heeft de groepsafbeelding gewijzigd",
+            "grouppicture",
+            re.IGNORECASE,
+        ),
     ]
     media_patterns = [
-        (r'afbeelding\s*weggelaten', "picture deleted", re.IGNORECASE),
-        (r'video\s*weggelaten', "video deleted", re.IGNORECASE),
-        (r'audio\s*weggelaten', "audio deleted", re.IGNORECASE),
-        (r'GIF\s*weggelaten', "GIF deleted", re.IGNORECASE),
-        (r'sticker\s*weggelaten', "sticker deleted", re.IGNORECASE),
-        (r'document\s*weggelaten', "document deleted", re.IGNORECASE),
-        (r'videonotitie\s*weggelaten', "video note deleted", re.IGNORECASE)
+        (r"afbeelding\s*weggelaten", "picture deleted", re.IGNORECASE),
+        (r"video\s*weggelaten", "video deleted", re.IGNORECASE),
+        (r"audio\s*weggelaten", "audio deleted", re.IGNORECASE),
+        (r"GIF\s*weggelaten", "GIF deleted", re.IGNORECASE),
+        (r"sticker\s*weggelaten", "sticker deleted", re.IGNORECASE),
+        (r"document\s*weggelaten", "document deleted", re.IGNORECASE),
+        (r"videonotitie\s*weggelaten", "video note deleted", re.IGNORECASE),
     ]
-    fallback_pattern = r'\s*[\u200e\u200f]*\[\d{2}-\d{2}-\d{4},\s*\d{2}:\d{2}:\d{2}\]\s*(?:Anthony van Tilburg|Anja Berkemeijer|Phons Berkemeijer|Madeleine)[\s\u200e\u200f]*:.*'
+    fallback_pattern = r"\s*[\u200e\u200f]*\[\d{2}-\d{2}-\d{4},\s*\d{2}:\d{2}:\d{2}\]\s*(?:Anthony van Tilburg|Anja Berkemeijer|Phons Berkemeijer|Madeleine)[\s\u200e\u200f]*:.*"
 
     # Clean messages and update changes column
     def clean_message(row):
@@ -79,7 +90,7 @@ def main():
                 logger.debug(f"Matched non-media pattern '{pattern}' in message: {message}")
                 if change not in changes:
                     changes.append(change)
-                message = re.sub(pattern, '', message, flags=flags).strip()
+                message = re.sub(pattern, "", message, flags=flags).strip()
         # Loop over media patterns until no more matches
         while True:
             matched = False
@@ -91,18 +102,18 @@ def main():
                         changes.append(change)
                     # Find the preceding '['
                     start_idx = match.start()
-                    bracket_idx = message.rfind('[', 0, start_idx)
+                    bracket_idx = message.rfind("[", 0, start_idx)
                     if bracket_idx != -1:
                         # Check for space before '['
-                        if bracket_idx > 0 and message[bracket_idx - 1] == ' ':
+                        if bracket_idx > 0 and message[bracket_idx - 1] == " ":
                             remove_start = bracket_idx - 1  # Include space
                         else:
                             remove_start = bracket_idx
                         # Remove from bracket_idx (or bracket_idx - 1) to end of match
-                        message = message[:remove_start] + message[match.end():]
+                        message = message[:remove_start] + message[match.end() :]
                     else:
                         # If no '[', just remove the matched media phrase
-                        message = re.sub(pattern, '', message, flags=flags)
+                        message = re.sub(pattern, "", message, flags=flags)
                     message = message.strip()
                     matched = True
                     break  # Restart loop to check for more media patterns
@@ -113,7 +124,7 @@ def main():
             logger.debug(f"Matched fallback pattern '{fallback_pattern}' in message: {message}")
             if "generic deleted" not in changes:
                 changes.append("generic deleted")
-            message = re.sub(fallback_pattern, '', message, flags=re.IGNORECASE).strip()
+            message = re.sub(fallback_pattern, "", message, flags=re.IGNORECASE).strip()
         # If message is empty, contains only spaces, or is None, set to "completely removed"
         if message is None or message == "" or message.strip() == "":
             message = "completely removed"
@@ -123,16 +134,18 @@ def main():
         return row
 
     df = df.apply(clean_message, axis=1)
-    logger.info(f"Cleaned messages: {df[['message', 'message_cleaned', 'changes']].head(10).to_string()}")
+    logger.info(
+        f"Cleaned messages: {df[['message', 'message_cleaned', 'changes']].head(10).to_string()}"
+    )
 
     # Save amended DataFrame to [filename]_filtered.csv
-    filename_base = config["current"].rsplit('.', 1)[0]  # Remove extension
+    filename_base = config["current"].rsplit(".", 1)[0]  # Remove extension
     output_csv = processed / f"{filename_base}_filtered.csv"
     df.to_csv(output_csv, index=False)
     logger.info(f"Saved amended DataFrame to {output_csv}")
 
     # Filter messages with emojis
-    emoji_msgs = df[df["has_emoji"] == True]
+    emoji_msgs = df[df["has_emoji"]]
 
     # Initialize dictionaries for counts
     count_all = {}
@@ -151,17 +164,23 @@ def main():
             count_once[e] = count_once.get(e, 0) + 1
 
     # Create DataFrame for emoji counts (restored code)
-    emoji_counts_df = pd.DataFrame({
-        "emoji": list(count_all.keys()),
-        "count_all": list(count_all.values()),
-        "count_once": [count_once.get(e, 0) for e in count_all.keys()]
-    })
+    emoji_counts_df = pd.DataFrame(
+        {
+            "emoji": list(count_all.keys()),
+            "count_all": list(count_all.values()),
+            "count_once": [count_once.get(e, 0) for e in count_all.keys()],
+        }
+    )
 
     # Calculate percentages
     total_all = emoji_counts_df["count_all"].sum()
     total_once = emoji_counts_df["count_once"].sum()
-    emoji_counts_df["percent_all"] = (emoji_counts_df["count_all"] / total_all) * 100 if total_all > 0 else 0
-    emoji_counts_df["percent_once"] = (emoji_counts_df["count_once"] / total_once) * 100 if total_once > 0 else 0
+    emoji_counts_df["percent_all"] = (
+        (emoji_counts_df["count_all"] / total_all) * 100 if total_all > 0 else 0
+    )
+    emoji_counts_df["percent_once"] = (
+        (emoji_counts_df["count_once"] / total_once) * 100 if total_once > 0 else 0
+    )
 
     # Add Unicode code and name
     emoji_counts_df["unicode_code"] = emoji_counts_df["emoji"].apply(lambda x: f"U+{ord(x):04X}")
@@ -181,7 +200,7 @@ def main():
     logger.info(emoji_counts_df)
 
     # Count frequency of emoji pairs where the second emoji is a target skin tone
-    target_emojis = ['\U0001F3FC', '\U0001F3FB', '\U0001F3FE', '\U0001F3FD', '\U0001F3FF']
+    target_emojis = ["\U0001f3fc", "\U0001f3fb", "\U0001f3fe", "\U0001f3fd", "\U0001f3ff"]
     pair_counts = {}
     for message in emoji_msgs["message"]:
         # Extract all emojis in the message
@@ -197,15 +216,21 @@ def main():
                 pair_counts[pair] = pair_counts.get(pair, 0) + 1
 
     # Create DataFrame for emoji pair counts
-    pair_counts_df = pd.DataFrame({
-        "preceding_emoji": [pair[0] for pair in pair_counts.keys()],
-        "target_emoji": [pair[1] for pair in pair_counts.keys()],
-        "count": list(pair_counts.values())
-    })
+    pair_counts_df = pd.DataFrame(
+        {
+            "preceding_emoji": [pair[0] for pair in pair_counts.keys()],
+            "target_emoji": [pair[1] for pair in pair_counts.keys()],
+            "count": list(pair_counts.values()),
+        }
+    )
 
     # Add Unicode codes and names
-    pair_counts_df["preceding_unicode"] = pair_counts_df["preceding_emoji"].apply(lambda x: f"U+{ord(x):04X}")
-    pair_counts_df["target_unicode"] = pair_counts_df["target_emoji"].apply(lambda x: f"U+{ord(x):04X}")
+    pair_counts_df["preceding_unicode"] = pair_counts_df["preceding_emoji"].apply(
+        lambda x: f"U+{ord(x):04X}"
+    )
+    pair_counts_df["target_unicode"] = pair_counts_df["target_emoji"].apply(
+        lambda x: f"U+{ord(x):04X}"
+    )
     pair_counts_df["preceding_name"] = pair_counts_df["preceding_emoji"].apply(
         lambda x: emoji.demojize(x).strip(":").replace("_", " ").title()
     )
@@ -227,46 +252,57 @@ def main():
 
     # Plotting count_all
     if not emoji_counts_df.empty:
-        fig1, ax1 = plt.subplots(figsize=(len(emoji_counts_df) * 0.3, 6))
+        _fig1, ax1 = plt.subplots(figsize=(len(emoji_counts_df) * 0.3, 6))
         ax1_2 = ax1.twinx()  # Secondary y-axis for cumulative percentage
         x_positions = np.arange(len(emoji_counts_df))
-        bars = ax1.bar(x_positions, emoji_counts_df["percent_all"], color="#808080", align='edge', width=0.5)
+        ax1.bar(
+            x_positions, emoji_counts_df["percent_all"], color="#808080", align="edge", width=0.5
+        )
         ax1.set_ylabel("Percentage (%)", fontsize=10, labelpad=20)
         ax1.set_title("Emoji Usage: All Occurrences")
-        ax1.spines['top'].set_visible(False)
-        ax1.spines['right'].set_visible(False)
-        ax1.spines['left'].set_position(('outward', 20))
-        ax1.set_xticks([len(emoji_counts_df)/2])  # Center the label
+        ax1.spines["top"].set_visible(False)
+        ax1.spines["right"].set_visible(False)
+        ax1.spines["left"].set_position(("outward", 20))
+        ax1.set_xticks([len(emoji_counts_df) / 2])  # Center the label
         ax1.set_xticklabels(["All individual emojis"], fontsize=8)
-        ax1.tick_params(axis='y', labelsize=10)
+        ax1.tick_params(axis="y", labelsize=10)
         ax1.set_xlim(-0.5, len(emoji_counts_df))
         # Plot cumulative line and 75% dashed line
         ax1_2.plot(x_positions + 0.25, cumulative_all, color="orange", label="Cumulative %")
-        ax1_2.axhline(y=75, color="orange", linestyle="--", linewidth=1, xmin=-0.5, xmax=len(emoji_counts_df) + 0.5)
+        ax1_2.axhline(
+            y=75,
+            color="orange",
+            linestyle="--",
+            linewidth=1,
+            xmin=-0.5,
+            xmax=len(emoji_counts_df) + 0.5,
+        )
         ax1_2.set_ylabel("Cumulative Percentage (%)", fontsize=10, labelpad=20)
         ax1_2.set_ylim(0, 100)
         ax1_2.set_yticks(np.arange(0, 101, 10))
-        ax1_2.spines['right'].set_position(('outward', 20))
-        ax1_2.tick_params(axis='y', labelsize=10, colors='orange')
-        ax1_2.spines['right'].set_color('orange')
-        ax1_2.set_title("Top 25:", loc='center', y=0.45, fontsize=12)
+        ax1_2.spines["right"].set_position(("outward", 20))
+        ax1_2.tick_params(axis="y", labelsize=10, colors="orange")
+        ax1_2.spines["right"].set_color("orange")
+        ax1_2.set_title("Top 25:", loc="center", y=0.45, fontsize=12)
         # Add table for top 25 emojis (count_all), with emojis first
         top_25_all = emoji_counts_df.head(25)
         table_data = [
             list(top_25_all["emoji"]),
             [f"{count:.0f}" for count in top_25_all["count_all"]],
-            [f"{cum:.1f}%" for cum in cumulative_all[:25]]
+            [f"{cum:.1f}%" for cum in cumulative_all[:25]],
         ]
-        table = ax1.table(cellText=table_data,
-                          rowLabels=["Emoji", "Count", "Cum"],
-                          colWidths=[0.05] * 25,
-                          loc='center',
-                          bbox=[0.1, 0.25, 0.8, 0.2],  # Position between center and bottom
-                          cellLoc='center')
+        table = ax1.table(
+            cellText=table_data,
+            rowLabels=["Emoji", "Count", "Cum"],
+            colWidths=[0.05] * 25,
+            loc="center",
+            bbox=[0.1, 0.25, 0.8, 0.2],  # Position between center and bottom
+            cellLoc="center",
+        )
         table.auto_set_font_size(False)
         table.set_fontsize(10)
         table.scale(1, 1.5)
-        ax1_2.legend(loc='upper left', fontsize=8)
+        ax1_2.legend(loc="upper left", fontsize=8)
         plt.tight_layout()
         plt.subplots_adjust(left=0.1, right=0.9)
         output_path1 = Path("img/emoji_counts_all.png")
@@ -278,45 +314,56 @@ def main():
 
     # Plotting count_once
     if not emoji_counts_df.empty:
-        fig2, ax2 = plt.subplots(figsize=(len(emoji_counts_df) * 0.3, 6))
+        _fig2, ax2 = plt.subplots(figsize=(len(emoji_counts_df) * 0.3, 6))
         ax2_2 = ax2.twinx()  # Secondary y-axis for cumulative percentage
-        bars = ax2.bar(x_positions, emoji_counts_df["percent_once"], color="#ADD8E6", align='edge', width=0.5)
+        ax2.bar(
+            x_positions, emoji_counts_df["percent_once"], color="#ADD8E6", align="edge", width=0.5
+        )
         ax2.set_ylabel("Percentage (%)", fontsize=10, labelpad=20)
         ax2.set_title("Emoji Usage: Once per Message")
-        ax2.spines['top'].set_visible(False)
-        ax2.spines['right'].set_visible(False)
-        ax2.spines['left'].set_position(('outward', 20))
-        ax2.set_xticks([len(emoji_counts_df)/2])  # Center the label
+        ax2.spines["top"].set_visible(False)
+        ax2.spines["right"].set_visible(False)
+        ax2.spines["left"].set_position(("outward", 20))
+        ax2.set_xticks([len(emoji_counts_df) / 2])  # Center the label
         ax2.set_xticklabels(["All individual emojis"], fontsize=8)
-        ax2.tick_params(axis='y', labelsize=10)
+        ax2.tick_params(axis="y", labelsize=10)
         ax2.set_xlim(-0.5, len(emoji_counts_df))
         # Plot cumulative line and 75% dashed line
         ax2_2.plot(x_positions + 0.25, cumulative_once, color="orange", label="Cumulative %")
-        ax2_2.axhline(y=75, color="orange", linestyle="--", linewidth=1, xmin=-0.5, xmax=len(emoji_counts_df) + 0.5)
+        ax2_2.axhline(
+            y=75,
+            color="orange",
+            linestyle="--",
+            linewidth=1,
+            xmin=-0.5,
+            xmax=len(emoji_counts_df) + 0.5,
+        )
         ax2_2.set_ylabel("Cumulative Percentage (%)", fontsize=10, labelpad=20)
         ax2_2.set_ylim(0, 100)
         ax2_2.set_yticks(np.arange(0, 101, 10))
-        ax2_2.spines['right'].set_position(('outward', 20))
-        ax2_2.tick_params(axis='y', labelsize=10, colors='orange')
-        ax2_2.spines['right'].set_color('orange')
-        ax2_2.set_title("Top 25:", loc='center', y=0.45, fontsize=12)
+        ax2_2.spines["right"].set_position(("outward", 20))
+        ax2_2.tick_params(axis="y", labelsize=10, colors="orange")
+        ax2_2.spines["right"].set_color("orange")
+        ax2_2.set_title("Top 25:", loc="center", y=0.45, fontsize=12)
         # Add table for top 25 emojis (count_once), with emojis first
         top_25_once = emoji_counts_df.sort_values(by="count_once", ascending=False).head(25)
         table_data = [
             list(top_25_once["emoji"]),
             [f"{count:.0f}" for count in top_25_once["count_once"]],
-            [f"{cum:.1f}%" for cum in cumulative_once[:25]]
+            [f"{cum:.1f}%" for cum in cumulative_once[:25]],
         ]
-        table = ax2.table(cellText=table_data,
-                          rowLabels=["Emoji", "Count", "Cum"],
-                          colWidths=[0.05] * 25,
-                          loc='center',
-                          bbox=[0.1, 0.25, 0.8, 0.2],  # Position between center and bottom
-                          cellLoc='center')
+        table = ax2.table(
+            cellText=table_data,
+            rowLabels=["Emoji", "Count", "Cum"],
+            colWidths=[0.05] * 25,
+            loc="center",
+            bbox=[0.1, 0.25, 0.8, 0.2],  # Position between center and bottom
+            cellLoc="center",
+        )
         table.auto_set_font_size(False)
         table.set_fontsize(10)
         table.scale(1, 1.5)
-        ax2_2.legend(loc='upper left', fontsize=8)
+        ax2_2.legend(loc="upper left", fontsize=8)
         plt.tight_layout()
         plt.subplots_adjust(left=0.1, right=0.9)
         output_path2 = Path("img/emoji_counts_once.png")
@@ -330,6 +377,7 @@ def main():
     output_csv = Path("data/emoji_counts_summary.csv")
     emoji_counts_df.to_csv(output_csv, index=False)
     logger.info(f"Saved emoji counts summary to {output_csv}")
+
 
 if __name__ == "__main__":
     main()

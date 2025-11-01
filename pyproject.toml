@@ -1,14 +1,16 @@
 [build-system]
-requires = ["hatchling"]          # you can keep poetry, setuptools, etc.
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
 name = "dav"
 version = "0.1.0"
-description = "Add your description here"
+description = "WhatsApp Chat Analyzer – Data Analysis & Visualization"
 readme = "README.md"
 requires-python = ">=3.12"
+license = { text = "MIT" }
 
+# Runtime dependencies
 dependencies = [
     "emoji>=2.15.0",
     "hdbscan>=0.8.40",
@@ -16,114 +18,35 @@ dependencies = [
     "mads-datasets>=0.3.14",
     "networkx>=3.5",
     "nltk>=3.9.2",
-    "pandas-stubs>=2.3.2.250926",
     "plotly>=6.3.1",
     "scipy>=1.16.2",
     "sentence-transformers>=5.1.2",
     "statsmodels>=0.14.5",
     "streamlit>=1.50.0",
     "transformers>=4.57.0",
-    "types-networkx>=3.5.0.20251001",
-    "types-pytz>=2025.2.0.20250809",
-    "types-seaborn>=0.13.2.20250914",
-    "umap-learn>=0.5.9.post2",
     "wa-analyzer>=0.4.1",
 ]
 
 # ------------------------------------------------------------------
-# OPTIONAL DEPENDENCIES
+# DEVELOPMENT DEPENDENCIES (lint, type, format, hooks)
 # ------------------------------------------------------------------
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.6.5",
+    "ruff>=0.6.9",
     "mypy>=1.11.2",
     "pre-commit>=3.8.0",
-    "poethepoet>=0.27.0",      # optional, nice task runner
-    # Add any stub packages you need, e.g.:
-    # "types-requests",
+    "poethepoet>=0.27.0",
+
+    # Type stubs (required for mypy)
+    "pandas-stubs>=2.3.2.250926",
+    "types-emoji",
+    "types-networkx>=3.5.0.20251001",
+    "types-pytz>=2025.2.0.20250809",
+    "types-seaborn>=0.13.2.20250914",
 ]
 
 # ------------------------------------------------------------------
-# RUFF
+# HATCH (build system)
 # ------------------------------------------------------------------
-[tool.ruff]
-src = ["src"]
-unsafe-fixes = true
-exclude = [
-    ".venv",
-    "build",
-    "dist",
-    "__pypackages__",
-    "dev",
-    "src/dev",
-    "src/dashboard",
-]
-line-length = 100
-target-version = "py312"
-
-[tool.ruff.lint]
-select = [
-    "E", "W", "F", "I", "B", "C4", "UP", "S", "BLE", "A", "C90", "TCH",
-    "ARG", "PTH", "ERA", "PL", "TRY", "FLY", "RUF"
-]
-ignore = ["E501"]  # line length handled by formatter
-
-[tool.ruff.lint.isort]
-known-first-party = ["dav"]
-combine-as-imports = true
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-
-# ------------------------------------------------------------------
-# MYPY
-# ------------------------------------------------------------------
-[tool.mypy]
-exclude = [
-    "dev",
-    "src/dev",
-    "src/dashboard",
-]
-files = "src"
-python_version = "3.12"
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_return_any = true
-strict_equality = true
-show_error_codes = true
-pretty = true
-
-# If you have a `src/` layout, tell mypy where the code lives:
-# mypy_path = "src"
-
-# ------------------------------------------------------------------
-# OPTIONAL: per-module overrides (e.g. for tests or legacy code)
-# ------------------------------------------------------------------
-[[tool.mypy.overrides]]
-module = "tests.*"
-ignore_missing_imports = true
-disallow_untyped_defs = false
-
-# ------------------------------------------------------------------
-# PRE-COMMIT (installed automatically when you run `pre-commit install`)
-# ------------------------------------------------------------------
-[tool.pre-commit]
-# (the file .pre-commit-config.yaml is still needed – see below)
-
-# ------------------------------------------------------------------
-# POE THE POET – handy one-liner tasks
-# ------------------------------------------------------------------
-[tool.poe.tasks]
-format    = "ruff format src"
-lint      = "ruff check src"
-typecheck = "mypy src"
-check     = { cmd = "ruff check src && ruff format --diff src && mypy src", help = "Full CI check" }
-
 [tool.hatch.build.targets.wheel]
 packages = ["src/dav"]

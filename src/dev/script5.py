@@ -14,7 +14,6 @@ PosixPath('images/bubble_plot_words_vs_punct.png')
 
 # === Imports ===
 from pathlib import Path
-from typing import Optional
 
 from src.constants import Columns, Groups
 from src.plot_manager import BubbleNewPlotSettings
@@ -44,7 +43,7 @@ class Script5(BaseScript):
         self.image_dir = image_dir
         self.df = df
 
-    def run(self) -> Optional[Path]:
+    def run(self) -> Path | None:
         """Generate and save multi-group bubble plot."""
         groups = [Groups.MAAP.value, Groups.GOLFMATEN.value, Groups.DAC.value, Groups.TILLIES.value]
         df_groups = self.df[self.df[Columns.WHATSAPP_GROUP.value].isin(groups)].copy()

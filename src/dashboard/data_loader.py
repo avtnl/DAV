@@ -1,8 +1,10 @@
 # src/dashboard/data_loader.py
+from io import StringIO
+
 import pandas as pd
 import streamlit as st
 from config import COL
-from io import StringIO
+
 
 @st.cache_data(show_spinner="Loading CSV …")
 def load_csv(source):
@@ -13,7 +15,7 @@ def load_csv(source):
     """
     if isinstance(source, str):
         df = pd.read_csv(source, low_memory=False)
-    else:                                   # uploaded file
+    else:  # uploaded file
         # Streamlit returns BytesIO for binary, but CSV is text → decode
         string_data = StringIO(source.getvalue().decode("utf-8"))
         df = pd.read_csv(string_data, low_memory=False)
@@ -28,12 +30,17 @@ def load_csv(source):
         if pd.isna(val):
             return []
         return [e.strip() for e in str(val).split(",") if e.strip()]
+
     df["emojis_list"] = df[COL["list_emojis"]].apply(_parse_emojis)
 
     numeric_cols = [
-        COL["length_chat"], COL["num_words"], COL["num_emojis"],
-        COL["num_punct"], COL["num_capitals"], COL["capital_ratio"],
-        COL["num_numbers"]
+        COL["length_chat"],
+        COL["num_words"],
+        COL["num_emojis"],
+        COL["num_punct"],
+        COL["num_capitals"],
+        COL["capital_ratio"],
+        COL["num_numbers"],
     ]
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
 

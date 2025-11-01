@@ -1,24 +1,25 @@
 # import requests
-from io import StringIO
-from pathlib import Path
-from loguru import logger
-import warnings
+import sys
 import tomllib
-import pandas as pd
-import numpy as np
-from numpy.fft import fft, fftfreq  # Added missing import for fft and fftfreq
+import warnings
+from pathlib import Path
+
 import matplotlib.pyplot as plt
-from statsmodels.graphics import tsaplots
-from statsmodels.tsa.stattools import acf
-from statsmodels.tsa.seasonal import seasonal_decompose
-from scipy.signal import savgol_filter, butter, filtfilt
+import numpy as np
+import pandas as pd
+from loguru import logger
+from scipy.signal import butter, filtfilt, savgol_filter
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
 
+def main() -> None:
     # Read configuration
     logger.debug("Loading configuration from config.toml")
     configfile = Path("config.toml").resolve()
@@ -28,7 +29,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -40,13 +41,15 @@ def main():
         logger.warning(
             "Datafile does not exist. First run src/preprocess.py, and check the timestamp!"
         )
-        exit(1)
+        sys.exit(1)
 
     df = pd.read_parquet(datafile)
     logger.info(df)
 
-# Extract year and week information
-    df["date"] = pd.to_datetime(df["timestamp"])  # Convert timestamp to datetime for better handling
+    # Extract year and week information
+    df["date"] = pd.to_datetime(
+        df["timestamp"]
+    )  # Convert timestamp to datetime for better handling
     df["year"] = df["date"].dt.year
     df["isoweek"] = df["date"].dt.isocalendar().week
     df["year-week"] = df["date"].dt.strftime("%Y-%W")
@@ -72,7 +75,7 @@ def main():
     p = pd.concat(full_data, ignore_index=True)
     logger.info(p.head())
 
-   # Prepare time series data
+    # Prepare time series data
     y = p["count"].values  # Weekly counts
     n = len(y)
     time = np.arange(n)  # Time vector in weeks (0 to n-1)
@@ -81,7 +84,9 @@ def main():
     window_size = 7  # Window size (odd number, e.g., 7 weeks)
     poly_order = 3  # Polynomial order
     if window_size > n or window_size % 2 == 0:
-        logger.warning(f"Window size {window_size} is invalid for {n} data points. Using 7 instead.")
+        logger.warning(
+            f"Window size {window_size} is invalid for {n} data points. Using 7 instead."
+        )
         window_size = 7
     savitzky_golay_filtered = savgol_filter(y, window_size, poly_order)
 
@@ -120,6 +125,7 @@ def main():
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     logger.info(f"Saved scipy-week plot: {output_path}")
     plt.show()
+
 
 if __name__ == "__main__":
     main()

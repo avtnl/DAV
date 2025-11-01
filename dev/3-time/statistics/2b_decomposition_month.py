@@ -1,19 +1,26 @@
-from pathlib import Path
-from loguru import logger
-import warnings
+import sys
 import tomllib
-import pandas as pd
-import numpy as np
+import warnings
+from pathlib import Path
+
 import matplotlib.pyplot as plt
-from statsmodels.tsa.seasonal import seasonal_decompose
+import numpy as np
+import pandas as pd
+from loguru import logger
 from statsmodels.graphics.tsaplots import plot_acf
 from statsmodels.stats.diagnostic import acorr_ljungbox
+from statsmodels.tsa.seasonal import seasonal_decompose
 
 # Configure logger
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Read configuration
     logger.debug("Loading configuration from config.toml")
     configfile = Path("config.toml").resolve()
@@ -23,15 +30,15 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Load data
     processed = Path("data/processed")
     datafile = processed / config["current"]
     if not datafile.exists():
         logger.warning("Datafile does not exist. Run src/preprocess.py first!")
-        exit(1)
-    
+        sys.exit(1)
+
     df = pd.read_parquet(datafile)
     logger.info(f"Loaded data:\n{df.head()}")
 
@@ -84,6 +91,7 @@ def main():
 
     except Exception as e:
         logger.exception(f"Failed to decompose or validate time series: {e}")
+
 
 if __name__ == "__main__":
     main()

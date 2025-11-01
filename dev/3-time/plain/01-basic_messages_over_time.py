@@ -1,21 +1,24 @@
-import seaborn as sns
+import sys
+import tomllib
+import warnings
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import pandas as pd
-from pathlib import Path
+import seaborn as sns
 from loguru import logger
-import warnings
-import tomllib
-import re
-import pytz
-from datetime import datetime
-import numpy as np
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Read configuration
     logger.debug("Loading configuration from config.toml")
     configfile = Path("config.toml").resolve()
@@ -25,7 +28,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -54,21 +57,21 @@ def main():
 
     min_ts = df["timestamp"].min()
     max_ts = df["timestamp"].max()
-    new_index = pd.date_range(
-        start=min_ts, end=max_ts, freq="W", name="year-week"
-    ).strftime("%Y-%W")
+    new_index = pd.date_range(start=min_ts, end=max_ts, freq="W", name="year-week").strftime(
+        "%Y-%W"
+    )
     p = p.reindex(new_index, fill_value=0)
     logger.info(p.head())
 
     # Plotting
-    fig, ax = plt.subplots(figsize=(14, 6))  # Increased width to reduce crowding
+    _fig, ax = plt.subplots(figsize=(14, 6))  # Increased width to reduce crowding
     sns.scatterplot(data=p, x=p.index, y="timestamp", ax=ax)
     p["moving_avg"] = p["timestamp"].rolling(window=1).mean()
     sns.lineplot(data=p, x=p.index, y="moving_avg", ax=ax)
 
     # Set x-axis ticks to show one tick per year
     # Get unique years and select the first week of each year (e.g., YYYY-01)
-    years = sorted(set(idx.split("-")[0] for idx in p.index))  # Unique years
+    years = sorted({idx.split("-")[0] for idx in p.index})  # Unique years
     year_starts = []
     for year in years:
         # Find the first week of the year (prefer "-01", fall back to first available)
@@ -77,7 +80,7 @@ def main():
         except StopIteration:
             first_week = next(idx for idx in p.index if idx.startswith(f"{year}-"))
         year_starts.append(first_week)
-    
+
     # Log selected ticks for debugging
     logger.info(f"Selected ticks: {year_starts}")
     logger.info(f"Tick labels: {years}")
@@ -92,6 +95,6 @@ def main():
     logger.info(f"Saved plot: {output_path}")
     plt.show()
 
+
 if __name__ == "__main__":
     main()
-

@@ -6,6 +6,13 @@ from .script2 import Script2
 from .script3 import Script3
 from .script4 import Script4
 from .script5 import Script5
-from .script7 import Script7
-from .script10 import Script10
-from .script11 import Script11
+
+__all__ = [
+    "Pipeline",
+    "Script0",
+    "Script1",
+    "Script2",
+    "Script3",
+    "Script4",
+    "Script5",
+]

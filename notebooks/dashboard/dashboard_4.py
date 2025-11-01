@@ -1,10 +1,10 @@
 import pandas as pd
 import streamlit as st
+from loguru import logger
 from mads_datasets import DatasetFactoryProvider, DatasetType
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
-from loguru import logger
 
 
 def load_penguins_dataset() -> pd.DataFrame:
@@ -18,7 +18,7 @@ def load_penguins_dataset() -> pd.DataFrame:
     logger.info("Loading dataset")
     penguinsdataset = DatasetFactoryProvider.create_factory(DatasetType.PENGUINS)
     penguinsdataset.download_data()
-    df = pd.read_parquet(penguinsdataset.filepath)  # noqa: PD901
+    df = pd.read_parquet(penguinsdataset.filepath)
     select = [
         "Species",
         "Island",
@@ -46,9 +46,7 @@ def train_model(data):
     ]
     y = data["Species"]
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     logger.info(f"columns: {X_train.columns}")
 
     model = RandomForestClassifier()
@@ -57,10 +55,10 @@ def train_model(data):
     accuracy = accuracy_score(y_test, y_pred)
     logger.success(f"Trained model with accuracy {accuracy}")
 
-    return {"model" : model , "accuracy" : accuracy}
+    return {"model": model, "accuracy": accuracy}
 
 
-def main():
+def main() -> None:
     st.title("Penguins Species Prediction with Machine Learning")
     if "penguins" not in st.session_state:
         st.session_state.penguins = load_penguins_dataset()
@@ -87,9 +85,7 @@ def main():
 
     if st.button("Predict"):
         model = st.session_state.model["model"]
-        prediction = model.predict(
-            [[culmen_length, culmen_depth, flipper_length, body_mass]]
-        )
+        prediction = model.predict([[culmen_length, culmen_depth, flipper_length, body_mass]])
         st.write(f"The predicted species is: {prediction[0]}")
 
 

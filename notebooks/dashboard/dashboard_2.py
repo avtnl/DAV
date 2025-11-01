@@ -54,9 +54,7 @@ def main() -> None:
             st.session_state.penguins.columns,
             index=3,
         )
-        color: str = st.selectbox(
-            "Select the color", st.session_state.penguins.columns, index=0
-        )
+        color: str = st.selectbox("Select the color", st.session_state.penguins.columns, index=0)
 
         fig, ax = plt.subplots()
         sns.scatterplot(data=st.session_state.penguins, x=option1, y=option2, hue=color)  # type: ignore
@@ -78,7 +76,7 @@ def main() -> None:
             st.session_state.penguins.columns,
             index=4,
         )
-        fig, ax = plt.subplots()
+        fig, _ax = plt.subplots()
         sns.boxplot(x="Species", y=option, data=st.session_state.penguins)  # type: ignore
         st.pyplot(fig)
 

@@ -1,24 +1,25 @@
 # import requests
-from io import StringIO
-from pathlib import Path
-from loguru import logger
-import warnings
+import sys
 import tomllib
-import pandas as pd
-import numpy as np
-from numpy.fft import fft, fftfreq  # Added missing import for fft and fftfreq
-import matplotlib.pyplot as plt
-from statsmodels.graphics import tsaplots
-from statsmodels.tsa.stattools import acf
-from statsmodels.tsa.seasonal import seasonal_decompose
+import warnings
+from pathlib import Path
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from loguru import logger
+from numpy.fft import fft, fftfreq  # Added missing import for fft and fftfreq
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
 
+def main() -> None:
     def fourier_model(timeseries, k):
         # Calculate the number of data points in the timeseries
         t = 1.0
@@ -62,7 +63,7 @@ def main():
         y = np.zeros_like(x)
 
         # Add each sine wave component to 'y' based on the extracted frequencies, amplitudes, and phases
-        for freq, amp, phase in zip(frequencies, amplitudes, phases):
+        for freq, amp, phase in zip(frequencies, amplitudes, phases, strict=False):
             y += amp * np.sin(2.0 * np.pi * freq * x + phase)
 
         # Return the composite signal 'y' as the sum of the sine wave components
@@ -77,7 +78,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -89,7 +90,7 @@ def main():
         logger.warning(
             "Datafile does not exist. First run src/preprocess.py, and check the timestamp!"
         )
-        exit(1)
+        sys.exit(1)
 
     df = pd.read_parquet(datafile)
     logger.info(df)
@@ -129,7 +130,7 @@ def main():
     x = parameters["x"]
     y_model = model(parameters)
 
-    def plot_model(x, y, y_model):
+    def plot_model(x, y, y_model) -> None:
         plt.figure(figsize=(15, 6))
         plt.plot(x, y, label="Original Data")
         plt.plot(x, y_model, label="Modeled with Fourier", linestyle="--")
@@ -148,6 +149,7 @@ def main():
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     logger.info(f"Saved fourier-month plot: {output_path}")
     plt.show()
+
 
 if __name__ == "__main__":
     main()

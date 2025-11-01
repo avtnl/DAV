@@ -1,28 +1,32 @@
-import seaborn as sns
-import matplotlib.pyplot as plt
-import pandas as pd
-from pathlib import Path
-from loguru import logger
-import warnings
-import tomllib
-import re
-import pytz
-from datetime import datetime
-import numpy as np
 import string
-import matplotlib.font_manager as fm
+import sys
+import tomllib
+import warnings
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from loguru import logger
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Set font to Segoe UI Emoji for character support, with DejaVu Sans as fallback
     try:
-        plt.rcParams['font.family'] = ['Segoe UI Emoji', 'DejaVu Sans']
+        plt.rcParams["font.family"] = ["Segoe UI Emoji", "DejaVu Sans"]
     except:
-        logger.warning("Segoe UI Emoji font not found. Falling back to DejaVu Sans. Some characters may not render correctly.")
-        plt.rcParams['font.family'] = 'DejaVu Sans'
+        logger.warning(
+            "Segoe UI Emoji font not found. Falling back to DejaVu Sans. Some characters may not render correctly."
+        )
+        plt.rcParams["font.family"] = "DejaVu Sans"
 
     # Read configuration
     logger.debug("Loading configuration from config.toml")
@@ -33,7 +37,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -45,7 +49,7 @@ def main():
         logger.warning(
             "Datafile does not exist. First run src/preprocess.py, and check the timestamp!"
         )
-        exit(1)
+        sys.exit(1)
     df = pd.read_parquet(datafile)
     logger.info(df)
 
@@ -54,13 +58,13 @@ def main():
 
     # Punctuation count analysis
     # Filter messages with emojis
-    punctuation_msgs = df[df["has_emoji"] == True]
-    
+    punctuation_msgs = df[df["has_emoji"]]
+
     # Initialize dictionaries for counts
     count_all = {}
     count_once = {}
     none_count = 0  # Count messages with no punctuation
-    
+
     # Process each message
     for message in punctuation_msgs["message"]:
         # Extract all punctuation marks in the message
@@ -75,53 +79,73 @@ def main():
             unique_punctuations = set(punctuations)
             for p in unique_punctuations:
                 count_once[p] = count_once.get(p, 0) + 1
-    
+
     # Create DataFrame for punctuation counts
-    punctuation_counts_df = pd.DataFrame({
-        "punctuation": list(count_all.keys()),
-        "count_all": list(count_all.values()),
-        "count_once": [count_once.get(p, 0) for p in count_all.keys()]
-    })
-    
+    punctuation_counts_df = pd.DataFrame(
+        {
+            "punctuation": list(count_all.keys()),
+            "count_all": list(count_all.values()),
+            "count_once": [count_once.get(p, 0) for p in count_all.keys()],
+        }
+    )
+
     # Add "None" category
-    none_row = pd.DataFrame({
-        "punctuation": ["None"],
-        "count_all": [none_count],
-        "count_once": [0]  # count_once is undefined for None
-    })
-    
+    none_row = pd.DataFrame(
+        {
+            "punctuation": ["None"],
+            "count_all": [none_count],
+            "count_once": [0],  # count_once is undefined for None
+        }
+    )
+
     # Append "None" to DataFrame
     punctuation_counts_df = pd.concat([punctuation_counts_df, none_row], ignore_index=True)
-    
+
     # Sort by count_all descending
-    punctuation_counts_df = punctuation_counts_df.sort_values(by="count_all", ascending=False).reset_index(drop=True)
-    
+    punctuation_counts_df = punctuation_counts_df.sort_values(
+        by="count_all", ascending=False
+    ).reset_index(drop=True)
+
     # Log punctuation counts
     logger.info("Punctuation usage counts (sorted by count_all, including None):")
     logger.info(punctuation_counts_df)
 
     # Plotting combined count_all and count_once
-    fig, ax = plt.subplots(figsize=(len(punctuation_counts_df) * 0.4, 6))
+    _fig, ax = plt.subplots(figsize=(len(punctuation_counts_df) * 0.4, 6))
     x_positions = np.arange(len(punctuation_counts_df))  # Evenly spaced x-positions
     bar_width = 0.4  # Width for each bar (two bars per punctuation)
 
     # Plot count_all bars (gray)
-    ax.bar(x_positions - bar_width / 2, punctuation_counts_df["count_all"], width=bar_width, color="#808080", label="All Occurrences")
-    
+    ax.bar(
+        x_positions - bar_width / 2,
+        punctuation_counts_df["count_all"],
+        width=bar_width,
+        color="#808080",
+        label="All Occurrences",
+    )
+
     # Plot count_once bars (light blue), skipping "None"
     count_once_data = punctuation_counts_df["count_once"].copy()
-    count_once_data[punctuation_counts_df["punctuation"] == "None"] = 0  # No count_once bar for None
-    ax.bar(x_positions + bar_width / 2, count_once_data, width=bar_width, color="#ADD8E6", label="Once per Message")
-    
+    count_once_data[punctuation_counts_df["punctuation"] == "None"] = (
+        0  # No count_once bar for None
+    )
+    ax.bar(
+        x_positions + bar_width / 2,
+        count_once_data,
+        width=bar_width,
+        color="#ADD8E6",
+        label="Once per Message",
+    )
+
     # Customize plot
     ax.set_xticks(x_positions)
     ax.set_xticklabels(punctuation_counts_df["punctuation"], rotation=0)
     ax.set_ylabel("Count")
     ax.set_title("Punctuation Marks and None: Total vs. Unique Message Occurrences")
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.tick_params(axis='x', labelsize=12)
-    ax.tick_params(axis='y', labelsize=10)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.tick_params(axis="x", labelsize=12)
+    ax.tick_params(axis="y", labelsize=10)
     ax.legend()
 
     # Adjust layout and save
@@ -133,13 +157,19 @@ def main():
 
     # Calculate percentages
     total_count_all = punctuation_counts_df["count_all"].sum()
-    total_count_once = punctuation_counts_df[punctuation_counts_df["punctuation"] != "None"]["count_once"].sum()
-    punctuation_counts_df["percent_all"] = (punctuation_counts_df["count_all"] / total_count_all * 100).round(2)
+    total_count_once = punctuation_counts_df[punctuation_counts_df["punctuation"] != "None"][
+        "count_once"
+    ].sum()
+    punctuation_counts_df["percent_all"] = (
+        punctuation_counts_df["count_all"] / total_count_all * 100
+    ).round(2)
     punctuation_counts_df["percent_once"] = 0.0
-    punctuation_counts_df.loc[punctuation_counts_df["punctuation"] != "None", "percent_once"] = (punctuation_counts_df["count_once"] / total_count_once * 100).round(2)
-    
+    punctuation_counts_df.loc[punctuation_counts_df["punctuation"] != "None", "percent_once"] = (
+        punctuation_counts_df["count_once"] / total_count_once * 100
+    ).round(2)
+
     # Plotting count_all percentages
-    fig1, ax1 = plt.subplots(figsize=(len(punctuation_counts_df) * 0.4, 6))
+    _fig1, ax1 = plt.subplots(figsize=(len(punctuation_counts_df) * 0.4, 6))
     x_positions = np.arange(len(punctuation_counts_df))  # Evenly spaced x-positions
     ax1.bar(x_positions, punctuation_counts_df["percent_all"], width=0.8, color="#808080")
     ax1.set_xticks(x_positions)
@@ -147,10 +177,10 @@ def main():
     ax1.set_ylabel("Percentage (%)")
     ax1.set_title("Punctuation Marks and None: Percentage of Total Occurrences")
     ax1.set_ylim(0, max(punctuation_counts_df["percent_all"]) + 5)
-    ax1.spines['top'].set_visible(False)
-    ax1.spines['right'].set_visible(False)
-    ax1.tick_params(axis='x', labelsize=12)
-    ax1.tick_params(axis='y', labelsize=10)
+    ax1.spines["top"].set_visible(False)
+    ax1.spines["right"].set_visible(False)
+    ax1.tick_params(axis="x", labelsize=12)
+    ax1.tick_params(axis="y", labelsize=10)
     plt.tight_layout()
     output_path = Path("img/punctuation_percent_all.png")
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
@@ -158,8 +188,12 @@ def main():
     plt.show()
 
     # Plotting count_once percentages (excluding None)
-    punctuation_counts_once = punctuation_counts_df[punctuation_counts_df["punctuation"] != "None"].sort_values(by="count_once", ascending=False).reset_index(drop=True)
-    fig2, ax2 = plt.subplots(figsize=(len(punctuation_counts_once) * 0.4, 6))
+    punctuation_counts_once = (
+        punctuation_counts_df[punctuation_counts_df["punctuation"] != "None"]
+        .sort_values(by="count_once", ascending=False)
+        .reset_index(drop=True)
+    )
+    _fig2, ax2 = plt.subplots(figsize=(len(punctuation_counts_once) * 0.4, 6))
     x_positions = np.arange(len(punctuation_counts_once))
     ax2.bar(x_positions, punctuation_counts_once["percent_once"], width=0.8, color="#ADD8E6")
     ax2.set_xticks(x_positions)
@@ -167,10 +201,10 @@ def main():
     ax2.set_ylabel("Percentage (%)")
     ax2.set_title("Punctuation Marks: Percentage of Unique Message Occurrences")
     ax2.set_ylim(0, max(punctuation_counts_once["percent_once"]) + 5)
-    ax2.spines['top'].set_visible(False)
-    ax2.spines['right'].set_visible(False)
-    ax2.tick_params(axis='x', labelsize=12)
-    ax2.tick_params(axis='y', labelsize=10)
+    ax2.spines["top"].set_visible(False)
+    ax2.spines["right"].set_visible(False)
+    ax2.tick_params(axis="x", labelsize=12)
+    ax2.tick_params(axis="y", labelsize=10)
     plt.tight_layout()
     output_path = Path("img/punctuation_percent_once.png")
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
@@ -181,6 +215,7 @@ def main():
     output_csv = Path("data/punctuation_counts_summary.csv")
     punctuation_counts_df.to_csv(output_csv, index=False)
     logger.info(f"Saved punctuation counts summary to {output_csv}")
+
 
 if __name__ == "__main__":
     main()

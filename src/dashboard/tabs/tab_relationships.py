@@ -1,15 +1,12 @@
 # tabs/tab_relationships.py
-import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
+import streamlit as st
 from config import COL, GROUP_COLORS
 
 
-def render_relationships_tab(df: pd.DataFrame):
+def render_relationships_tab(df: pd.DataFrame) -> None:
     """Relationships tab – Graph (bubble) or Matrix (correlation heatmap)."""
     st.header("Relationships")
 
@@ -21,7 +18,7 @@ def render_relationships_tab(df: pd.DataFrame):
         options=["Graph", "Matrix"],
         horizontal=True,
         index=0,  # default = Graph
-        key="rel_view_mode"
+        key="rel_view_mode",
     )
 
     # ------------------------------------------------------------------
@@ -42,13 +39,10 @@ def render_relationships_tab(df: pd.DataFrame):
     agg_dict = {
         "num_messages": pd.NamedAgg(column=COL["timestamp"], aggfunc="count"),
     }
-    for label, col in metrics.items():
+    for _label, col in metrics.items():
         agg_dict[f"avg_{col}"] = pd.NamedAgg(column=col, aggfunc="mean")
 
-    grouped = (
-        df.groupby([COL["group"], COL["author"]], as_index=False)
-        .agg(**agg_dict)
-    )
+    grouped = df.groupby([COL["group"], COL["author"]], as_index=False).agg(**agg_dict)
 
     # ------------------------------------------------------------------
     # 4. VIEW: GRAPH (Bubble Chart)
@@ -74,9 +68,7 @@ def render_relationships_tab(df: pd.DataFrame):
 
         # --- Compute correlation matrix once (same as Matrix tab) ---
         pivot = grouped.pivot_table(
-            index=COL["author"],
-            values=[f"avg_{col}" for col in metrics.values()],
-            aggfunc="first"
+            index=COL["author"], values=[f"avg_{col}" for col in metrics.values()], aggfunc="first"
         ).fillna(0)
         corr = pivot.corr(method="pearson")
         rename_dict = {f"avg_{col}": label for label, col in metrics.items()}
@@ -90,8 +82,8 @@ def render_relationships_tab(df: pd.DataFrame):
         st.markdown(
             f"""
             <div style="text-align: center; padding: 10px; background-color: #000000; border-radius: 8px; margin: 15px 0;">
-                <strong>Applicable Pearson Correlation:</strong> 
-                <span style="font-size: 1.4em; color: {'#d62728' if pearson_r < 0 else '#2ca02c' if pearson_r > 0.7 else '#1f77b4'};">
+                <strong>Applicable Pearson Correlation:</strong>
+                <span style="font-size: 1.4em; color: {"#d62728" if pearson_r < 0 else "#2ca02c" if pearson_r > 0.7 else "#1f77b4"};">
                     {pearson_r:+.3f}
                 </span>
                 <span style="font-size: 0.9em; color: #666;">
@@ -99,7 +91,7 @@ def render_relationships_tab(df: pd.DataFrame):
                 </span>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
         # --- Bubble chart ---
@@ -108,20 +100,27 @@ def render_relationships_tab(df: pd.DataFrame):
 
         fig = px.scatter(
             grouped,
-            x=x_col, y=y_col,
+            x=x_col,
+            y=y_col,
             size="num_messages",
             color=COL["group"],
             color_discrete_map=GROUP_COLORS,
             hover_data={COL["author"]: True, "num_messages": True},
-            labels={x_col: f"{x_label} (avg)", y_col: f"{y_label} (avg)", "num_messages": "Messages"}
+            labels={
+                x_col: f"{x_label} (avg)",
+                y_col: f"{y_label} (avg)",
+                "num_messages": "Messages",
+            },
         )
 
         ols = px.scatter(grouped, x=x_col, y=y_col, trendline="ols")
         trend_line = go.Scatter(
-            x=ols.data[1].x, y=ols.data[1].y,
+            x=ols.data[1].x,
+            y=ols.data[1].y,
             mode="lines",
-            line=dict(color="red", dash="dash", width=2),
-            name="Trend (OLS)", showlegend=True
+            line={"color": "red", "dash": "dash", "width": 2},
+            name="Trend (OLS)",
+            showlegend=True,
         )
         fig.add_trace(trend_line)
 
@@ -129,10 +128,9 @@ def render_relationships_tab(df: pd.DataFrame):
             xaxis_title=f"{x_label} (avg per message)",
             yaxis_title=f"{y_label} (avg per message)",
             legend_title="WhatsApp Group",
-            height=650
+            height=650,
         )
         st.plotly_chart(fig, use_container_width=True)
-
 
     # ------------------------------------------------------------------
     # 5. VIEW: MATRIX (Correlation Heatmap)
@@ -144,7 +142,7 @@ def render_relationships_tab(df: pd.DataFrame):
         pivot = grouped.pivot_table(
             index=COL["author"],
             values=[f"avg_{col}" for col in metrics.values()],
-            aggfunc="first"  # each author appears once
+            aggfunc="first",  # each author appears once
         ).fillna(0)
 
         # Compute correlation matrix
@@ -155,17 +153,19 @@ def render_relationships_tab(df: pd.DataFrame):
         corr_renamed = corr.rename(columns=rename_dict, index=rename_dict)
 
         # Plotly heatmap
-        fig = go.Figure(data=go.Heatmap(
-            z=corr_renamed.values,
-            x=corr_renamed.columns,
-            y=corr_renamed.index,
-            colorscale="RdBu",
-            zmid=0,
-            text=corr_renamed.round(2).values,
-            texttemplate="%{text}",
-            textfont={"size": 16},
-            hoverongaps=False,
-        ))
+        fig = go.Figure(
+            data=go.Heatmap(
+                z=corr_renamed.values,
+                x=corr_renamed.columns,
+                y=corr_renamed.index,
+                colorscale="RdBu",
+                zmid=0,
+                text=corr_renamed.round(2).values,
+                texttemplate="%{text}",
+                textfont={"size": 16},
+                hoverongaps=False,
+            )
+        )
 
         fig.update_layout(
             title="Pearson Correlation of Message Style Features (per Author)",

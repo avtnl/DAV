@@ -1,14 +1,15 @@
 # tabs/tab_multi_dimensions.py
-import streamlit as st
+import os
+
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import numpy as np
+import streamlit as st
+from config import COL
 from scipy.stats import chi2
 from sklearn.mixture import GaussianMixture
-from utils.style_analyzer import compute_style_fingerprint, compute_message_fingerprint
-from config import COL
-import os
+from utils.style_analyzer import compute_message_fingerprint, compute_style_fingerprint
 
 
 def hex_to_rgba(hex_color: str, alpha: float = 0.2) -> str:
@@ -25,7 +26,7 @@ def get_ellipse_points(mean_x, mean_y, width, height, angle, num_points=100):
     return x, y
 
 
-def render_multi_dimensions_tab(df: pd.DataFrame):
+def render_multi_dimensions_tab(df: pd.DataFrame) -> None:
     st.header("Multi Dimensions – Fingerprint")
 
     # === 1. Fingerprint Type ===
@@ -33,7 +34,7 @@ def render_multi_dimensions_tab(df: pd.DataFrame):
         "Fingerprint Type",
         ["Style", "Message"],
         horizontal=True,
-        help="**Style** = how people write. **Message** = what they say."
+        help="**Style** = how people write. **Message** = what they say.",
     )
 
     # === 2. Model Options (Simplified: no hybrid light-style) ===
@@ -55,7 +56,7 @@ def render_multi_dimensions_tab(df: pd.DataFrame):
         "Select Model",
         options=list(model_options.keys()),
         help=help_text,
-        key=f"model_select_{fingerprint_type.lower()}"
+        key=f"model_select_{fingerprint_type.lower()}",
     )
     pregen_path = model_options[selected_model]
 
@@ -64,7 +65,11 @@ def render_multi_dimensions_tab(df: pd.DataFrame):
         agg = pd.read_csv(pregen_path)
         st.success(f"Loaded: **{selected_model}**")
     else:
-        func = compute_style_fingerprint if fingerprint_type == "Style" else compute_message_fingerprint
+        func = (
+            compute_style_fingerprint
+            if fingerprint_type == "Style"
+            else compute_message_fingerprint
+        )
         with st.spinner(f"Computing {fingerprint_type.lower()} fingerprint..."):
             agg = func(df.copy())
         st.info("Computed on-the-fly")
@@ -84,7 +89,7 @@ def render_multi_dimensions_tab(df: pd.DataFrame):
             "View",
             ["Group", "Author"],
             horizontal=True,
-            key=f"view_mode_{fingerprint_type.lower()}"
+            key=f"view_mode_{fingerprint_type.lower()}",
         )
 
         # Show Ellipses
@@ -94,24 +99,32 @@ def render_multi_dimensions_tab(df: pd.DataFrame):
         # Confidence slider (only active when ellipses on)
         conf_level = st.slider(
             "Confidence level (%)",
-            0, 80, 50, step=5,
+            0,
+            80,
+            50,
+            step=5,
             disabled=not show_ellipses,
-            help="Larger % = larger ellipse"
+            help="Larger % = larger ellipse",
         )
 
     st.markdown("---")
 
     # === 5. Color Mapping ===
     if view_mode == "Group":
+
         def assign_group(row):
             if row[COL["author"]] == "AvT":
                 return "AvT"
             return row["whatsapp_group_temp"]
+
         agg["plot_group"] = agg.apply(assign_group, axis=1)
         color_col = "plot_group"
         color_map = {
-            "maap": "#1f77b4", "dac": "#ff7f0e", "golfmaten": "#2ca02c",
-            "tillies": "#7f7f7f", "AvT": "#d62728"
+            "maap": "#1f77b4",
+            "dac": "#ff7f0e",
+            "golfmaten": "#2ca02c",
+            "tillies": "#7f7f7f",
+            "AvT": "#d62728",
         }
     else:
         color_col = COL["author"]
@@ -125,13 +138,14 @@ def render_multi_dimensions_tab(df: pd.DataFrame):
     # === 7. Scatter Plot ===
     fig = px.scatter(
         agg,
-        x="tsne_x", y="tsne_y",
+        x="tsne_x",
+        y="tsne_y",
         size="msg_count",
         color=color_col,
         color_discrete_map=color_map,
         hover_data=base_hover,
         labels={"tsne_x": "t-SNE Dimension 1", "tsne_y": "t-SNE Dimension 2"},
-        title=f"{fingerprint_type} Fingerprint – {selected_model}"
+        title=f"{fingerprint_type} Fingerprint – {selected_model}",
     )
 
     # # === 8. Add Ellipses ===
@@ -162,18 +176,17 @@ def render_multi_dimensions_tab(df: pd.DataFrame):
     #             hoverinfo='skip'
     #         ))
 
-
     # === MODIFIED ELLIPSE DRAWING WITH CLUSTERING ===
     if show_ellipses:
         chi_val = np.sqrt(chi2.ppf(conf_level / 100, df=2))
-        
+
         for group in agg[color_col].unique():
             sub = agg[agg[color_col] == group].copy()
             if len(sub) < 3:  # Need at least 3 points for meaningful GMM
                 continue
 
-            x = sub['tsne_x'].values.reshape(-1, 1)
-            y = sub['tsne_y'].values.reshape(-1, 1)
+            x = sub["tsne_x"].values.reshape(-1, 1)
+            y = sub["tsne_y"].values.reshape(-1, 1)
             X = np.hstack([x, y])
 
             # === STEP 1: Fit GMM to detect sub-clusters ===
@@ -183,7 +196,7 @@ def render_multi_dimensions_tab(df: pd.DataFrame):
             best_n = 1
 
             for n in range(1, min(4, len(sub))):  # max 3 clusters
-                gmm = GaussianMixture(n_components=n, covariance_type='full', random_state=42)
+                gmm = GaussianMixture(n_components=n, covariance_type="full", random_state=42)
                 gmm.fit(X)
                 bic = gmm.bic(X)
                 if bic < best_bic:
@@ -212,49 +225,55 @@ def render_multi_dimensions_tab(df: pd.DataFrame):
 
                 ell_x, ell_y = get_ellipse_points(mean_x, mean_y, width, height, angle)
 
-                color = color_map.get(group, px.colors.qualitative.Plotly[0]) if color_map else "#1f77b4"
+                color = (
+                    color_map.get(group, px.colors.qualitative.Plotly[0])
+                    if color_map
+                    else "#1f77b4"
+                )
                 opacity = 0.2 + 0.3 * weight  # Optional: larger clusters more opaque
 
-                fig.add_trace(go.Scatter(
-                    x=ell_x, y=ell_y,
-                    mode='lines',
-                    fill='toself',
-                    fillcolor=hex_to_rgba(color, opacity),
-                    line=dict(color=color, width=2),
-                    name=f"{group} Cluster {i+1} {conf_level}%",
-                    showlegend=False,
-                    hoverinfo='skip'
-                ))
-
+                fig.add_trace(
+                    go.Scatter(
+                        x=ell_x,
+                        y=ell_y,
+                        mode="lines",
+                        fill="toself",
+                        fillcolor=hex_to_rgba(color, opacity),
+                        line={"color": color, "width": 2},
+                        name=f"{group} Cluster {i + 1} {conf_level}%",
+                        showlegend=False,
+                        hoverinfo="skip",
+                    )
+                )
 
     # === 9. ZOOM IN + ALL GRIDLINES BOLD & BLACK ===
-    y_min, y_max = agg['tsne_y'].min(), agg['tsne_y'].max()
+    y_min, y_max = agg["tsne_y"].min(), agg["tsne_y"].max()
     y_center = (y_min + y_max) / 2
     y_half_span = (y_max - y_min) / 2
     new_half_span = y_half_span * 1
 
     fig.update_layout(
-        yaxis=dict(
-            range=[y_center - new_half_span, y_center + new_half_span],
-            title="t-SNE Dimension 2",
-            showgrid=False,
-            gridcolor="lightgray",
-            gridwidth=0,
-            zeroline=False,
-            zerolinecolor="lightgray",
-            zerolinewidth=1
-        ),
-        xaxis=dict(
-            title="t-SNE Dimension 1",
-            showgrid=False,
-            gridcolor="lightgray",
-            gridwidth=0,
-            zeroline=False,
-            zerolinecolor="lightgray",
-            zerolinewidth=1
-        ),
+        yaxis={
+            "range": [y_center - new_half_span, y_center + new_half_span],
+            "title": "t-SNE Dimension 2",
+            "showgrid": False,
+            "gridcolor": "lightgray",
+            "gridwidth": 0,
+            "zeroline": False,
+            "zerolinecolor": "lightgray",
+            "zerolinewidth": 1,
+        },
+        xaxis={
+            "title": "t-SNE Dimension 1",
+            "showgrid": False,
+            "gridcolor": "lightgray",
+            "gridwidth": 0,
+            "zeroline": False,
+            "zerolinecolor": "lightgray",
+            "zerolinewidth": 1,
+        },
         height=600,
-        margin=dict(l=60, r=20, t=40, b=40)
+        margin={"l": 60, "r": 20, "t": 40, "b": 40},
     )
 
     # === 10. DISPLAY PLOT ===

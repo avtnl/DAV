@@ -1,7 +1,8 @@
 # utils/filters.py
-import streamlit as st
 import pandas as pd
+import streamlit as st
 from config import COL
+
 
 def sidebar_filters(df: pd.DataFrame):
     # ------------------------------------------------------------------

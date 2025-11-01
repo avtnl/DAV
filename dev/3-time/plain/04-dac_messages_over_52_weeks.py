@@ -1,21 +1,24 @@
-import seaborn as sns
+import sys
+import tomllib
+import warnings
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import pandas as pd
-from pathlib import Path
+import seaborn as sns
 from loguru import logger
-import warnings
-import tomllib
-import re
-import pytz
-from datetime import datetime
-import numpy as np
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Read configuration
     logger.debug("Loading configuration from config.toml")
     configfile = Path("config.toml").resolve()
@@ -25,7 +28,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -73,23 +76,30 @@ def main():
     logger.info(average_all.head())
 
     # Calculate average across all years excluding 2020
-    average_no_2020 = p[p["year"] != 2020].groupby("isoweek")["count"].mean().reset_index(name="avg_count_no_2020")
+    average_no_2020 = (
+        p[p["year"] != 2020]
+        .groupby("isoweek")["count"]
+        .mean()
+        .reset_index(name="avg_count_no_2020")
+    )
     logger.info(average_no_2020.head())
 
     # Plotting
-    fig, ax = plt.subplots(figsize=(14, 6))
+    _fig, ax = plt.subplots(figsize=(14, 6))
 
     # Add vertical lines just before weeks 12, 19, 35, and 38
     vline_weeks = [11.5, 18.5, 34.5]  # Just before weeks 12, 19, 35
     vline_labels = ["Week 12", "Week 19", "Week 35"]
-    for week, label in zip(vline_weeks, vline_labels):
+    for week, label in zip(vline_weeks, vline_labels, strict=False):
         ax.axvline(
             x=week,
             color="gray",
             linestyle="--",
             alpha=0.5,
             zorder=1,  # Behind data lines
-            label=label if week == 11.5 else None  # Add label only for first line to avoid legend clutter
+            label=label
+            if week == 11.5
+            else None,  # Add label only for first line to avoid legend clutter
         )
 
     # Plot average across all years in black
@@ -131,5 +141,6 @@ def main():
     logger.info(f"Saved plot: {output_path}")
     plt.show()
 
+
 if __name__ == "__main__":
-    main()    
+    main()

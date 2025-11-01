@@ -1,14 +1,16 @@
-import wa_analyzer.preprocess as preprocessor
-import pandas as pd
-import tomllib
 import re
-import pytz
-from pathlib import Path
-from loguru import logger
+import tomllib
 from datetime import datetime
+from pathlib import Path
 
-def main():
-    def find_name_csv(timestamp):
+import pandas as pd
+import pytz
+import wa_analyzer.preprocess as preprocessor
+from loguru import logger
+
+
+def main() -> None:
+    def find_name_csv(timestamp) -> None:
         pass
 
     # Read in the file
@@ -18,8 +20,8 @@ def main():
     processed = Path(config["processed"])
     # preprocess = config.get("preprocess", False)
     preprocess = config["preprocess"]
-    if preprocess ==  True:
-        now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
+    if preprocess:
+        now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
         logger.info(now)
         preprocessor.main(["--device", "ios"])
         find_name_csv(now)
@@ -57,7 +59,7 @@ def main():
     df["has_emoji"] = df["message"].apply(has_emoji)
 
     # Create a timestamp for a new, unique, filename
-    now = datetime.now(tz=pytz.timezone('Europe/Amsterdam')).strftime("%Y%m%d-%H%M%S")
+    now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
     logger.info(now)
 
     # Create unique filename
@@ -67,6 +69,7 @@ def main():
     # Save to CSV and Parquet
     df.to_csv(output, index=False)
     df.to_parquet(output.with_suffix(".parq"), index=False)
+
 
 if __name__ == "__main__":
     main()

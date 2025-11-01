@@ -7,8 +7,7 @@ import wa_analyzer
 print(wa_analyzer.__file__)
 
 
-from wa_analyzer.network_analysis import (Config, NetworkAnalysis,
-                                          SettingsManager)
+from wa_analyzer.network_analysis import Config, NetworkAnalysis, SettingsManager
 from wa_analyzer.settings import NetworkAnalysisConfig
 
 # Page config
@@ -38,11 +37,7 @@ with st.sidebar:
     selected_file = st.selectbox(
         "Select chat file",
         available_files,
-        index=(
-            available_files.index(current_file)
-            if current_file in available_files
-            else 0
-        ),
+        index=(available_files.index(current_file) if current_file in available_files else 0),
     )
 
     if selected_file != current_file:
@@ -64,12 +59,8 @@ with st.sidebar:
         col1, col2 = st.columns(2)
 
         # Get settings
-        current_min = st.session_state.settingsmanager.settings["slider_settings"][key][
-            "min"
-        ]
-        current_max = st.session_state.settingsmanager.settings["slider_settings"][key][
-            "max"
-        ]
+        current_min = st.session_state.settingsmanager.settings["slider_settings"][key]["min"]
+        current_max = st.session_state.settingsmanager.settings["slider_settings"][key]["max"]
 
         with col1:
             new_min = st.number_input(
@@ -122,13 +113,11 @@ with st.sidebar:
 
         return value
 
-    def handle_slider_change(key, slider_state_key):
+    def handle_slider_change(key, slider_state_key) -> None:
         """Function to handle slider changes"""
         new_value = st.session_state[f"{key}_slider"]
         st.session_state[slider_state_key] = new_value
-        st.session_state.settingsmanager.update_settings(
-            {"current_values": {key: new_value}}
-        )
+        st.session_state.settingsmanager.update_settings({"current_values": {key: new_value}})
         st.session_state.settingsmanager.save_settings()
 
     # Data Selection & Time Settings
@@ -136,11 +125,9 @@ with st.sidebar:
         # Time cutoff settings
         # Create a session state key for checkbox if not exists
         if "use_time_cutoff_value" not in st.session_state:
-            st.session_state.use_time_cutoff_value = (
-                st.session_state.settingsmanager.settings["current_values"].get(
-                    "use_time_cutoff", False
-                )
-            )
+            st.session_state.use_time_cutoff_value = st.session_state.settingsmanager.settings[
+                "current_values"
+            ].get("use_time_cutoff", False)
 
         use_time_cutoff = st.checkbox(
             "Use Time Cutoff",
@@ -149,24 +136,20 @@ with st.sidebar:
             on_change=lambda: handle_checkbox_change("use_time_cutoff"),
         )
 
-        def handle_checkbox_change(key):
+        def handle_checkbox_change(key) -> None:
             """Function to handle checkbox changes"""
             new_value = st.session_state[key]
             st.session_state[f"{key}_value"] = new_value
-            st.session_state.settingsmanager.update_settings(
-                {"current_values": {key: new_value}}
-            )
+            st.session_state.settingsmanager.update_settings({"current_values": {key: new_value}})
             st.session_state.settingsmanager.save_settings()
 
         time_cutoff_days = None
         if use_time_cutoff:
             # Create a session state key for time cutoff slider if not exists
             if "time_cutoff_days_value" not in st.session_state:
-                st.session_state.time_cutoff_days_value = (
-                    st.session_state.settingsmanager.settings["current_values"].get(
-                        "time_cutoff_days", 60
-                    )
-                )
+                st.session_state.time_cutoff_days_value = st.session_state.settingsmanager.settings[
+                    "current_values"
+                ].get("time_cutoff_days", 60)
 
             time_cutoff_days = st.slider(
                 "Show only last X days",
@@ -246,11 +229,9 @@ with st.sidebar:
 
         # Create a session state key for layout selection if not exists
         if "selected_layout_value" not in st.session_state:
-            st.session_state.selected_layout_value = (
-                st.session_state.settingsmanager.settings["current_values"].get(
-                    "selected_layout", "Spring Layout"
-                )
-            )
+            st.session_state.selected_layout_value = st.session_state.settingsmanager.settings[
+                "current_values"
+            ].get("selected_layout", "Spring Layout")
 
         selected_layout = st.selectbox(
             "Layout Algorithm",
@@ -261,13 +242,11 @@ with st.sidebar:
             on_change=lambda: handle_select_change("selected_layout"),
         )
 
-        def handle_select_change(key):
+        def handle_select_change(key) -> None:
             """Function to handle selectbox changes"""
             new_value = st.session_state[f"{key}_select"]
             st.session_state[f"{key}_value"] = new_value
-            st.session_state.settingsmanager.update_settings(
-                {"current_values": {key: new_value}}
-            )
+            st.session_state.settingsmanager.update_settings({"current_values": {key: new_value}})
             st.session_state.settingsmanager.save_settings()
 
     with st.expander("🔘 Node Appearance", expanded=True):

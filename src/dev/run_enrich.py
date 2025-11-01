@@ -1,6 +1,7 @@
-from src.file_manager import FileManager
-from src.data_editor import DataEditor
 from pathlib import Path
+
+from src.data_editor import DataEditor
+from src.file_manager import FileManager
 
 fm = FileManager()
 de = DataEditor()

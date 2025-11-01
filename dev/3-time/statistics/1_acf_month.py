@@ -1,20 +1,24 @@
 # import requests
-from io import StringIO
-from pathlib import Path
-from loguru import logger
-import warnings
+import sys
 import tomllib
-import pandas as pd
-import numpy as np
+import warnings
+from pathlib import Path
+
 import matplotlib.pyplot as plt
+import pandas as pd
+from loguru import logger
 from statsmodels.graphics import tsaplots
-from statsmodels.tsa.stattools import acf
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Read configuration
     logger.debug("Loading configuration from config.toml")
     configfile = Path("config.toml").resolve()
@@ -24,7 +28,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -36,7 +40,7 @@ def main():
         logger.warning(
             "Datafile does not exist. First run src/preprocess.py, and check the timestamp!"
         )
-        exit(1)
+        sys.exit(1)
 
     df = pd.read_parquet(datafile)
     logger.info(df)
@@ -47,14 +51,14 @@ def main():
     df["month"] = df["date"].dt.month
     df["year-month"] = df["date"].dt.strftime("%Y-%m")
     logger.info(df.head())
-    
+
     # Reindex to fill missing months
     df = df.drop(index=[0])  # Remove the first row if needed
-    
+
     # Group by year and month for plotting
     p = df.groupby(["year", "month"]).size().reset_index(name="count")
     logger.info(p.head())
-    
+
     # Ensure all months (1 to 12) are present for each year
     all_months = pd.DataFrame({"month": range(1, 13)})  # Months 1 to 12
     years = p["year"].unique()
@@ -68,7 +72,7 @@ def main():
         full_data.append(month_data)
     p = pd.concat(full_data, ignore_index=True)
     logger.info(p.head())
-    
+
     # ACF Plot
     try:
         logger.debug("Generating ACF plot")
@@ -76,7 +80,9 @@ def main():
             logger.warning("Data length too short for meaningful ACF analysis")
             return
         plt.figure(figsize=(10, 5))
-        tsaplots.plot_acf(p["count"], lags=min(12, len(p)//2), title="Autocorrelation Plot (Monthly)")
+        tsaplots.plot_acf(
+            p["count"], lags=min(12, len(p) // 2), title="Autocorrelation Plot (Monthly)"
+        )
         plt.xlabel("Lag (months)")
         plt.ylabel("Autocorrelation")
         plt.grid(True)
@@ -86,6 +92,7 @@ def main():
         plt.show()
     except Exception as e:
         logger.exception(f"Failed to generate ACF plot: {e}")
+
 
 if __name__ == "__main__":
     main()

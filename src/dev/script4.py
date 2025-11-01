@@ -14,11 +14,10 @@ PosixPath('images/network_interactions_maap.png')
 
 # === Imports ===
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any
 
 import pandas as pd
 from loguru import logger
-
 from src.constants import Columns, Groups
 from src.plot_manager import ArcPlotSettings
 
@@ -52,7 +51,7 @@ class Script4(BaseScript):
         self.group_authors = group_authors
 
     # === Private Helpers ===
-    def _build_participation_table(self, df_group: pd.DataFrame, group: str) -> Optional[pd.DataFrame]:
+    def _build_participation_table(self, df_group: pd.DataFrame, group: str) -> pd.DataFrame | None:
         """Build and save participation table."""
         participation_df = self.data_preparation.build_visual_relationships_arc(
             df_group, self.group_authors.get(group, [])
@@ -64,7 +63,7 @@ class Script4(BaseScript):
         logger.info(f"Saved participation table for {group}")
         return participation_df
 
-    def run(self) -> Optional[Path]:
+    def run(self) -> Path | None:
         """Generate and save arc diagram."""
         group = Groups.MAAP.value
         df_group = (

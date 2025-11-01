@@ -25,7 +25,7 @@ Examples
 # === Imports ===
 import itertools
 import warnings
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,9 +38,8 @@ from pydantic import BaseModel, Field
 from scipy.stats import chi2
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from sklearn.metrics import pairwise_distances
 
-from constants import Columns, Groups, PlotType, GroupByPeriod, PlotFeed
+from constants import Columns, GroupByPeriod, Groups, PlotFeed, PlotType
 
 # Suppress FutureWarning from seaborn/pandas
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -53,9 +52,9 @@ class PlotSettings(BaseModel):
     title: str = ""
     xlabel: str = ""
     ylabel: str = ""
-    figsize: Tuple[int, int] = (10, 6)
+    figsize: tuple[int, int] = (10, 6)
     rotation: int = 0
-    legend_title: Optional[str] = None
+    legend_title: str | None = None
 
 
 class ColorSettings(PlotSettings):
@@ -75,12 +74,12 @@ class DimReductionSettings(BaseModel):
 class PMNoMessageContentSettings(ColorSettings):
     """Settings for non-message-content scatter plots."""
 
-    group_color_map: Dict[str, str] = {
+    group_color_map: dict[str, str] = {
         Groups.MAAP.value: "blue",
         Groups.GOLFMATEN.value: "red",
         Groups.DAC.value: "green",
     }
-    anthony_color_map: Dict[str, str] = {
+    anthony_color_map: dict[str, str] = {
         Groups.MAAP.value: "lightblue",
         Groups.GOLFMATEN.value: "lightcoral",
         Groups.DAC.value: "lightgreen",
@@ -104,11 +103,21 @@ class CategoriesPlotSettings(ColorSettings):
 class TimePlotSettings(PlotSettings):
     """Line-plot settings for the weekly activity visualisation."""
 
-    vline_weeks: List[float] = [11.5, 18.5, 34.5]
-    week_ticks: List[int] = [1, 5, 9, 14, 18, 23, 27, 31, 36, 40, 44, 49]
-    month_labels: List[str] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    vline_weeks: list[float] = [11.5, 18.5, 34.5]
+    week_ticks: list[int] = [1, 5, 9, 14, 18, 23, 27, 31, 36, 40, 44, 49]
+    month_labels: list[str] = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
     ]
     rest_label: str = "---------Rest---------"
     prep_label: str = "---Prep---"
@@ -129,7 +138,7 @@ class DistributionPlotSettings(PlotSettings):
 class BubbleNewPlotSettings(PlotSettings):
     """Settings for the new bubble plot (words vs punctuation)."""
 
-    group_colors: Dict[str, str] = Field(
+    group_colors: dict[str, str] = Field(
         default_factory=lambda: {
             Groups.MAAP.value: "lightblue",
             Groups.DAC.value: "lightgreen",
@@ -149,32 +158,32 @@ class ArcPlotSettings(ColorSettings):
     """Arc-diagram settings for relationship visualisation."""
 
     amplifier: int = 3
-    married_couples: List[Tuple[str, str]] = Field(
+    married_couples: list[tuple[str, str]] = Field(
         default_factory=lambda: [
             ("Anja Berkemeijer", "Phons Berkemeijer"),
             ("Madeleine", "Anthony van Tilburg"),
         ]
     )
-    arc_types: List[Tuple[str, Optional[str], float, int]] = Field(
+    arc_types: list[tuple[str, str | None, float, int]] = Field(
         default_factory=lambda: [
             ("triple", "lightgray", 0.4, 1),
             ("pair", "gray", 0.55, 2),
             ("total", None, 0.7, 3),
         ]
     )
-    total_colors: Dict[str, str] = Field(
+    total_colors: dict[str, str] = Field(
         default_factory=lambda: {"married": "red", "other": "blue"}
     )
-    special_x_offsets: Dict[Tuple[str, str, str], float] = Field(
+    special_x_offsets: dict[tuple[str, str, str], float] = Field(
         default_factory=lambda: {
             ("Anthony van Tilburg", "Phons Berkemeijer", "triple"): -0.1,
             ("Anthony van Tilburg", "Phons Berkemeijer", "pair"): -0.2,
         }
     )
-    special_label_y_offsets: Dict[Tuple[str, str], float] = Field(
+    special_label_y_offsets: dict[tuple[str, str], float] = Field(
         default_factory=lambda: {("Anthony van Tilburg", "Phons Berkemeijer"): -0.5}
     )
-    excluded_columns: List[str] = Field(
+    excluded_columns: list[str] = Field(
         default_factory=lambda: [
             "type",
             Columns.AUTHOR.value,
@@ -189,7 +198,7 @@ class ArcPlotSettings(ColorSettings):
     node_fontsize: int = 10
     node_fontweight: str = "bold"
     label_fontsize: int = 8
-    label_bbox: Dict[str, Any] = Field(
+    label_bbox: dict[str, Any] = Field(
         default_factory=lambda: {
             "facecolor": "white",
             "alpha": 0.8,
@@ -205,10 +214,10 @@ class BasePlot:
 
     def __init__(self, settings: PlotSettings) -> None:
         self.settings = settings
-        self.fig: Optional[plt.Figure] = None
-        self.ax: Optional[plt.Axes] = None
+        self.fig: plt.Figure | None = None
+        self.ax: plt.Axes | None = None
 
-    def create_figure(self) -> Tuple[plt.Figure, plt.Axes]:
+    def create_figure(self) -> tuple[plt.Figure, plt.Axes]:
         """Create the figure and axes, apply title / labels."""
         self.fig, self.ax = plt.subplots(figsize=self.settings.figsize)
         self.ax.set_xlabel(self.settings.xlabel)
@@ -236,31 +245,30 @@ class PlotManager:
         try:
             plt.rcParams["font.family"] = "Segoe UI Emoji"
         except Exception:  # pragma: no cover
-            logger.warning(
-                "Segoe UI Emoji not available – falling back to DejaVu Sans."
-            )
+            logger.warning("Segoe UI Emoji not available - falling back to DejaVu Sans.")
             plt.rcParams["font.family"] = "DejaVu Sans"
 
-    # --------------------------------------------------------------------- #
-    # === Private helpers – feature preparation & reduction ===
-    # --------------------------------------------------------------------- #
+    # === Private helpers – feature preparation & reduction === #
     def _prepare_features(
         self,
         feature_df: pd.DataFrame,
-        groupby_period: Optional[str] = None,
-        settings: DimReductionSettings = DimReductionSettings(),
+        groupby_period: str | None = None,
+        settings: DimReductionSettings | None = None,
     ) -> np.ndarray:
         """
-        Drop identifier columns, keep top-variance numeric features.
+        Prepare numerical feature matrix for dimensionality reduction.
 
         Args:
-            feature_df: Input DataFrame with raw features.
-            groupby_period: Optional ``week`` / ``month`` / ``year`` column to drop.
-            settings: Dimensionality-reduction hyper-parameters.
+            feature_df: Input DataFrame with all features.
+            groupby_period: Optional period column to drop.
+            settings: Reduction settings (default: new instance per call).
 
         Returns:
-            Numpy array of selected numeric features (no scaling).
+            np.ndarray: Numerical feature matrix.
         """
+        if settings is None:
+            settings = DimReductionSettings()
+
         drop_columns = [
             Columns.AUTHOR.value,
             Columns.YEAR.value,
@@ -277,44 +285,44 @@ class PlotManager:
         numerical_features = feature_df.drop(columns=drop_columns)
 
         variances = numerical_features.var()
-        logger.info(
-            f"Feature variances:\n{variances.sort_values(ascending=False).to_string()}"
-        )
+        logger.info(f"Feature variances:\n{variances.sort_values(ascending=False).to_string()}")
 
         top_features = variances.nlargest(settings.n_top_features).index
         if len(top_features) < numerical_features.shape[1]:
-            logger.info(
-                f"Selected top {len(top_features)} features: {list(top_features)}"
-            )
+            logger.info(f"Selected top {len(top_features)} features: {list(top_features)}")
         else:
             logger.info("Using all numeric features")
 
         numerical_features = numerical_features[top_features]
-        logger.info(
-            f"Prepared numerical features (shape {numerical_features.shape})"
-        )
+        logger.info(f"Prepared numerical features (shape {numerical_features.shape})")
         return numerical_features.values  # type: ignore[no-any-return]
 
+    # === Private helpers – dimensionality reduction === #
     def _get_reducer(
         self,
         method: str,
         n_samples: int,
-        settings: DimReductionSettings = DimReductionSettings(),
+        settings: DimReductionSettings | None = None,
     ):
         """
-        Instantiate PCA or t-SNE reducer with safe perplexity.
+        Return a fitted reducer (PCA or t-SNE) based on method.
 
         Args:
-            method: ``pca`` or ``tsne``.
-            n_samples: Number of observations.
-            settings: Reduction hyper-parameters.
+            method: 'pca' or 'tsne'.
+            n_samples: Number of samples (for perplexity cap).
+            settings: Optional reduction settings (default: new instance).
 
         Returns:
-            Fitted reducer instance.
+            sklearn reducer instance.
         """
+        if settings is None:
+            settings = DimReductionSettings()
+
         perplexity = min(settings.perplexity, n_samples - 1)
+
         if method == PlotType.PCA.value:
             return PCA(n_components=2)
+
         if method == PlotType.TSNE.value:
             return TSNE(
                 n_components=2,
@@ -322,25 +330,18 @@ class PlotManager:
                 random_state=42,
                 metric=settings.metric,
             )
+
         raise ValueError(f"Unknown reduction method: {method}")
 
-    # --------------------------------------------------------------------- #
-    # === Private scatter-plot helpers (per-group / global) ===
-    # --------------------------------------------------------------------- #
+    # === Private scatter-plot helpers (per-group / global) === #
     def _plot_per_group(
         self,
         X_reduced: np.ndarray,
         feature_df: pd.DataFrame,
         method: str,
         settings: PMNoMessageContentSettings,
-    ) -> List[Dict[str, Any]]:
-        """
-        Scatter points per WhatsApp group, colour by author, optional ellipses.
-
-        Returns:
-            List of dicts ``{'fig': fig, 'filename': name}``.
-        """
-        figs: List[Dict[str, Any]] = []
+    ) -> list[dict[str, Any]]:
+        figs: list[dict[str, Any]] = []
         for group in feature_df[Columns.WHATSAPP_GROUP.value].unique():
             mask = feature_df[Columns.WHATSAPP_GROUP.value] == group
             if not mask.any():
@@ -366,9 +367,7 @@ class PlotManager:
                 for auth in unique_authors:
                     auth_mask = group_df[Columns.AUTHOR.value] == auth
                     if auth_mask.sum() < 2:
-                        logger.warning(
-                            f"Ellipse skipped for {auth} in {group}: <2 points"
-                        )
+                        logger.warning(f"Ellipse skipped for {auth} in {group}: <2 points")
                         continue
                     auth_points = X_group[auth_mask]
                     self.draw_confidence_ellipse(
@@ -400,13 +399,7 @@ class PlotManager:
         feature_df: pd.DataFrame,
         method: str,
         settings: PMNoMessageContentSettings,
-    ) -> Dict[str, Any]:
-        """
-        Global scatter coloured by group (Anthony special handling).
-
-        Returns:
-            Dict ``{'fig': fig, 'filename': name}``.
-        """
+    ) -> dict[str, Any]:
         fig, ax = plt.subplots(figsize=settings.figsize)
 
         for i in range(len(X_reduced)):
@@ -418,9 +411,7 @@ class PlotManager:
             else:
                 color = settings.group_color_map.get(group, "black")
 
-            ax.scatter(
-                X_reduced[i, 0], X_reduced[i, 1], c=[color], label=None, alpha=0.6
-            )
+            ax.scatter(X_reduced[i, 0], X_reduced[i, 1], c=[color], label=None, alpha=0.6)
 
         if settings.draw_ellipse:
             for group in feature_df[Columns.WHATSAPP_GROUP.value].unique():
@@ -446,9 +437,7 @@ class PlotManager:
             for k, v in settings.anthony_color_map.items()
         ]
 
-        ax.set_title(
-            "Riding the Wave of WhatsApp: Group Patterns in Messaging Behavior"
-        )
+        ax.set_title("Riding the Wave of WhatsApp: Group Patterns in Messaging Behavior")
         ax.set_xlabel("Component 1", labelpad=2)
         ax.set_ylabel("Component 2", labelpad=2)
         ax.legend(handles=legend_elements, title="Group / Anthony")
@@ -458,30 +447,21 @@ class PlotManager:
         return {"fig": fig, "filename": f"no_message_content_global_{method}"}
 
     # --------------------------------------------------------------------- #
-    # === Public visualisation builders ===
+    # === Public visualisation builders === #
     # --------------------------------------------------------------------- #
     def build_visual_categories(
         self,
         group_authors: pd.DataFrame,
         non_anthony_group: pd.DataFrame,
         anthony_group: pd.DataFrame,
-        sorted_groups: List[str],
+        sorted_groups: list[str],
         settings: CategoriesPlotSettings = CategoriesPlotSettings(),
-    ) -> Optional[plt.Figure]:
-        """
-        Bar chart comparing non-Anthony average vs Anthony messages per group.
-
-        Args:
-            group_authors: Unused (kept for API compatibility).
-            non_anthony_group: DataFrame with ``non_anthony_avg`` and ``num_authors``.
-            anthony_group: DataFrame with ``anthony_messages``.
-            sorted_groups: Ordered list of group identifiers.
-            settings: Visual styling.
-
-        Returns:
-            Matplotlib figure or ``None`` on error.
-        """
+    ) -> plt.Figure | None:
         try:
+            if non_anthony_group is None or anthony_group is None or not sorted_groups:
+                logger.error("Invalid input for categories plot")
+                return None
+
             fig, ax = plt.subplots(figsize=settings.figsize)
             positions = np.arange(len(sorted_groups))
 
@@ -504,8 +484,7 @@ class PlotManager:
 
             # Overall average line
             overall_avg = (
-                non_anthony_group["non_anthony_avg"]
-                * non_anthony_group["num_authors"]
+                non_anthony_group["non_anthony_avg"] * non_anthony_group["num_authors"]
                 + anthony_group["anthony_messages"]
             ).sum() / (non_anthony_group["num_authors"].sum() + len(sorted_groups))
             ax.axhline(
@@ -529,20 +508,18 @@ class PlotManager:
                         "",
                         xy=(x_pos, y_to),
                         xytext=(x_pos, y_from),
-                        arrowprops=dict(
-                            arrowstyle="-|>",
-                            color=settings.arrow_color,
-                            lw=settings.arrow_lw,
-                            mutation_scale=settings.arrow_mutation_scale,
-                        ),
+                        arrowprops={
+                            "arrowstyle": "-|>",
+                            "color": settings.arrow_color,
+                            "lw": settings.arrow_lw,
+                            "mutation_scale": settings.arrow_mutation_scale,
+                        },
                     )
 
             # X-axis labels with author count
             xtick_labels = [
                 f"{g} ({n:.0f})"
-                for g, n in zip(
-                    sorted_groups, non_anthony_group["num_authors"], strict=False
-                )
+                for g, n in zip(sorted_groups, non_anthony_group["num_authors"], strict=False)
             ]
             ax.set_xticks(positions + settings.bar_width / 2)
             ax.set_xticklabels(xtick_labels)
@@ -573,7 +550,7 @@ class PlotManager:
             plt.tight_layout()
             plt.show()
             return fig
-        except Exception as e:  # pragma: no cover
+        except Exception as e:
             logger.exception(f"Categories plot failed: {e}")
             return None
 
@@ -582,23 +559,11 @@ class PlotManager:
         p: pd.DataFrame,
         average_all: pd.DataFrame,
         settings: TimePlotSettings = TimePlotSettings(),
-    ) -> Optional[plt.Figure]:
-        """
-        Weekly activity line plot with shaded periods (rest / prep / play).
-
-        Args:
-            p: Unused (kept for API compatibility).
-            average_all: DataFrame with ``isoweek`` and ``avg_count_all``.
-            settings: Styling.
-
-        Returns:
-            Matplotlib figure or ``None`` on error.
-        """
+    ) -> plt.Figure | None:
         try:
             # Pre-compute period averages
-            weeks_rest = (
-                average_all["isoweek"].between(1, 12)
-                | average_all["isoweek"].between(35, 53)
+            weeks_rest = average_all["isoweek"].between(1, 12) | average_all["isoweek"].between(
+                35, 53
             )
             weeks_prep = average_all["isoweek"].between(12, 19)
             weeks_play = average_all["isoweek"].between(19, 35)
@@ -648,7 +613,12 @@ class PlotManager:
             # Period labels (centered vertically)
             y_min, y_max = ax.get_ylim()
             y_label = y_min + 0.9 * (y_max - y_min)
-            for x, txt in [(5, settings.rest_label), (15, settings.prep_label), (26.5, settings.play_label), (45, settings.rest_label)]:
+            for x, txt in [
+                (5, settings.rest_label),
+                (15, settings.prep_label),
+                (26.5, settings.play_label),
+                (45, settings.rest_label),
+            ]:
                 ax.text(
                     x,
                     y_label,
@@ -656,7 +626,7 @@ class PlotManager:
                     ha="center",
                     va="center",
                     fontsize=12,
-                    bbox=dict(boxstyle="round", facecolor="white", alpha=0.0),
+                    bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.0},
                     zorder=7,
                 )
 
@@ -673,7 +643,7 @@ class PlotManager:
 
             plt.show()
             return fig
-        except Exception as e:  # pragma: no cover
+        except Exception as e:
             logger.exception(f"Time plot failed: {e}")
             return None
 
@@ -681,23 +651,13 @@ class PlotManager:
         self,
         emoji_counts_df: pd.DataFrame,
         settings: DistributionPlotSettings = DistributionPlotSettings(),
-    ) -> Optional[plt.Figure]:
-        """
-        Bar + cumulative line plot showing emoji usage distribution.
-
-        Args:
-            emoji_counts_df: Must contain ``emoji``, ``count_once``, ``percent_once``.
-            settings: Styling.
-
-        Returns:
-            Matplotlib figure or ``None`` on error.
-        """
-        required = ["emoji", "count_once", "percent_once"]
-        if not all(col in emoji_counts_df.columns for col in required):
-            logger.error("emoji_counts_df missing required columns")
-            return None
-
+    ) -> plt.Figure | None:
         try:
+            required = ["emoji", "count_once", "percent_once"]
+            if not all(col in emoji_counts_df.columns for col in required):
+                logger.error("emoji_counts_df missing required columns")
+                return None
+
             n = len(emoji_counts_df)
             fig, ax = plt.subplots(figsize=(max(n * 0.2, 8), 8))
             ax2 = ax.twinx()
@@ -744,7 +704,9 @@ class PlotManager:
                 left_mid = idx_thresh / 2
                 right_mid = (idx_thresh + 0.5) + (n - idx_thresh - 1) / 2
                 y_txt = ax.get_ylim()[0] - 1.5
-                ax.text(left_mid, y_txt, f"<-- {idx_thresh+1} emojis -->", ha="center", fontsize=12)
+                ax.text(
+                    left_mid, y_txt, f"<-- {idx_thresh + 1} emojis -->", ha="center", fontsize=12
+                )
                 ax.text(right_mid, y_txt, f"<-- {n} emojis -->", ha="center", fontsize=12)
 
             if idx_thresh is not None:
@@ -786,7 +748,7 @@ class PlotManager:
             plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)
             plt.show()
             return fig
-        except Exception as e:  # pragma: no cover
+        except Exception as e:
             logger.exception(f"Distribution plot failed: {e}")
             return None
 
@@ -795,27 +757,14 @@ class PlotManager:
         combined_df: pd.DataFrame,
         group: str,
         settings: ArcPlotSettings = ArcPlotSettings(),
-    ) -> Optional[plt.Figure]:
-        """
-        Arc diagram visualising pair-wise message volumes.
-
-        Args:
-            combined_df: Must contain ``type``, ``author`` and participant columns.
-            group: Human-readable group name for the title.
-            settings: Geometry & styling.
-
-        Returns:
-            Matplotlib figure or ``None`` on error.
-        """
-        if combined_df is None or combined_df.empty:
-            logger.error("Empty DataFrame for arc diagram")
-            return None
-
+    ) -> plt.Figure | None:
         try:
+            if combined_df is None or combined_df.empty:
+                logger.error("Empty DataFrame for arc diagram")
+                return None
+
             participant_cols = [
-                c
-                for c in combined_df.columns
-                if c not in settings.excluded_columns
+                c for c in combined_df.columns if c not in settings.excluded_columns
             ]
             authors = sorted(set(participant_cols))
             n = len(authors)
@@ -826,14 +775,14 @@ class PlotManager:
                 for a, ang in zip(authors, angles, strict=False)
             }
 
-            pair_weights: Dict[frozenset, float] = {}
-            triple_weights: Dict[frozenset, float] = {}
-            total_weights: Dict[frozenset, float] = {}
+            pair_weights: dict[frozenset, float] = {}
+            triple_weights: dict[frozenset, float] = {}
+            total_weights: dict[frozenset, float] = {}
 
             # ----- Pairs -----
             pairs = combined_df[combined_df["type"] == "Pairs"]
             for _, row in pairs.iterrows():
-                a1, a2 = [s.strip() for s in row[Columns.AUTHOR.value].split(" & ")]
+                a1, a2 = (s.strip() for s in row[Columns.AUTHOR.value].split(" & "))
                 key = frozenset([a1, a2])
                 pair_weights[key] = row["total_messages"]
                 total_weights[key] = total_weights.get(key, 0) + row["total_messages"]
@@ -887,10 +836,10 @@ class PlotManager:
                     # Total-arc colour logic
                     if arc_type == "total":
                         pair_t = (a1, a2) if a1 < a2 else (a2, a1)
-                        married = pair_t in settings.married_couples or (
-                            a2,
-                            a1,
-                        ) in settings.married_couples
+                        married = (
+                            pair_t in settings.married_couples
+                            or (a2, a1) in settings.married_couples
+                        )
                         color = (
                             settings.total_colors["married"]
                             if married
@@ -899,9 +848,7 @@ class PlotManager:
 
                     # X-offset for crowded labels
                     sorted_pair = tuple(sorted([a1, a2]))
-                    x_off = settings.special_x_offsets.get(
-                        (*sorted_pair, arc_type), 0
-                    )
+                    x_off = settings.special_x_offsets.get((*sorted_pair, arc_type), 0)
 
                     # Line width scaling
                     lw = (1 + 5 * (w / max_w)) * settings.amplifier
@@ -914,9 +861,7 @@ class PlotManager:
                     if arc_type == "total":
                         lbl_x = (x1 + x2) / 2
                         lbl_y = (y1 + y2) / 2 + height * 0.5
-                        lbl_y += settings.special_label_y_offsets.get(
-                            tuple(sorted([a1, a2])), 0
-                        )
+                        lbl_y += settings.special_label_y_offsets.get(tuple(sorted([a1, a2])), 0)
                         ax.text(
                             lbl_x,
                             lbl_y,
@@ -954,7 +899,7 @@ class PlotManager:
             plt.tight_layout()
             plt.show()
             return fig
-        except Exception as e:  # pragma: no cover
+        except Exception as e:
             logger.exception(f"Arc diagram failed: {e}")
             return None
 
@@ -962,37 +907,24 @@ class PlotManager:
         self,
         feature_df: pd.DataFrame,
         settings: BubbleNewPlotSettings = BubbleNewPlotSettings(),
-    ) -> Optional[plt.Figure]:
-        """
-        Bubble plot: words vs punctuation, size = message count.
-
-        Args:
-            feature_df: Must contain ``whatsapp_group``, ``author``,
-                        ``avg_words``, ``avg_punct``, ``message_count``.
-            settings: Colours, scaling, trendline.
-
-        Returns:
-            Matplotlib figure or ``None`` on error.
-        """
-        required = {
-            Columns.WHATSAPP_GROUP.value,
-            Columns.AUTHOR.value,
-            Columns.AVG_WORDS.value,
-            Columns.AVG_PUNCT.value,
-            Columns.MESSAGE_COUNT.value,
-        }
-        if not required.issubset(feature_df.columns):
-            logger.error("Bubble plot missing required columns")
-            return None
-
+    ) -> plt.Figure | None:
         try:
+            required = {
+                Columns.WHATSAPP_GROUP.value,
+                Columns.AUTHOR.value,
+                Columns.AVG_WORDS.value,
+                Columns.AVG_PUNCT.value,
+                Columns.MESSAGE_COUNT.value,
+            }
+            if not required.issubset(feature_df.columns):
+                logger.error("Bubble plot missing required columns")
+                return None
+
             fig, ax = plt.subplots(figsize=settings.figsize)
 
             msg = feature_df[Columns.MESSAGE_COUNT.value]
             size_scale = (
-                (msg - msg.min()) / (msg.max() - msg.min())
-                if msg.max() != msg.min()
-                else 1.0
+                (msg - msg.min()) / (msg.max() - msg.min()) if msg.max() != msg.min() else 1.0
             )
             bubble_sizes = (
                 settings.min_bubble_size
@@ -1021,8 +953,7 @@ class PlotManager:
             ax.plot(x, trend(x), color=settings.trendline_color, alpha=settings.trendline_alpha)
 
             ax.set_title(
-                settings.title
-                or f"{Columns.AVG_WORDS.human} vs {Columns.AVG_PUNCT.human}"
+                settings.title or f"{Columns.AVG_WORDS.human} vs {Columns.AVG_PUNCT.human}"
             )
             ax.set_xlabel(settings.xlabel or Columns.AVG_WORDS.human)
             ax.set_ylabel(settings.ylabel or Columns.AVG_PUNCT.human)
@@ -1050,7 +981,7 @@ class PlotManager:
             plt.tight_layout()
             plt.show()
             return fig
-        except Exception as e:  # pragma: no cover
+        except Exception as e:
             logger.exception(f"Bubble plot failed: {e}")
             return None
 
@@ -1063,7 +994,6 @@ class PlotManager:
         edgecolor: str = "black",
         zorder: int = 0,
     ) -> None:
-        """Add a confidence ellipse to *ax* (95 % default)."""
         if len(data) < 2:
             return
         cov = np.cov(data, rowvar=False)
@@ -1082,84 +1012,15 @@ class PlotManager:
         )
         ax.add_patch(ellipse)
 
-    def build_visual_no_message_content(
-        self,
-        feature_df: pd.DataFrame,
-        plot_type: str = PlotFeed.BOTH.value,
-        dr_settings: DimReductionSettings = DimReductionSettings(),
-        nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings(),
-        settings: Optional[PlotSettings] = None,
-    ) -> Optional[List[Dict[str, Any]]]:
-        """
-        PCA / t-SNE visualisations of non-message features.
-
-        Args:
-            feature_df: Numeric + identifier columns.
-            plot_type: ``both`` / ``pca`` / ``tsne``.
-            dr_settings: Reduction hyper-parameters.
-            nmc_settings: Colour / ellipse options.
-            settings: Legacy – ignored (kept for backward compatibility).
-
-        Returns:
-            List of ``{'fig': fig, 'filename': name}`` or ``None``.
-        """
-        if settings is not None:
-            logger.warning("Legacy `settings` ignored – use dr_settings / nmc_settings")
-
-        if plot_type not in {
-            PlotFeed.BOTH.value,
-            PlotType.PCA.value,
-            PlotType.TSNE.value,
-        }:
-            logger.error(f"Invalid plot_type: {plot_type}")
-            return None
-
+    # === Build correlation matrix === #
+    def plot_month_correlations(self, correlations: pd.Series) -> plt.Figure | None:
         try:
-            X = self._prepare_features(feature_df, settings=dr_settings)
-            methods = (
-                [PlotType.PCA.value, PlotType.TSNE.value]
-                if plot_type == PlotFeed.BOTH.value
-                else [plot_type]
-            )
-            results: List[Dict[str, Any]] = []
+            if correlations is None or correlations.empty:
+                logger.error("No correlations to plot")
+                return None
 
-            for method in methods:
-                reducer = self._get_reducer(method, len(feature_df), dr_settings)
-                X_red = reducer.fit_transform(X)
-
-                dist = pairwise_distances(X_red, metric=dr_settings.metric)
-                logger.info(
-                    f"{method.upper()} – mean distance {dist.mean():.2f} (±{dist.std():.2f})"
-                )
-
-                if nmc_settings.plot_type in {PlotFeed.PER_GROUP.value, PlotFeed.BOTH.value}:
-                    results.extend(
-                        self._plot_per_group(X_red, feature_df, method, nmc_settings)
-                    )
-                if nmc_settings.plot_type in {PlotFeed.GLOBAL.value, PlotFeed.BOTH.value}:
-                    results.append(
-                        self._plot_global(X_red, feature_df, method, nmc_settings)
-                    )
-
-            logger.info(f"Created {len(results)} non-message-content plots")
-            return results
-        except Exception as e:  # pragma: no cover
-            logger.exception(f"Non-message-content visualisation failed: {e}")
-            return None
-
-    # --------------------------------------------------------------------- #
-    # === Additional public helpers (correlation, trends, interactions) ===
-    # --------------------------------------------------------------------- #
-    def plot_month_correlations(self, correlations: pd.Series) -> Optional[plt.Figure]:
-        """Bar plot of Pearson correlation between month and numeric features."""
-        if correlations is None or correlations.empty:
-            logger.error("No correlations to plot")
-            return None
-        try:
             fig, ax = plt.subplots(figsize=(12, 6))
-            bars = ax.bar(
-                correlations.index, correlations.values, color="skyblue"
-            )
+            bars = ax.bar(correlations.index, correlations.values, color="skyblue")
             ax.set_title("Correlation of Features with Month")
             ax.set_xlabel("Features")
             ax.set_ylabel("Pearson r")
@@ -1181,123 +1042,6 @@ class PlotManager:
             plt.tight_layout()
             plt.show()
             return fig
-        except Exception as e:  # pragma: no cover
+        except Exception as e:
             logger.exception(f"Month-correlation plot failed: {e}")
             return None
-
-    def plot_feature_trends(
-        self,
-        feature_df: pd.DataFrame,
-        feature_name: str,
-        settings: PlotSettings = PlotSettings(),
-    ) -> Optional[plt.Figure]:
-        """Box-plot of a numeric feature across months."""
-        if feature_name not in feature_df.columns:
-            logger.error(f"Feature {feature_name} not in DataFrame")
-            return None
-        try:
-            fig, ax = plt.subplots(figsize=settings.figsize)
-            sns.boxplot(
-                x=Columns.MONTH.value, y=feature_name, data=feature_df, ax=ax
-            )
-            ax.set_title(settings.title or f"{feature_name} by Month")
-            ax.set_xlabel(settings.xlabel or Columns.MONTH.human)
-            ax.set_ylabel(settings.ylabel or feature_name)
-            plt.tight_layout()
-            plt.show()
-            return fig
-        except Exception as e:  # pragma: no cover
-            logger.exception(f"Feature-trend plot failed: {e}")
-            return None
-
-    def build_visual_interactions(
-        self,
-        feature_df: pd.DataFrame,
-        method: str = PlotType.TSNE.value,
-        settings: DimReductionSettings = DimReductionSettings(),
-        nmc_settings: PMNoMessageContentSettings = PMNoMessageContentSettings(),
-    ) -> Tuple[Optional[plt.Figure], Optional[plt.Figure]]:
-        """
-        Two interaction visualisations (author-coloured & group-coloured).
-
-        Returns:
-            (author_fig, group_fig) – either may be ``None`` on error.
-        """
-        try:
-            # Drop non-numeric identifier
-            X = feature_df.drop(
-                columns=[Columns.WHATSAPP_GROUP.value], errors="ignore"
-            ).values
-            reducer = self._get_reducer(method, len(feature_df), settings)
-            X_red = reducer.fit_transform(X)
-
-            labels = feature_df.index.values
-            authors = [lbl.split("_")[0] for lbl in labels]
-            uniq_auth = list(set(authors))
-            pal = sns.color_palette("husl", len(uniq_auth))
-            auth_map = dict(zip(uniq_auth, pal, strict=False))
-
-            # ---- Author plot ----
-            fig1, ax1 = plt.subplots(figsize=(10, 8))
-            for i, lbl in enumerate(labels):
-                auth = lbl.split("_")[0]
-                ax1.scatter(
-                    X_red[i, 0],
-                    X_red[i, 1],
-                    c=[auth_map[auth]],
-                    label=auth if authors.index(auth) == i else None,
-                )
-            ax1.set_title(f"Interaction Dynamics – Authors ({method.upper()})")
-            ax1.set_xlabel("Component 1")
-            ax1.set_ylabel("Component 2")
-            ax1.legend(title="Author")
-            plt.tight_layout()
-            plt.show()
-
-            # ---- Group plot (Anthony special) ----
-            fig2, ax2 = plt.subplots(figsize=(10, 8))
-            legend_elems = [
-                patches.Patch(color=v, label=k) for k, v in nmc_settings.group_color_map.items()
-            ]
-            legend_elems += [
-                patches.Patch(color=v, label=f"Anthony ({k})")
-                for k, v in nmc_settings.anthony_color_map.items()
-            ]
-            legend_elems.append(
-                patches.Patch(color="gray", label="Anthony (overall)")
-            )
-
-            for i, lbl in enumerate(labels):
-                auth = lbl.split("_")[0]
-                grp = feature_df.iloc[i][Columns.WHATSAPP_GROUP.value]
-                if auth == "Anthony van Tilburg":
-                    color = (
-                        "gray"
-                        if grp == "overall"
-                        else nmc_settings.anthony_color_map.get(grp, "black")
-                    )
-                else:
-                    color = nmc_settings.group_color_map.get(grp, "black")
-                ax2.scatter(X_red[i, 0], X_red[i, 1], c=[color])
-
-            ax2.set_title(f"Interaction Dynamics – Groups ({method.upper()})")
-            ax2.set_xlabel("Component 1")
-            ax2.set_ylabel("Component 2")
-            ax2.legend(handles=legend_elems, title="Group")
-            plt.tight_layout()
-            plt.show()
-
-            if method == PlotType.PCA.value:
-                loads = pd.DataFrame(
-                    reducer.components_.T,
-                    index=feature_df.drop(
-                        columns=[Columns.WHATSAPP_GROUP.value], errors="ignore"
-                    ).columns,
-                    columns=["Component 1", "Component 2"],
-                )
-                logger.info(f"PCA loadings:\n{loads}")
-
-            return fig1, fig2
-        except Exception as e:  # pragma: no cover
-            logger.exception(f"Interaction visualisations failed: {e}")
-            return None, None

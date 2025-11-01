@@ -1,6 +1,6 @@
 # === Module Docstring ===
 """
-WhatsApp Chat Analyzer – Constants Module
+Constants Module
 
 Defines standardized column names, group identifiers, and configuration enums
 using StrEnum for direct string access and type safety.
@@ -83,6 +83,12 @@ class Columns(StrEnum):
     X_DAY_PCT_MESSAGES_OF_AUTHOR = "x_day_pct_messages_of_author"
     Y_SEQUENCE_AUTHORS_THAT_DAY = "y_sequence_authors_that_day"
     Y_SEQUENCE_RESPONSE_TIMES_THAT_DAY = "y_sequence_response_times_that_day"
+    AVG_WORDS = "avg_words"
+    AVG_PUNCT = "avg_punctuations"
+    MESSAGE_COUNT = "message_count"
+    NON_ANTHONY_AVG = "non_anthony_avg"
+    ANTHONY_MESSAGES = "anthony_messages"
+    NUM_AUTHORS = "num_authors"
 
     @property
     def human(self) -> str:
@@ -90,7 +96,7 @@ class Columns(StrEnum):
             self.WHATSAPP_GROUP: "WhatsApp Group",
             self.AUTHOR: "Author",
             self.YEAR: "Year",
-            self.ISOWEEK: "Week",
+            self.WEEK: "Week",
             self.AVG_WORDS: "Average Words per Message",
             self.AVG_PUNCT: "Average Punctuation per Message",
             self.MESSAGE_COUNT: "Total Messages",
@@ -152,4 +158,16 @@ class DeleteAttributes(Enum):
     TRUE = True
 
 
-# NEW: Full standardization with StrEnum and docstrings (2025-10-31)
+# === CODING STANDARD (APPLY TO ALL CODE) ===
+# - `# === Module Docstring ===` before """
+# - Google-style docstrings
+# - `# === Section Name ===` for all blocks
+# - Inline: `# One space, sentence case`
+# - Tags: `# TODO:`, `# NOTE:`, `# NEW: (YYYY-MM-DD)`, `# FIXME:`
+# - Type hints in function signatures
+# - Examples: with >>>
+# - No long ----- lines
+# - No mixed styles
+# - Add markers #NEW at the end of the module
+
+# NEW: Added missing columns and footer (2025-11-01)

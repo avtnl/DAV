@@ -1,22 +1,25 @@
 # import requests
-from io import StringIO
-from pathlib import Path
-from loguru import logger
-import warnings
+import sys
 import tomllib
-import pandas as pd
-import numpy as np
+import warnings
+from pathlib import Path
+
 import matplotlib.pyplot as plt
-from statsmodels.graphics import tsaplots
-from statsmodels.tsa.stattools import acf
+import numpy as np
+import pandas as pd
+from loguru import logger
 from statsmodels.tsa.seasonal import seasonal_decompose
 
-
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Read configuration
     logger.debug("Loading configuration from config.toml")
     configfile = Path("config.toml").resolve()
@@ -26,7 +29,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -38,7 +41,7 @@ def main():
         logger.warning(
             "Datafile does not exist. First run src/preprocess.py, and check the timestamp!"
         )
-        exit(1)
+        sys.exit(1)
 
     df = pd.read_parquet(datafile)
     logger.info(df)
@@ -72,7 +75,9 @@ def main():
     logger.info(p.head())
 
     # Create a time series index for decomposition
-    p["date"] = pd.to_datetime(p["year"].astype(str) + "-" + p["month"].astype(str) + "-01", format="%Y-%m-%d")
+    p["date"] = pd.to_datetime(
+        p["year"].astype(str) + "-" + p["month"].astype(str) + "-01", format="%Y-%m-%d"
+    )
     p = p.sort_values("date").set_index("date")
 
     # Decompose the time series
@@ -82,7 +87,7 @@ def main():
             logger.warning("Data length too short for meaningful decomposition with period=12")
             return
         result = seasonal_decompose(p["count"], model="additive", period=12)  # Monthly period
-        
+
         # Create figure with subplots
         plt.figure(figsize=(10, 8))
         result.plot()
@@ -101,7 +106,8 @@ def main():
     # Assuming df_monthly['value'] is your monthly series
     result_monthly = seasonal_decompose(df_monthly["count"], model="additive", period=12)
     seasonal_variance = np.var(result_monthly.seasonal) / np.var(df_monthly["count"])
-    logger.info((f"Monthly Seasonal Variance Proportion: {seasonal_variance:.3f}"))
+    logger.info(f"Monthly Seasonal Variance Proportion: {seasonal_variance:.3f}")
+
 
 if __name__ == "__main__":
     main()

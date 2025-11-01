@@ -1,5 +1,4 @@
 # config.py
-from typing import Dict, Callable
 
 # ----------------------------------------------------------------------
 # Column names
@@ -33,13 +32,14 @@ COL = {
 # ----------------------------------------------------------------------
 # Colours
 # ----------------------------------------------------------------------
-GROUP_COLORS: Dict[str, str] = {
+GROUP_COLORS: dict[str, str] = {
     "maap": "#1f77b4",
     "dac": "#2ca02c",
     "golfmaten": "#ff7f0e",
     "tillies": "#7f7f7f",
     "AvT": "#aec7e8",
 }
+
 
 # AvT = blue, others = light gray
 def author_color(author: str) -> str:

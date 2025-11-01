@@ -1,23 +1,20 @@
 # src/dashboard/tabs/tab_distribution.py
-import streamlit as st
-import plotly.graph_objects as go
-import pandas as pd
-import numpy as np
-from config import COL
 from ast import literal_eval
 
-def render_distribution_tab(df_filtered):
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import streamlit as st
+from config import COL
+
+
+def render_distribution_tab(df_filtered) -> None:
     st.header("Distribution – Emoji Usage")
 
     # ------------------------------------------------------------------
     # 1. Mode: Overview / Test Probability
     # ------------------------------------------------------------------
-    mode = st.radio(
-        "Mode",
-        ["Overview", "Test Probability"],
-        horizontal=True,
-        key="dist_mode"
-    )
+    mode = st.radio("Mode", ["Overview", "Test Probability"], horizontal=True, key="dist_mode")
 
     # ------------------------------------------------------------------
     # 2. Parse emojis (robust)
@@ -59,9 +56,9 @@ def render_distribution_tab(df_filtered):
 # ======================================================================
 # OVERVIEW
 # ======================================================================
-def render_overview(df_filtered, df_with_emoji):
+def render_overview(df_filtered, df_with_emoji) -> None:
     # Group selector
-    group_options = ["all whatsapp_groups"] + sorted(df_filtered[COL["group"]].unique().tolist())
+    group_options = ["all whatsapp_groups", *sorted(df_filtered[COL["group"]].unique().tolist())]
     selected_group = st.selectbox("Select Group", group_options, key="overview_group")
 
     if selected_group == "all whatsapp_groups":
@@ -85,7 +82,7 @@ def render_overview(df_filtered, df_with_emoji):
         min_value=1,
         max_value=len(emoji_counts),
         value=min(60, len(emoji_counts)),
-        key="max_emojis_slider"
+        key="max_emojis_slider",
     )
 
     top_n = emoji_counts.head(max_emojis).copy()
@@ -96,48 +93,59 @@ def render_overview(df_filtered, df_with_emoji):
     fig = go.Figure()
 
     # Bars: likelihood
-    fig.add_trace(go.Bar(
-        x=top_n["emoji"],
-        y=top_n["likelihood"],
-        name="Likelihood",
-        marker_color="lightblue",
-        text=top_n["emoji"],
-        textposition="outside" if len(top_n) <= 26 else "none"
-    ))
+    fig.add_trace(
+        go.Bar(
+            x=top_n["emoji"],
+            y=top_n["likelihood"],
+            name="Likelihood",
+            marker_color="lightblue",
+            text=top_n["emoji"],
+            textposition="outside" if len(top_n) <= 26 else "none",
+        )
+    )
 
     # Orange line: cumulative
-    fig.add_trace(go.Scatter(
-        x=top_n["emoji"],
-        y=top_n["cumulative"],
-        mode="lines+markers",
-        name="Cumulative",
-        line=dict(color="orange", width=3),
-        yaxis="y2"
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=top_n["emoji"],
+            y=top_n["cumulative"],
+            mode="lines+markers",
+            name="Cumulative",
+            line={"color": "orange", "width": 3},
+            yaxis="y2",
+        )
+    )
 
     fig.update_layout(
         title=f"Emoji Likelihood – {title_suffix}<br><sub>Top {len(top_n)} of {len(emoji_counts)} emojis</sub>",
         xaxis_title="Emoji",
-        yaxis=dict(title="Likelihood", tickformat=".0%", range=[0, 1]),
-        yaxis2=dict(title="Cumulative", tickformat=".0%", range=[0, 1], overlaying="y", side="right"),
+        yaxis={"title": "Likelihood", "tickformat": ".0%", "range": [0, 1]},
+        yaxis2={
+            "title": "Cumulative",
+            "tickformat": ".0%",
+            "range": [0, 1],
+            "overlaying": "y",
+            "side": "right",
+        },
         height=600,
-        showlegend=False
+        showlegend=False,
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
     # Final counts below
     with st.expander("Final Emoji Counts", expanded=False):
-        st.dataframe(top_n[["emoji", "count", "likelihood", "cumulative"]].style.format({
-            "likelihood": "{:.1%}",
-            "cumulative": "{:.1%}"
-        }))
+        st.dataframe(
+            top_n[["emoji", "count", "likelihood", "cumulative"]].style.format(
+                {"likelihood": "{:.1%}", "cumulative": "{:.1%}"}
+            )
+        )
 
 
 # ======================================================================
 # TEST PROBABILITY GAME
 # ======================================================================
-def render_probability_game(df_filtered, df_with_emoji):
+def render_probability_game(df_filtered, df_with_emoji) -> None:
     st.subheader("Test Emoji Probability")
 
     col1, col2 = st.columns(2)
@@ -147,24 +155,30 @@ def render_probability_game(df_filtered, df_with_emoji):
     selected_emoji = col1.selectbox("Select Emoji", all_emojis, key="test_emoji")
 
     # Group selector
-    group_options = ["all whatsapp_groups"] + sorted(df_filtered[COL["group"]].unique().tolist())
+    group_options = ["all whatsapp_groups", *sorted(df_filtered[COL["group"]].unique().tolist())]
     selected_group = col2.selectbox("WhatsApp Group", group_options, key="test_group")
 
     # Author selector + sync
     if selected_group == "all whatsapp_groups":
-        author_options = ["all authors"] + sorted(df_filtered[COL["author"]].unique().tolist())
+        author_options = ["all authors", *sorted(df_filtered[COL["author"]].unique().tolist())]
     else:
-        authors_in_group = df_filtered[df_filtered[COL["group"]] == selected_group][COL["author"]].unique()
-        author_options = ["all authors"] + sorted(authors_in_group)
+        authors_in_group = df_filtered[df_filtered[COL["group"]] == selected_group][
+            COL["author"]
+        ].unique()
+        author_options = ["all authors", *sorted(authors_in_group)]
 
     selected_author = col1.selectbox("Author", author_options, key="test_author")
 
     # Sync: if author not in group → switch group
     if selected_author != "all authors" and selected_group != "all whatsapp_groups":
-        author_group = df_filtered[df_filtered[COL["author"]] == selected_author][COL["group"]].unique()
+        author_group = df_filtered[df_filtered[COL["author"]] == selected_author][
+            COL["group"]
+        ].unique()
         if selected_group not in author_group and len(author_group) > 0:
             new_group = author_group[0]
-            st.warning(f"Author '{selected_author}' not in '{selected_group}'. Switching to '{new_group}'.")
+            st.warning(
+                f"Author '{selected_author}' not in '{selected_group}'. Switching to '{new_group}'."
+            )
             selected_group = new_group
 
     # Filter data
@@ -178,7 +192,9 @@ def render_probability_game(df_filtered, df_with_emoji):
     emoji_occurrences = df_test["emojis_parsed"].apply(lambda x: selected_emoji in x).sum()
     probability = emoji_occurrences / total_messages if total_messages > 0 else 0
 
-    st.metric("Probability", f"{probability:.1%}", help=f"{emoji_occurrences} / {total_messages} messages")
+    st.metric(
+        "Probability", f"{probability:.1%}", help=f"{emoji_occurrences} / {total_messages} messages"
+    )
 
     # Sample size + tests
     col3, col4 = st.columns(2)
@@ -201,11 +217,11 @@ def render_probability_game(df_filtered, df_with_emoji):
 
         diff = actual_avg - expected
         if diff > 0.5 * expected:
-            st.success(f"**Exceeds expectation!** 🎉 You're on a hot streak!")
+            st.success("**Exceeds expectation!** 🎉 You're on a hot streak!")
         elif abs(diff) <= 0.3 * expected:
-            st.info(f"**In line with expectation.** 📊 Solid science.")
+            st.info("**In line with expectation.** 📊 Solid science.")
         else:
-            st.warning(f"**Below expectation.** 😔")
+            st.warning("**Below expectation.** 😔")
             if probability < 0.05:
                 st.write("→ You selected a **rare emoji**.")
             if sample_size < 50:

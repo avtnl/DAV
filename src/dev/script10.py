@@ -1,9 +1,13 @@
-from .base import BaseScript
-from loguru import logger
 import pandas as pd
+from loguru import logger
+
+from .base import BaseScript
+
 
 class Script10(BaseScript):
-    def __init__(self, file_manager, data_editor, data_preparation, processed_dir, tables_dir):
+    def __init__(
+        self, file_manager, data_editor, data_preparation, processed_dir, tables_dir
+    ) -> None:
         super().__init__(file_manager, data_editor=data_editor, data_preparation=data_preparation)
         self.processed_dir = processed_dir
         self.tables_dir = tables_dir
@@ -12,7 +16,9 @@ class Script10(BaseScript):
         # -------------------------------------------------------------
         # 1. Load preprocessed data (from Script0)
         # -------------------------------------------------------------
-        latest_parquet = max(self.processed_dir.glob("combined_*.parq"), key=lambda p: p.stat().st_mtime)
+        latest_parquet = max(
+            self.processed_dir.glob("combined_*.parq"), key=lambda p: p.stat().st_mtime
+        )
         if not latest_parquet.exists():
             return self.log_error("No preprocessed parquet found. Run Script0 first.")
 
@@ -23,12 +29,12 @@ class Script10(BaseScript):
         # 2. ADD ONLY NEW COLUMNS (if not already present)
         # -------------------------------------------------------------
         # Example: Add a simple derived column
-        if 'day_of_week' not in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            df['day_of_week'] = df['timestamp'].dt.day_name()
+        if "day_of_week" not in df.columns:
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df["day_of_week"] = df["timestamp"].dt.day_name()
 
-        if 'is_weekend' not in df.columns:
-            df['is_weekend'] = df['timestamp'].dt.weekday >= 5
+        if "is_weekend" not in df.columns:
+            df["is_weekend"] = df["timestamp"].dt.weekday >= 5
 
         # Add more columns here as needed...
 
@@ -36,17 +42,43 @@ class Script10(BaseScript):
         # 3. REORDER COLUMNS (your desired order)
         # -------------------------------------------------------------
         desired_order = [
-            'whatsapp_group', 'timestamp', 'year', 'month', 'week', 'day_of_week', 'is_weekend',
-            'author', 'active_years', 'early_leaver',
-            'number_of_chats_that_day', 'length_chat', 'response_time',
-            'has_emoji', 'number_of_emojis', 'pct_emojis',
-            'has_punctuation', 'number_of_punctuations', 'pct_punctuations',
-            'has_link', 'was_deleted',
-            'pictures_deleted', 'videos_deleted', 'audios_deleted',
-            'gifs_deleted', 'stickers_deleted', 'documents_deleted', 'videonotes_deleted',
-            'day_pct_length_chat', 'day_pct_length_emojis', 'day_pct_length_punctuations',
-            'number_of_unique_participants_that_day', 'day_pct_authors',
-            'previous_author', 'next_author', 'sequence_authors', 'sequence_response_times'
+            "whatsapp_group",
+            "timestamp",
+            "year",
+            "month",
+            "week",
+            "day_of_week",
+            "is_weekend",
+            "author",
+            "active_years",
+            "early_leaver",
+            "number_of_chats_that_day",
+            "length_chat",
+            "response_time",
+            "has_emoji",
+            "number_of_emojis",
+            "pct_emojis",
+            "has_punctuation",
+            "number_of_punctuations",
+            "pct_punctuations",
+            "has_link",
+            "was_deleted",
+            "pictures_deleted",
+            "videos_deleted",
+            "audios_deleted",
+            "gifs_deleted",
+            "stickers_deleted",
+            "documents_deleted",
+            "videonotes_deleted",
+            "day_pct_length_chat",
+            "day_pct_length_emojis",
+            "day_pct_length_punctuations",
+            "number_of_unique_participants_that_day",
+            "day_pct_authors",
+            "previous_author",
+            "next_author",
+            "sequence_authors",
+            "sequence_response_times",
         ]
 
         # Keep only existing columns

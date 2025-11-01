@@ -1,20 +1,24 @@
 # import requests
-from io import StringIO
-from pathlib import Path
-from loguru import logger
-import warnings
+import sys
 import tomllib
-import pandas as pd
-import numpy as np
+import warnings
+from pathlib import Path
+
 import matplotlib.pyplot as plt
+import pandas as pd
+from loguru import logger
 from statsmodels.graphics import tsaplots
-from statsmodels.tsa.stattools import acf
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Read configuration
     logger.debug("Loading configuration from config.toml")
     configfile = Path("config.toml").resolve()
@@ -24,7 +28,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -36,7 +40,7 @@ def main():
         logger.warning(
             "Datafile does not exist. First run src/preprocess.py, and check the timestamp!"
         )
-        exit(1)
+        sys.exit(1)
 
     df = pd.read_parquet(datafile)
     logger.info(df)
@@ -75,7 +79,7 @@ def main():
             logger.warning("Data length too short for meaningful ACF analysis")
             return
         plt.figure(figsize=(10, 5))
-        tsaplots.plot_acf(p["count"], lags=min(52, len(p)//2), title="Autocorrelation Plot")
+        tsaplots.plot_acf(p["count"], lags=min(52, len(p) // 2), title="Autocorrelation Plot")
         plt.xlabel("Lag (weeks)")
         plt.ylabel("Autocorrelation")
         plt.grid(True)
@@ -85,6 +89,7 @@ def main():
         plt.show()
     except Exception as e:
         logger.exception(f"Failed to generate ACF plot: {e}")
+
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,6 @@
 import warnings
 
-import matplotlib.pyplot as plt  # noqa: INP001
+import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 import streamlit as st
@@ -12,7 +12,7 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 def load_penguins_dataset() -> pd.DataFrame:
     penguinsdataset = DatasetFactoryProvider.create_factory(DatasetType.PENGUINS)
     penguinsdataset.download_data()
-    df = pd.read_parquet(penguinsdataset.filepath)  # noqa: PD901
+    df = pd.read_parquet(penguinsdataset.filepath)
     select = [
         "Species",
         "Island",
@@ -48,7 +48,7 @@ def main() -> None:
     )
     color = st.selectbox("Select the color", st.session_state.penguins.columns, index=0)
 
-    fig, ax = plt.subplots()
+    fig, _ax = plt.subplots()
 
     sns.scatterplot(data=st.session_state.penguins, x=option1, y=option2, hue=color)
 

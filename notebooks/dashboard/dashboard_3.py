@@ -27,7 +27,7 @@ def load_penguins_dataset() -> pd.DataFrame:
     return df[select].dropna()
 
 
-def main():
+def main() -> None:
     st.title("Penguins Dashboard")
 
     if "penguins" not in st.session_state:
@@ -37,9 +37,7 @@ def main():
         "Select a penguin species",
         options=st.session_state.penguins["Species"].unique(),
     )
-    filtered_df = st.session_state.penguins[
-        st.session_state.penguins["Species"] == species
-    ]
+    filtered_df = st.session_state.penguins[st.session_state.penguins["Species"] == species]
 
     # Scatter plot
     col1, col2 = st.columns(2)
@@ -48,7 +46,7 @@ def main():
         x_axis = st.selectbox(
             "Select the x-axis",
             filtered_df.columns,
-            index=2, # this will pick a default item
+            index=2,  # this will pick a default item
         )
         y_axis = st.selectbox(
             "Select the y-axis",

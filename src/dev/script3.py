@@ -14,10 +14,8 @@ PosixPath('images/emoji_counts_once.png')
 
 # === Imports ===
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
-
 from src.constants import Columns, Groups
 from src.plot_manager import DistributionPlotSettings
 
@@ -48,7 +46,7 @@ class Script3(BaseScript):
         self.image_dir = image_dir
         self.df = df
 
-    def run(self) -> Optional[Path]:
+    def run(self) -> Path | None:
         """Generate and save emoji distribution plot."""
         df_maap = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.MAAP.value].copy()
         if df_maap.empty:

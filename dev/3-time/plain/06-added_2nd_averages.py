@@ -1,21 +1,24 @@
-import seaborn as sns
+import sys
+import tomllib
+import warnings
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import pandas as pd
-from pathlib import Path
+import seaborn as sns
 from loguru import logger
-import warnings
-import tomllib
-import re
-import pytz
-from datetime import datetime
-import numpy as np
 
 # Configure logger to write to a file
-logger.add("logs/app_{time}.log", rotation="1 MB", format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
+logger.add(
+    "logs/app_{time}.log",
+    rotation="1 MB",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
+)
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-def main():
+
+def main() -> None:
     # Read configuration
     logger.debug("Loading configuration from config.toml")
     configfile = Path("config.toml").resolve()
@@ -25,7 +28,7 @@ def main():
         logger.info("Configuration loaded successfully")
     except Exception as e:
         logger.exception(f"Failed to load config.toml: {e}")
-        exit(1)
+        sys.exit(1)
 
     # Define processed directory
     processed = Path("data/processed")
@@ -73,21 +76,28 @@ def main():
     logger.info(average_all.head())
 
     # Calculate average across all years excluding 2020
-    average_no_2020 = p[p["year"] != 2020].groupby("isoweek")["count"].mean().reset_index(name="avg_count_no_2020")
+    average_no_2020 = (
+        p[p["year"] != 2020]
+        .groupby("isoweek")["count"]
+        .mean()
+        .reset_index(name="avg_count_no_2020")
+    )
     logger.info(average_no_2020.head())
 
     # Calculate and log average message counts (excluding 2020) for specified week ranges
     weeks_1_12_35_53_no_2020 = average_no_2020[
         (average_no_2020["isoweek"].between(1, 12)) | (average_no_2020["isoweek"].between(35, 53))
     ]["avg_count_no_2020"].mean()
-    weeks_12_19_no_2020 = average_no_2020[
-        average_no_2020["isoweek"].between(12, 19)
-    ]["avg_count_no_2020"].mean()
-    weeks_19_35_no_2020 = average_no_2020[
-        average_no_2020["isoweek"].between(19, 35)
-    ]["avg_count_no_2020"].mean()
+    weeks_12_19_no_2020 = average_no_2020[average_no_2020["isoweek"].between(12, 19)][
+        "avg_count_no_2020"
+    ].mean()
+    weeks_19_35_no_2020 = average_no_2020[average_no_2020["isoweek"].between(19, 35)][
+        "avg_count_no_2020"
+    ].mean()
 
-    logger.info(f"Average message count (excl. 2020) for weeks 1-12 and 35-53: {weeks_1_12_35_53_no_2020:.2f}")
+    logger.info(
+        f"Average message count (excl. 2020) for weeks 1-12 and 35-53: {weeks_1_12_35_53_no_2020:.2f}"
+    )
     logger.info(f"Average message count (excl. 2020) for weeks 12-19: {weeks_12_19_no_2020:.2f}")
     logger.info(f"Average message count (excl. 2020) for weeks 19-35: {weeks_19_35_no_2020:.2f}")
 
@@ -95,15 +105,11 @@ def main():
     weeks_1_12_35_53_all = average_all[
         (average_all["isoweek"].between(1, 12)) | (average_all["isoweek"].between(35, 53))
     ]["avg_count_all"].mean()
-    weeks_12_19_all = average_all[
-        average_all["isoweek"].between(12, 19)
-    ]["avg_count_all"].mean()
-    weeks_19_35_all = average_all[
-        average_all["isoweek"].between(19, 35)
-    ]["avg_count_all"].mean()
+    weeks_12_19_all = average_all[average_all["isoweek"].between(12, 19)]["avg_count_all"].mean()
+    weeks_19_35_all = average_all[average_all["isoweek"].between(19, 35)]["avg_count_all"].mean()
 
     # Plotting
-    fig, ax = plt.subplots(figsize=(14, 6))
+    _fig, ax = plt.subplots(figsize=(14, 6))
 
     # Add vertical lines just before weeks 12, 19, and 35
     vline_weeks = [11.5, 18.5, 34.5]  # Just before weeks 12, 19, 35
@@ -244,5 +250,6 @@ def main():
     logger.info(f"Saved plot: {output_path}")
     plt.show()
 
+
 if __name__ == "__main__":
-    main()    
+    main()
