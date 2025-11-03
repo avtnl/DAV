@@ -47,23 +47,30 @@ class Script5(BaseScript):
             self.image_dir = image_dir
 
     def run(self) -> Path | None:
-        """Generate and save multi-group bubble plot."""
-        groups = [Groups.MAAP.value, Groups.GOLFMATEN.value, Groups.DAC.value, Groups.TILLIES.value]
-        df_groups = self.df[self.df[Columns.WHATSAPP_GROUP.value].isin(groups)].copy()
-        if df_groups.empty:
-            self.log_error(f"No data for groups {groups}. Skipping bubble plot.")
+        """Generate and save the words vs punctuation bubble plot."""
+        # Use full dataset (all groups)
+        if self.df.empty:
+            self.log_error("Input DataFrame is empty. Skipping.")
             return None
 
-        data = self.data_preparation.build_visual_relationships_bubble(df_groups)
-        if data is None or data.feature_df.empty:
-            self.log_error("build_visual_relationships_bubble returned nothing.")
+        # Build validated BubblePlotData
+        bubble_data = self.data_preparation.build_visual_relationships_bubble(self.df)
+        if bubble_data is None:
+            self.log_error("build_visual_relationships_bubble returned None.")
             return None
 
-        fig = self.plot_manager.build_visual_relationships_bubble(data.feature_df, self.settings)
+        logger.info(f"Bubble plot data: {len(bubble_data.feature_df)} author-group rows")
+
+        # Generate plot using validated data
+        fig = self.plot_manager.build_visual_relationships_bubble(
+            bubble_data,
+            self.settings
+        )
         if fig is None:
-            self.log_error("Bubble plot creation failed.")
+            self.log_error("Failed to create bubble plot.")
             return None
-        return self.save_figure(fig, self.image_dir, "bubble_plot_words_vs_punct")
+
+        return self.save_figure(fig, self.image_dir, "bubble_words_vs_punct")
 
 
 # === CODING STANDARD (APPLY TO ALL CODE) ===

@@ -116,7 +116,20 @@ class Groups(StrEnum):
     GOLFMATEN = "golfmaten"
     DAC = "dac"
     TILLIES = "tillies"
+    AVT = "AvT"
     UNKNOWN = "unknown"
+
+
+# === Interaction Types for Arc Diagram ===
+class InteractionType(StrEnum):
+    """Types of author interactions in the arc diagram.
+
+    Used in participation table (Script4) to distinguish:
+    - Direct 2-person conversations
+    - 3-person days with one non-participant
+    """
+    PAIRS = "Pairs"
+    NON_PARTICIPANT = "Non-participant"
 
 
 # === Data Feed Types ===

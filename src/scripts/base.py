@@ -16,6 +16,8 @@ from typing import Any
 import pandas as pd  # ← ADDED: required for df: pd.DataFrame type hint
 from loguru import logger
 
+import matplotlib.pyplot as plt
+import warnings
 
 # === Base Script ===
 class BaseScript:
@@ -59,19 +61,26 @@ class BaseScript:
     def save_figure(self, fig, image_dir: Path, name: str) -> Path:
         """
         Save a matplotlib figure to disk.
-
         Args:
             fig: Matplotlib Figure object.
             image_dir: Directory to save image.
             name: Base filename (without extension).
-
         Returns:
             Path to saved image.
         """
+        # Set emoji-compatible font and suppress warnings
+        plt.rcParams['font.family'] = 'Segoe UI Emoji'
+        warnings.filterwarnings(
+            "ignore",
+            category=UserWarning,
+            message="Glyph .* missing from font"
+        )
+
         image_dir.mkdir(parents=True, exist_ok=True)
         path = image_dir / f"{name}.png"
         fig.savefig(path, bbox_inches="tight", dpi=300)
         logger.success(f"Plot saved: {path}")
+        plt.close(fig)  # Prevent memory leak
         return path
 
 
@@ -88,3 +97,5 @@ class BaseScript:
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
 # NEW: Added pandas import, full Google docstrings, and df parameter (2025-11-03)
+# NEW: Added emoji font support in save_figure() (2025-11-03)
+# NEW: Suppress matplotlib glyph warnings (2025-11-03)

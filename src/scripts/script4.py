@@ -62,32 +62,29 @@ class Script4(BaseScript):
         return participation_df
 
     def run(self) -> Path | None:
-        """Generate and save arc diagram."""
-        group = Groups.MAAP.value
-        df_group = (
-            self.df[self.df[Columns.WHATSAPP_GROUP.value] == group].copy()
-            if self.df is not None
-            else self.data_preparation.df[
-                self.data_preparation.df[Columns.WHATSAPP_GROUP.value] == group
-            ].copy()
-        )
-
-        if df_group.empty:
-            self.log_error(f"No data for group '{group}'. Skipping arc diagram.")
+        """Generate and save the author interaction arc diagram."""
+        df_maap = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.MAAP.value].copy()
+        if df_maap.empty:
+            self.log_error(f"No data for group '{Groups.MAAP.value}'. Skipping.")
             return None
 
-        participation_df = self._build_participation_table(df_group, group)
-        if participation_df is None:
-            self.log_error("Participation table creation failed.")
+        # Build validated ArcPlotData (only 1 argument: df)
+        arc_data = self.data_preparation.build_visual_relationships_arc(df_maap)
+        if arc_data is None:
+            self.log_error("build_visual_relationships_arc returned None.")
             return None
+
+        logger.info(f"Arc diagram data: {len(arc_data.participation_df)} participation rows")
 
         fig = self.plot_manager.build_visual_relationships_arc(
-            participation_df, group, self.settings
+            arc_data,
+            self.settings
         )
         if fig is None:
-            self.log_error("Arc diagram plot failed.")
+            self.log_error("Failed to create arc diagram.")
             return None
-        return self.save_figure(fig, self.image_dir, f"network_interactions_{group}")
+
+        return self.save_figure(fig, self.image_dir, "arc_diagram_maap")
 
 
 # === CODING STANDARD (APPLY TO ALL CODE) ===

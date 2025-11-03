@@ -53,7 +53,6 @@ class Script3(BaseScript):
 
     def run(self) -> Path | None:
         """Generate and save the emoji distribution plot."""
-        # df is already filtered to full dataset; we filter MAAP here
         df_maap = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.MAAP.value].copy()
         if df_maap.empty:
             self.log_error(f"No data for group '{Groups.MAAP.value}'. Skipping.")
@@ -66,7 +65,8 @@ class Script3(BaseScript):
 
         logger.info(f"Unique emojis: {len(distribution_data.emoji_counts_df)}")
         fig = self.plot_manager.build_visual_distribution(
-            distribution_data.emoji_counts_df, self.settings
+            distribution_data,   # ← FIXED: pass the model
+            self.settings
         )
         if fig is None:
             self.log_error("Failed to create emoji bar chart.")

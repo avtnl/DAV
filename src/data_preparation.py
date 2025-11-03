@@ -2,12 +2,13 @@
 """
 Data Preparation Module
 
-Prepares validated data for all 5 visualizations:
+Prepares validated data for all 6 visualizations:
 1. Categories: Total messages by group/author (Script1)
 2. Time: DAC weekly heartbeat (Script2)
 3. Distribution: Emoji frequency (Script3)
 4. Arc: Author interactions (Script4)
 5. Bubble: Words vs punctuation (Script5)
+6. Multi-Dimensional: t-SNE + clustering + embeddings (Script6)
 
 **All Pydantic models are defined here** for clean data contracts.
 """
@@ -16,12 +17,12 @@ Prepares validated data for all 5 visualizations:
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal, Dict
 
 import pandas as pd
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator, validator
 
 from .constants import Columns, Groups, Script6ConfigKeys
 
@@ -29,11 +30,23 @@ if TYPE_CHECKING:
     from .data_editor import DataEditor
 
 
+# === Constants for Hard-coded Values ===
+DATE_RANGE_START = datetime(2015, 7, 1, tzinfo=timezone.utc)
+DATE_RANGE_END = datetime(2025, 7, 31, tzinfo=timezone.utc)
+WEEKS_IN_YEAR = range(1, 53)
+MAAP_EXPECTED_AUTHORS = 4
+TSNE_PERPLEXITY_MAX = 30
+HDBSCAN_MIN_CLUSTER_SIZE = 3
+
+
 # === 1. Category Plot Data Contracts (Script1) ===
 class AuthorMessages(BaseModel):
     author: str = Field(..., min_length=1)
     message_count: int = Field(..., ge=0)
     is_avt: bool = False
+
+    class Config:
+        extra = "forbid"
 
 
 class GroupMessages(BaseModel):
@@ -45,6 +58,9 @@ class GroupMessages(BaseModel):
     def total_messages(self) -> int:
         return sum(a.message_count for a in self.authors)
 
+    class Config:
+        extra = "forbid"
+
 
 class CategoryPlotData(BaseModel):
     groups: list[GroupMessages]
@@ -55,6 +71,16 @@ class CategoryPlotData(BaseModel):
     def group_order(self) -> list[str]:
         return [g.whatsapp_group for g in self.groups]
 
+    @model_validator(mode="after")
+    def check_total_matches_sum(self):
+        expected = sum(g.total_messages for g in self.groups)
+        if self.total_messages != expected:
+            raise ValueError("total_messages must equal sum of all GroupMessages.total_messages")
+        return self
+
+    class Config:
+        extra = "forbid"
+
 
 # === 2. Time Plot Data Contract (Script2) ===
 class TimePlotData(BaseModel):
@@ -62,37 +88,90 @@ class TimePlotData(BaseModel):
     global_avg: float
     date_range: tuple[datetime, datetime]
 
+    @validator("weekly_avg")
+    def validate_week_keys(cls, v):
+        invalid = [k for k in v.keys() if k not in WEEKS_IN_YEAR]
+        if invalid:
+            raise ValueError(f"Weekly keys must be in 1–52, got invalid: {invalid}")
+        return v
+
     class Config:
         arbitrary_types_allowed = False
+        extra = "forbid"
 
 
 # === 3. Distribution Plot Data Contract (Script3) ===
 class DistributionPlotData(BaseModel):
     """Validated container for the emoji-frequency DataFrame."""
-    emoji_counts_df: pd.DataFrame
+    emoji_counts_df: pd.DataFrame = Field(
+        ..., description="Columns: ['emoji', 'count_once', 'percent_once']"
+    )
+
+    @model_validator(mode="after")
+    def validate_columns(self):
+        required = {"emoji", "count_once", "percent_once"}
+        if not required.issubset(self.emoji_counts_df.columns):
+            missing = required - set(self.emoji_counts_df.columns)
+            raise ValueError(f"Missing required columns: {missing}")
+        return self
 
     class Config:
         arbitrary_types_allowed = True
+        extra = "forbid"
 
 
 # === 4. Arc Plot Data Contract (Script4) ===
 class ArcPlotData(BaseModel):
     """Validated container for the participation table used by the arc diagram."""
-    participation_df: pd.DataFrame
+    participation_df: pd.DataFrame = Field(
+        ..., description="Columns: ['type', 'author', 'total_messages', +author_names]"
+    )
 
     class Config:
         arbitrary_types_allowed = True
+        extra = "forbid"
 
 
 # === 5. Bubble Plot Data Contract (Script5) ===
 class BubblePlotData(BaseModel):
     """Validated container for the feature table used by the bubble plot."""
-    feature_df: pd.DataFrame
+    feature_df: pd.DataFrame = Field(
+        ...,
+        description="Columns: ['whatsapp_group', 'author', 'avg_words', 'avg_punct', 'message_count']"
+    )
+
+    @model_validator(mode="after")
+    def validate_columns(self):
+        required = {
+            Columns.WHATSAPP_GROUP.value,
+            Columns.AUTHOR.value,
+            Columns.AVG_WORDS.value,
+            Columns.AVG_PUNCT.value,
+            Columns.MESSAGE_COUNT.value,
+        }
+        if not required.issubset(self.feature_df.columns):
+            missing = required - set(self.feature_df.columns)
+            raise ValueError(f"Missing required columns: {missing}")
+        return self
 
     class Config:
         arbitrary_types_allowed = True
+        extra = "forbid"
+
 
 # === 6. Multi Dimensional Plot (Script6) ===
+class EmbeddingModel(int):
+    STYLE = 1
+    MINILM = 2
+    MPNET = 3
+
+
+MODEL_NAME_MAP = {
+    EmbeddingModel.STYLE: "AnnaWegmann/Style-Embedding",
+    EmbeddingModel.MINILM: "sentence-transformers/all-MiniLM-L6-v2",
+    EmbeddingModel.MPNET: "sentence-transformers/all-mpnet-base-v2",
+}
+
 class MultiDimPlotData(BaseModel):
     """Validated container for t-SNE + clustering + embeddings."""
     agg_df: pd.DataFrame = Field(..., description="Aggregated features with t-SNE coords and clusters")
@@ -102,6 +181,16 @@ class MultiDimPlotData(BaseModel):
 
     class Config:
         arbitrary_types_allowed = True
+        extra = "forbid"
+
+
+class MultiDimPlotSettings(BaseModel):
+    """Configuration for multi-dimensional t-SNE visualization (Script6)."""
+    by_group: bool = True
+    draw_ellipses: bool = False
+    use_embeddings: bool = True
+    hybrid_features: bool = True
+    embedding_model: int = 3  # 1=Style, 2=MiniLM, 3=MPNet
 
 
 # === Base Handler ===
@@ -120,22 +209,31 @@ class BaseHandler:
 class DataPreparation(BaseHandler):
     def __init__(self, data_editor: DataEditor | None = None) -> None:
         self.data_editor = data_editor
-        self.df: pd.DataFrame | None = None
+
 
     # === 1. Categories (Script1) ===
     def build_visual_categories(self, df: pd.DataFrame) -> CategoryPlotData | None:
+        """
+        Build category plot data: messages per author per group, with AvT highlighted.
+
+        Args:
+            df: Input DataFrame with required columns.
+
+        Returns:
+            CategoryPlotData with grouped author stats or None on failure.
+
+        Raises:
+            Exception: If processing fails (logged).
+        """
         df = self._handle_empty_df(df, "build_visual_categories")
-        if df is None or df.empty:
+        if df.empty:
             return None
 
         try:
-            mask = (
-                (df[Columns.TIMESTAMP] >= "2015-07-01")
-                & (df[Columns.TIMESTAMP] <= "2025-07-31")
-            )
+            mask = (df[Columns.TIMESTAMP] >= DATE_RANGE_START) & (df[Columns.TIMESTAMP] <= DATE_RANGE_END)
             df_filtered = df[mask].copy()
             if df_filtered.empty:
-                logger.warning("No messages in date range 2015-07-01 to 2025-07-31")
+                logger.warning(f"No messages in date range {DATE_RANGE_START.date()} to {DATE_RANGE_END.date()}")
                 return None
 
             counts = (
@@ -154,7 +252,7 @@ class DataPreparation(BaseHandler):
                 ordered=True,
             )
             counts = counts.sort_values(Columns.WHATSAPP_GROUP).reset_index(drop=True)
-            counts["is_avt"] = counts[Columns.AUTHOR] == "AvT"
+            counts["is_avt"] = counts[Columns.AUTHOR] == Groups.AVT
 
             groups_data = []
             total_messages = 0
@@ -200,7 +298,7 @@ class DataPreparation(BaseHandler):
             result = CategoryPlotData(
                 groups=groups_data,
                 total_messages=total_messages,
-                date_range=(datetime(2015, 7, 1), datetime(2025, 7, 31)),
+                date_range=(DATE_RANGE_START, DATE_RANGE_END),
             )
 
             logger.success(
@@ -213,10 +311,23 @@ class DataPreparation(BaseHandler):
             logger.exception(f"build_visual_categories failed: {e}")
             return None
 
-    # === 2. Time (Script2) - Returns dict, not Series ===
+
+    # === 2. Time (Script2) ===
     def build_visual_time(self, df: pd.DataFrame) -> TimePlotData | None:
+        """
+        Build weekly message average for DAC group.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            TimePlotData with weekly averages or None.
+
+        Raises:
+            Exception: If processing fails (logged).
+        """
         df = self._handle_empty_df(df, "build_visual_time")
-        if df is None or df.empty:
+        if df.empty:
             return None
 
         try:
@@ -227,11 +338,9 @@ class DataPreparation(BaseHandler):
 
             weekly_counts = df_dac.groupby(Columns.WEEK).size()
             p = weekly_counts.groupby(weekly_counts.index).mean()
-            p = p.reindex(range(1, 53), fill_value=0.0)
+            p = p.reindex(WEEKS_IN_YEAR, fill_value=0.0)
 
-            # Convert Series → dict
-            weekly_avg_dict = p.to_dict()  # {1: 12.3, 2: 15.1, ...}
-
+            weekly_avg_dict = p.to_dict()
             average_all = float(p.mean())
             date_range = (
                 df_dac[Columns.TIMESTAMP].min().date(),
@@ -250,8 +359,21 @@ class DataPreparation(BaseHandler):
             logger.exception(f"build_visual_time failed: {e}")
             return None
 
+
     # === 3. Distribution (Script3) ===
     def build_visual_distribution(self, df: pd.DataFrame) -> DistributionPlotData | None:
+        """
+        Build emoji frequency table.
+
+        Args:
+            df: DataFrame with LIST_OF_ALL_EMOJIS column.
+
+        Returns:
+            DistributionPlotData or None.
+
+        Raises:
+            Exception: If parsing or counting fails.
+        """
         df = self._handle_empty_df(df, "build_visual_distribution")
         if df.empty:
             return None
@@ -266,10 +388,8 @@ class DataPreparation(BaseHandler):
                 try:
                     return ast.literal_eval(cell)
                 except (ValueError, SyntaxError):
-                    # Fallback: split by space and filter valid emojis
                     return [e.strip() for e in str(cell).split() if e.strip() in emoji.EMOJI_DATA]
 
-            # Parse and flatten
             emoji_lists = df[Columns.LIST_OF_ALL_EMOJIS.value].apply(parse_emoji_list)
             all_emojis = pd.Series([e for sublist in emoji_lists for e in sublist])
 
@@ -301,6 +421,7 @@ class DataPreparation(BaseHandler):
             logger.exception(f"build_visual_distribution failed: {e}")
             return None
 
+
     # === 4. Arc (Script4) ===
     def build_visual_relationships_arc(self, df_group: pd.DataFrame) -> ArcPlotData | None:
         """
@@ -314,25 +435,25 @@ class DataPreparation(BaseHandler):
 
         Returns:
             ArcPlotData or None.
+
+        Raises:
+            Exception: If processing fails.
         """
         df = self._handle_empty_df(df_group, "build_visual_relationships_arc")
         if df.empty:
             return None
 
         try:
-            # 1. Extract authors from data
             authors = sorted(df[Columns.AUTHOR].unique())
-            if len(authors) != 4:
-                logger.error(f"MAAP group must have exactly 4 authors, found {len(authors)}")
+            if len(authors) != MAAP_EXPECTED_AUTHORS:
+                logger.error(f"MAAP group must have exactly {MAAP_EXPECTED_AUTHORS} authors, found {len(authors)}")
                 return None
 
-            # 2. Add date column
             df = df.copy()
             df["date"] = df[Columns.TIMESTAMP].dt.date
 
             rows = []
 
-            # 3. Group by date
             for day, day_df in df.groupby("date"):
                 n_part = day_df[Columns.X_NUMBER_OF_UNIQUE_PARTICIPANTS_THAT_DAY].iloc[0]
                 if n_part not in (2, 3):
@@ -381,8 +502,21 @@ class DataPreparation(BaseHandler):
             logger.exception(f"build_visual_relationships_arc failed: {e}")
             return None
 
-# === 5. Bubble (Script5) ===
+
+    # === 5. Bubble (Script5) ===
     def build_visual_relationships_bubble(self, df_groups: pd.DataFrame) -> BubblePlotData | None:
+        """
+        Build bubble plot features: avg words, punctuation, message count per author-group.
+
+        Args:
+            df_groups: DataFrame with group, author, word/punct counts.
+
+        Returns:
+            BubblePlotData or None.
+
+        Raises:
+            Exception: If aggregation fails.
+        """
         df = self._handle_empty_df(df_groups, "build_visual_relationships_bubble")
         if df.empty:
             return None
@@ -424,7 +558,7 @@ class DataPreparation(BaseHandler):
             return None
 
 
-# === 6. Multi-Dimensional Style (Script6) ===
+    # === 6. Multi-Dimensional Style (Script6) ===
     def build_visual_multi_dimensions(
         self,
         df: pd.DataFrame,
@@ -438,14 +572,17 @@ class DataPreparation(BaseHandler):
             settings: Dict with by_group, use_embeddings, hybrid_features, embedding_model
 
         Returns:
-            MultiDimPlotData or None
+            MultiDimPlotData or None.
+
+        Raises:
+            Exception: If any step fails.
         """
         df = self._handle_empty_df(df, "build_visual_multi_dimensions")
         if df.empty:
             return None
 
         try:
-            # === 1. Load and rename (re-use logic from style_analyzer) ===
+            # Rename columns to standard names
             df = df.copy()
             rename_map = {}
             for col in df.columns:
@@ -462,11 +599,11 @@ class DataPreparation(BaseHandler):
             if "message_cleaned" not in df.columns:
                 df["message_cleaned"] = ""
 
-            # === 2. Add temp group column (AvT isolated) ===
+            # Isolate AvT into temp group
             df[Columns.WHATSAPP_GROUP_TEMP] = df[Columns.WHATSAPP_GROUP.value]
-            df.loc[df[Columns.AUTHOR.value] == "AvT", Columns.WHATSAPP_GROUP_TEMP] = "AvT"
+            df.loc[df[Columns.AUTHOR.value] == Groups.AVT, Columns.WHATSAPP_GROUP_TEMP] = Groups.AVT
 
-            # === 3. Aggregation ===
+            # Aggregation keys
             group_cols = [Columns.AUTHOR.value, Columns.YEAR.value]
             full_group_cols = [*group_cols, Columns.WHATSAPP_GROUP_TEMP]
 
@@ -499,7 +636,7 @@ class DataPreparation(BaseHandler):
 
             agg = df.groupby(full_group_cols).agg(**agg_dict).reset_index()
 
-            # === 4. pct_replies ===
+            # Compute pct_replies
             prev = df[Columns.PREVIOUS_AUTHOR.value]
             curr = df[Columns.AUTHOR.value]
             reply_mask = prev.notna() & (prev != curr)
@@ -510,7 +647,7 @@ class DataPreparation(BaseHandler):
             reply_df = reply_df.drop(columns="index")
             agg = agg.merge(reply_df, on=full_group_cols, how="left").fillna(0)
 
-            # === 5. Style features ===
+            # Style features
             style_cols = [
                 "msg_count", "words_total", "emojis_total", "punct_total", "caps_total",
                 "pics_total", "links_total", "attachments_total", "mean_response", "std_response",
@@ -521,28 +658,12 @@ class DataPreparation(BaseHandler):
             ]
             X = agg[style_cols].copy()
 
-            # === 6. Embeddings (optional) ===
-            use_emb = settings.get(Script6ConfigKeys.USE_EMBEDDINGS)
-            hybrid = settings.get(Script6ConfigKeys.HYBRID_FEATURES)
-            model_id = settings.get(Script6ConfigKeys.EMBEDDING_MODEL)
+            # Embedding settings
+            use_emb = settings.get(Script6ConfigKeys.USE_EMBEDDINGS, False)
+            hybrid = settings.get(Script6ConfigKeys.HYBRID_FEATURES, True)
+            model_id = settings.get(Script6ConfigKeys.EMBEDDING_MODEL, EmbeddingModel.MPNET)
 
-            # Safety check (shouldn't happen)
-            if use_emb is None:
-                logger.warning("USE_EMBEDDINGS missing from settings. Defaulting to False.")
-                use_emb = False
-            if hybrid is None:
-                logger.warning("HYBRID_FEATURES missing from settings. Defaulting to True.")
-                hybrid = True
-            if model_id is None:
-                logger.warning("EMBEDDING_MODEL missing from settings. Defaulting to 3.")
-                model_id = 3
-
-            model_map = {
-                1: "AnnaWegmann/Style-Embedding",
-                2: "sentence-transformers/all-MiniLM-L6-v2",
-                3: "sentence-transformers/all-mpnet-base-v2",
-            }
-            model_name = model_map.get(model_id, model_map[3])
+            model_name = MODEL_NAME_MAP.get(model_id, MODEL_NAME_MAP[EmbeddingModel.MPNET])
 
             if use_emb:
                 from sentence_transformers import SentenceTransformer
@@ -561,7 +682,7 @@ class DataPreparation(BaseHandler):
                     X = agg[emb_cols].fillna(0)
                     style_cols = emb_cols
 
-            # === 7. Dimension Reduction ===
+            # Dimension reduction
             from sklearn.preprocessing import StandardScaler
             from sklearn.decomposition import PCA
             X_scaled = StandardScaler().fit_transform(X)
@@ -574,14 +695,15 @@ class DataPreparation(BaseHandler):
             X_pca = pca.fit_transform(X_scaled)
             
             from sklearn.manifold import TSNE
-            tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(X)-1))
+            perplexity = min(TSNE_PERPLEXITY_MAX, len(X) - 1)
+            tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
             tsne_coords = tsne.fit_transform(X_pca)
             agg["tsne_x"] = tsne_coords[:, 0]
             agg["tsne_y"] = tsne_coords[:, 1]
 
-            # === 8. Clustering ===
+            # Clustering
             import hdbscan
-            clusterer = hdbscan.HDBSCAN(min_cluster_size=3, metric='euclidean')
+            clusterer = hdbscan.HDBSCAN(min_cluster_size=HDBSCAN_MIN_CLUSTER_SIZE, metric='euclidean')
             agg["cluster"] = clusterer.fit_predict(X_scaled)
 
             result = MultiDimPlotData(
@@ -596,7 +718,20 @@ class DataPreparation(BaseHandler):
         except Exception as e:
             logger.exception(f"build_visual_multi_dimensions failed: {e}")
             return None
-        
+
+
+# === Public API ===
+__all__ = [
+    "CategoryPlotData",
+    "TimePlotData",
+    "DistributionPlotData",
+    "ArcPlotData",
+    "BubblePlotData",
+    "MultiDimPlotData",
+    "MultiDimPlotSettings",
+    "DataPreparation",
+]
+
 
 # === CODING STANDARD ===
 # - `# === Module Docstring ===` before """
@@ -610,9 +745,5 @@ class DataPreparation(BaseHandler):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Full refactor with Google docstring, return type, and SEnum (2025-10-31)
-# NEW: Renamed BubbleNewPlotSettings → BubblePlotSettings (2025-11-03)
-# NEW: Fixed df assignment – use BaseScript.df, removed self.df = df (2025-11-03)
-# NEW: Fixed pipeline registry – df in base_args, no df_arg for Script5 (2025-11-03)
-# NEW: Renamed output columns to match Columns.AVG_WORDS, AVG_PUNCT, MESSAGE_COUNT (2025-11-03)
-# NEW: Added MultiDimPlotData, build_visual_multi_dimensions (2025-11-03)
+# NEW: Migrated @root_validator → @model_validator (Pydantic v2) (2025-11-03)
+# NEW: All previous improvements preserved: constants, column checks, strict models
