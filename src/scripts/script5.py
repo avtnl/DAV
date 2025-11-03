@@ -7,9 +7,9 @@ Filters specified groups, computes averages, and renders bubble plot via
 
 Examples
 --------
->>> script = Script5(...)
+>>> script = Script5(file_manager, data_preparation, plot_manager, image_dir, df)
 >>> script.run()
-PosixPath('images/bubble_plot_words_vs_punct.png')
+PosixPath('images/bubble_words_vs_punct.png')
 """
 
 # === Imports ===
@@ -37,23 +37,38 @@ class Script5(BaseScript):
             df: pd.DataFrame | None = None,
             settings: BubblePlotSettings | None = None,
         ) -> None:
-            super().__init__(
-                file_manager,
-                data_preparation=data_preparation,
-                plot_manager=plot_manager,
-                settings=settings or BubblePlotSettings(),
-                df=df,
-            )
-            self.image_dir = image_dir
+        """
+        Initialize Script5 with required components.
+
+        Args:
+            file_manager: FileManager (required by BaseScript).
+            data_preparation: DataPreparation for bubble data.
+            plot_manager: PlotManager for rendering.
+            image_dir: Directory to save plot.
+            df: Enriched DataFrame (optional, passed to BaseScript).
+            settings: Bubble plot settings (optional).
+        """
+        super().__init__(
+            file_manager,
+            data_preparation=data_preparation,
+            plot_manager=plot_manager,
+            settings=settings or BubblePlotSettings(),
+            df=df,
+        )
+        self.image_dir = image_dir
 
     def run(self) -> Path | None:
-        """Generate and save the words vs punctuation bubble plot."""
-        # Use full dataset (all groups)
+        """
+        Generate and save the words vs punctuation bubble plot.
+
+        Returns:
+            Path: Path to saved PNG file.
+            None: If data missing or plot fails.
+        """
         if self.df.empty:
             self.log_error("Input DataFrame is empty. Skipping.")
             return None
 
-        # Build validated BubblePlotData
         bubble_data = self.data_preparation.build_visual_relationships_bubble(self.df)
         if bubble_data is None:
             self.log_error("build_visual_relationships_bubble returned None.")
@@ -61,7 +76,6 @@ class Script5(BaseScript):
 
         logger.info(f"Bubble plot data: {len(bubble_data.feature_df)} author-group rows")
 
-        # Generate plot using validated data
         fig = self.plot_manager.build_visual_relationships_bubble(
             bubble_data,
             self.settings
@@ -83,7 +97,7 @@ class Script5(BaseScript):
 # - Examples: with >>>
 # - No long ----- lines
 # - No mixed styles
-# - Add markers #NEW at the end of the module capturing the latest changes. There can be a list of more #NEW lines.
+# - Add markers #NEW at the end of the module capturing the latest changes.
 
 # NEW: Full refactor with Google docstring, return type, and SEnum (2025-10-31)
 # NEW: Renamed BubbleNewPlotSettings → BubblePlotSettings (2025-11-03)

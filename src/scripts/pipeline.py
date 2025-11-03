@@ -1,4 +1,3 @@
-# === pipeline.py ===
 # === Module Docstring ===
 """
 Central pipeline orchestrator.
@@ -9,9 +8,9 @@ in order. Automatically runs Script0 (preprocessing) if needed.
 Uses **BaseModel configs**, **validated data contracts**, and **flexible script registry**.
 """
 
+# === Imports ===
 from __future__ import annotations
 
-# === Imports ===
 import sys
 import tomllib
 from datetime import datetime
@@ -73,40 +72,34 @@ class Pipeline:
 
     # === Main Runner ===
     @staticmethod
-    # ruff: noqa: C901, PLR0912, PLR0915
     def run(
         scripts: list[int] | None = None,
-        script_6_details: list | None = None,  # ← Passed directly to Script6
+        script_6_details: list | None = None,
     ) -> None:
         """Execute scripts in order with preprocessing fallback."""
         try:
-            # Load config
             config = Pipeline._load_config()
             processed_dir = Path(config["processed"])
             image_dir = Path(config["image"])
 
-            # Use SCRIPTS from entry point (main)
             if scripts is None:
                 scripts = [1]
                 logger.info("No SCRIPTS supplied - using fallback: [1]")
             else:
                 logger.info(f"Running user-defined SCRIPTS: {scripts}")
 
-            # Setup logging
             Pipeline._setup_logging()
 
-            # Core components
             file_manager = FileManager()
             data_editor = DataEditor()
             data_preparation = DataPreparation(data_editor=data_editor)
             plot_manager = PlotManager()
-            plot_manager.data_preparation = data_preparation  # Inject dependency
+            plot_manager.data_preparation = data_preparation
 
             df: pd.DataFrame | None = None
             tables_dir = Path("tables")
             tables_dir.mkdir(exist_ok=True)
 
-            # Load enriched CSV (whatsapp_all_enriched-*.csv)
             df = file_manager.get_latest_preprocessed_df()
             if df is None or df.empty:
                 logger.info("No enriched CSV or Script0 requested - forcing Script0.")
@@ -114,49 +107,16 @@ class Pipeline:
 
             # === Script Registry ===
             script_registry = {
-                0: (
-                    Script0,
-                    [file_manager, data_editor, data_preparation, processed_dir, config, image_dir],
-                    None  # No df needed
-                ),
-                1: (
-                    Script1,
-                    [file_manager, data_preparation, plot_manager, image_dir, tables_dir, df],
-                    None
-                ),
-                2: (
-                    Script2,
-                    [file_manager, data_preparation, plot_manager, image_dir],
-                    df
-                ),
-                3: (
-                    Script3,
-                    [file_manager, data_editor, data_preparation, plot_manager, image_dir, df],
-                    None
-                ),
-                4: (
-                    Script4,
-                    [file_manager, data_preparation, plot_manager, image_dir, tables_dir],
-                    df
-                ),
-                5: (
-                    Script5,
-                    [file_manager, data_preparation, plot_manager, image_dir, df],
-                    None
-                ),
-                6: (
-                    Script6,
-                    [file_manager, data_preparation, plot_manager, image_dir, df],
-                    None
-                ),
-                7: (
-                    Script7,
-                    [file_manager, image_dir],
-                    None
-                )                
+                0: (Script0, [file_manager, data_editor, data_preparation, processed_dir, config, image_dir], None),
+                1: (Script1, [file_manager, data_preparation, plot_manager, image_dir, tables_dir, df], None),
+                2: (Script2, [file_manager, data_preparation, plot_manager, image_dir], df),
+                3: (Script3, [file_manager, data_editor, data_preparation, plot_manager, image_dir, df], None),
+                4: (Script4, [file_manager, data_preparation, plot_manager, image_dir, tables_dir], df),
+                5: (Script5, [file_manager, data_preparation, plot_manager, image_dir, df], None),
+                6: (Script6, [file_manager, data_preparation, plot_manager, image_dir, df], None),
+                7: (Script7, [file_manager, image_dir], None)
             }
 
-            # === Single Execution Loop ===
             instances: dict[int, Any] = {}
 
             for script_id in scripts:
@@ -164,11 +124,9 @@ class Pipeline:
                     logger.warning(f"Script {script_id} not in registry. Skipping.")
                     continue
 
-                # Unpack entry
                 cls, base_args, df_arg = script_registry[script_id]
-                args = base_args.copy()  # e.g. [file_manager, ..., image_dir]
+                args = base_args.copy()
 
-                # === Script1: Categories ===
                 if script_id == 1:
                     config_obj = CategoriesPlotSettings(
                         figsize=(16, 9),
@@ -178,50 +136,34 @@ class Pipeline:
                     )
                     args.append(config_obj)
 
-                # === Script3: Distribution ===
                 if script_id == 3:
                     args.append(DistributionPlotSettings())
 
-                # === Script4: Arc ===
                 if script_id == 4:
                     args.append(ArcPlotSettings())
 
-                # === Script5: Bubble ===
                 if script_id == 5:
                     args.append(BubblePlotSettings())
 
-                # === Script6: Multi-Dimensional Style ===
                 if script_id == 6:
                     if script_6_details is None:
                         logger.error("SCRIPT_6_DETAILS not provided for Script6. Check main.py.")
                         continue
-
-                    # ORDER: [plot_type, by_group, draw_ellipses, use_embeddings, hybrid_features, embedding_model]
-                    plot_type = script_6_details[0]
-                    by_group = script_6_details[1]
-                    draw_ellipses = script_6_details[2]
-                    use_embeddings = script_6_details[3]
-                    hybrid_features = script_6_details[4]
-                    embedding_model = script_6_details[5]
-
                     args.append(MultiDimPlotSettings(
-                        by_group=by_group,
-                        draw_ellipses=draw_ellipses,
-                        use_embeddings=use_embeddings,
-                        hybrid_features=hybrid_features,
-                        embedding_model=embedding_model,
+                        by_group=script_6_details[1],
+                        draw_ellipses=script_6_details[2],
+                        use_embeddings=script_6_details[3],
+                        hybrid_features=script_6_details[4],
+                        embedding_model=script_6_details[5],
                     ))
-                    args.append(script_6_details)  # Pass full list to Script6
+                    args.append(script_6_details)
 
-                # === Script7: Streamlit Dashboard ===
                 if script_id == 7:
                     args = [file_manager, image_dir]
 
-                # Inject df if provided (after settings)
                 if df_arg is not None and script_id in {1, 2, 3, 4, 5}:
                     args.append(df_arg)
 
-                # === Special handling for Script0 ===
                 if script_id == 0:
                     logger.info("Running Script0 (preprocessing)...")
                     try:
@@ -234,29 +176,27 @@ class Pipeline:
                         tables_dir = result.get("tables_dir", tables_dir)
                         instances[script_id] = instance
                         logger.info(f"Script0 completed. DF shape: {df.shape}")
-                    except Exception as e:  # noqa: BLE001
+                    except Exception as e:
                         logger.exception(f"Script0 failed: {e}")
                         return
                     continue
 
-                # === Instantiate ===
                 try:
                     instance = cls(*args)
                     instances[script_id] = instance
                     logger.info(f"Initialized Script {script_id}")
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     logger.error(f"Failed to initialize Script {script_id}: {e}")
                     continue
 
-                # === Run ===
                 logger.info(f"Running Script {script_id}...")
                 try:
                     instance.run()
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     logger.exception(f"Script {script_id} failed: {e}")
 
             logger.success("Pipeline completed successfully.")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.exception(f"Pipeline failed: {e}")
 
 

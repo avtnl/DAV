@@ -1,16 +1,17 @@
 # === Module Docstring ===
 """
 Relationship plot: Arc diagram of messaging interactions for the MAAP group (Script 4).
-Note: This plot is a bonus and not part of the 5 plots assignment!
+
+Bonus plot (not part of the 5-plot assignment).
 
 Builds participation table and renders network arcs via
 :meth:`src.plot_manager.PlotManager.build_visual_relationships_arc`.
 
 Examples
 --------
->>> script = Script4(...)
+>>> script = Script4(file_manager, data_preparation, plot_manager, image_dir, tables_dir, df)
 >>> script.run()
-PosixPath('images/network_interactions_maap.png')
+PosixPath('images/arc_diagram_maap.png')
 """
 
 # === Imports ===
@@ -39,6 +40,18 @@ class Script4(BaseScript):
         settings: ArcPlotSettings | None = None,
         df: pd.DataFrame | None = None,
     ) -> None:
+        """
+        Initialize Script4 with required components.
+
+        Args:
+            file_manager: FileManager for saving tables.
+            data_preparation: DataPreparation for arc data.
+            plot_manager: PlotManager for rendering.
+            image_dir: Directory to save plot.
+            tables_dir: Directory to save participation table.
+            settings: Arc plot settings (optional).
+            df: Enriched DataFrame (optional, passed to BaseScript).
+        """
         super().__init__(
             file_manager,
             data_preparation=data_preparation,
@@ -51,24 +64,38 @@ class Script4(BaseScript):
 
     # === Private Helpers ===
     def _build_participation_table(self, df_group: pd.DataFrame, group: str) -> pd.DataFrame | None:
-        """Build and save participation table."""
+        """
+        Build and save participation table for a group.
+
+        Args:
+            df_group: Filtered DataFrame for the group.
+            group: Group name (for logging).
+
+        Returns:
+            pd.DataFrame: Participation table or None if empty.
+        """
         data = self.data_preparation.build_visual_relationships_arc(df_group)
         if data is None or data.participation_df.empty:
             self.log_error("participation table empty.")
             return None
         participation_df = data.participation_df
-        self.file_manager.save_table(participation_df, self.tables_dir, f"participation_{group}")  # ← use file_manager
+        self.file_manager.save_table(participation_df, self.tables_dir, f"participation_{group}")
         logger.info(f"Saved participation table for {group}")
         return participation_df
 
     def run(self) -> Path | None:
-        """Generate and save the author interaction arc diagram."""
+        """
+        Generate and save the author interaction arc diagram.
+
+        Returns:
+            Path: Path to saved PNG file.
+            None: If data missing or plot fails.
+        """
         df_maap = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.MAAP.value].copy()
         if df_maap.empty:
             self.log_error(f"No data for group '{Groups.MAAP.value}'. Skipping.")
             return None
 
-        # Build validated ArcPlotData (only 1 argument: df)
         arc_data = self.data_preparation.build_visual_relationships_arc(df_maap)
         if arc_data is None:
             self.log_error("build_visual_relationships_arc returned None.")

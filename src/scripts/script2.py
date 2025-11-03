@@ -1,10 +1,15 @@
-# === script2.py ===
 # === Module Docstring ===
 """
 Time plot: DAC weekly heartbeat (Script 2).
 
 Uses enriched DataFrame, builds TimePlotData,
 and generates weekly average line chart.
+
+Examples
+--------
+>>> script = Script2(file_manager, data_preparation, plot_manager, image_dir, df)
+>>> script.run()
+PosixPath('images/time_plot_dac.png')
 """
 
 # === Imports ===
@@ -29,6 +34,16 @@ class Script2(BaseScript):
         image_dir: Path,
         df,
     ) -> None:
+        """
+        Initialize Script2 with required components.
+
+        Args:
+            file_manager: FileManager (required by BaseScript).
+            data_preparation: DataPreparation for time aggregation.
+            plot_manager: PlotManager for rendering.
+            image_dir: Directory to save plot.
+            df: Enriched DataFrame (required).
+        """
         super().__init__(
             file_manager=file_manager,
             data_preparation=data_preparation,
@@ -38,12 +53,19 @@ class Script2(BaseScript):
         self.df = df
 
     def run(self) -> Path | None:
+        """
+        Generate and save DAC weekly message heartbeat.
+
+        Returns:
+            Path: Path to saved PNG file.
+            None: If data missing or plot fails.
+        """
         if self.df is None or self.df.empty:
             self.log_error("No DataFrame provided to Script2.")
             return None
 
         df_dac = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.DAC.value]
-        logger.info(f"DAC group rows: {len(df_dac)}")  # ← ADD THIS
+        logger.info(f"DAC group rows: {len(df_dac)}")
         if df_dac.empty:
             self.log_error(f"No data for group '{Groups.DAC.value}'. Skipping.")
             return None

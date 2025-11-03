@@ -1,4 +1,3 @@
-# === base.py ===
 # === Module Docstring ===
 """
 Base module for all analysis scripts.
@@ -7,21 +6,23 @@ Provides shared utilities:
 - ``file_manager``, ``data_editor``, ``data_preparation``, ``plot_manager``
 - Optional ``df`` (enriched DataFrame)
 - ``log_error`` and ``save_figure`` helpers
+
+All scripts inherit from :class:`BaseScript` to ensure consistency.
 """
 
 # === Imports ===
 from pathlib import Path
 from typing import Any
 
-import pandas as pd  # ← ADDED: required for df: pd.DataFrame type hint
+import pandas as pd
 from loguru import logger
-
 import matplotlib.pyplot as plt
 import warnings
 
+
 # === Base Script ===
 class BaseScript:
-    """Common functionality for all scripts."""
+    """Common functionality for all analysis scripts."""
 
     def __init__(
         self,
@@ -38,7 +39,7 @@ class BaseScript:
         Initialize shared components.
 
         Args:
-            file_manager: FileManager instance.
+            file_manager: FileManager instance for I/O operations.
             data_editor: DataEditor instance (optional).
             data_preparation: DataPreparation instance (optional).
             plot_manager: PlotManager instance (optional).
@@ -55,20 +56,24 @@ class BaseScript:
         self.df = df
 
     def log_error(self, msg: str) -> None:
-        """Log an error message."""
+        """Log an error message using loguru."""
         logger.error(msg)
 
     def save_figure(self, fig, image_dir: Path, name: str) -> Path:
         """
-        Save a matplotlib figure to disk.
+        Save a matplotlib figure to disk with emoji support.
+
         Args:
             fig: Matplotlib Figure object.
             image_dir: Directory to save image.
             name: Base filename (without extension).
+
         Returns:
-            Path to saved image.
+            Path: Full path to saved PNG file.
+
+        Note:
+            Uses 'Segoe UI Emoji' font and suppresses missing glyph warnings.
         """
-        # Set emoji-compatible font and suppress warnings
         plt.rcParams['font.family'] = 'Segoe UI Emoji'
         warnings.filterwarnings(
             "ignore",
@@ -80,7 +85,7 @@ class BaseScript:
         path = image_dir / f"{name}.png"
         fig.savefig(path, bbox_inches="tight", dpi=300)
         logger.success(f"Plot saved: {path}")
-        plt.close(fig)  # Prevent memory leak
+        plt.close(fig)
         return path
 
 

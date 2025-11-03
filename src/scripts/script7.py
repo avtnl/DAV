@@ -1,4 +1,3 @@
-# === script7.py ===
 # === Module Docstring ===
 """
 Launch Streamlit dashboard (Script7).
@@ -8,7 +7,6 @@ Runs `streamlit run src/dashboard/streamlit_app.py` with safe auto-open.
 
 Examples
 --------
->>> from src.scripts.script7 import Script7
 >>> script = Script7(file_manager, image_dir=Path("images"))
 >>> result = script.run()
 >>> print(result["url"])
@@ -46,7 +44,7 @@ class Script7(BaseScript):
 
         Args:
             file_manager: FileManager instance (required for BaseScript).
-            image_dir: Directory containing generated plots (for dashboard display).
+            image_dir: Directory containing generated plots.
             *args: Ignored positional arguments.
             **kwargs: Ignored keyword arguments.
         """
@@ -57,18 +55,21 @@ class Script7(BaseScript):
         self.url = f"http://localhost:{self.port}"
 
     def run(self) -> dict[str, Any] | None:
-        """Start Streamlit dashboard in a subprocess with smart browser auto-open."""
-        # Validate dashboard file
+        """
+        Start Streamlit dashboard in a subprocess with smart browser auto-open.
+
+        Returns:
+            dict: Contains 'process', 'url', 'port'.
+            None: If dashboard file missing or launch fails.
+        """
         if not self.dashboard_path.exists():
             self.log_error(f"Dashboard file not found: {self.dashboard_path}")
             return None
 
-        # Warn if images missing
         if not self.image_dir.exists():
             logger.warning(f"Image directory not found: {self.image_dir}")
             logger.info("Dashboard will run but plots may not appear.")
 
-        # Build command
         cmd = [
             "streamlit", "run", str(self.dashboard_path),
             "--server.port", str(self.port),
@@ -80,14 +81,12 @@ class Script7(BaseScript):
         logger.info(f"Launching Streamlit dashboard: {' '.join(cmd)}")
 
         try:
-            # Start process (non-blocking)
             process = Popen(cmd)
             logger.info(f"Streamlit process started (PID: {process.pid})")
 
-            # === SMART AUTO-OPEN BROWSER ===
             if sys.stdin and sys.stdin.isatty():
                 logger.info("Interactive terminal detected – opening browser in 2s...")
-                time.sleep(2)  # Allow Streamlit to initialize
+                time.sleep(2)
                 success = webbrowser.open(self.url)
                 if success:
                     logger.success(f"Browser opened: {self.url}")

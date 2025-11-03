@@ -1,4 +1,3 @@
-# === script3.py ===
 # === Module Docstring ===
 """
 Distribution plot: Emoji distribution for the MAAP group (Script 3).
@@ -10,7 +9,7 @@ and generates the bar + cumulative line chart via
 
 Examples
 --------
->>> script = Script3(...)
+>>> script = Script3(file_manager, data_editor, data_preparation, plot_manager, image_dir, df)
 >>> script.run()
 PosixPath('images/emoji_counts_once.png')
 """
@@ -27,6 +26,8 @@ from .base import BaseScript
 
 # === Script 3 ===
 class Script3(BaseScript):
+    """Generate emoji distribution plot for MAAP group."""
+
     def __init__(
         self,
         file_manager,
@@ -39,6 +40,20 @@ class Script3(BaseScript):
         *args,
         **kwargs,
     ) -> None:
+        """
+        Initialize Script3 with required components.
+
+        Args:
+            file_manager: FileManager (required by BaseScript).
+            data_editor: DataEditor (required for emoji parsing).
+            data_preparation: DataPreparation for distribution data.
+            plot_manager: PlotManager for rendering.
+            image_dir: Directory to save plot.
+            df: Enriched DataFrame (required).
+            settings: Plot settings (optional).
+            *args: Ignored positional arguments.
+            **kwargs: Ignored keyword arguments.
+        """
         super().__init__(
             file_manager=file_manager,
             data_editor=data_editor,
@@ -52,7 +67,13 @@ class Script3(BaseScript):
         self.df = df
 
     def run(self) -> Path | None:
-        """Generate and save the emoji distribution plot."""
+        """
+        Generate and save the emoji distribution plot.
+
+        Returns:
+            Path: Path to saved PNG file.
+            None: If data missing or plot fails.
+        """
         df_maap = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.MAAP.value].copy()
         if df_maap.empty:
             self.log_error(f"No data for group '{Groups.MAAP.value}'. Skipping.")
@@ -65,7 +86,7 @@ class Script3(BaseScript):
 
         logger.info(f"Unique emojis: {len(distribution_data.emoji_counts_df)}")
         fig = self.plot_manager.build_visual_distribution(
-            distribution_data,   # ← FIXED: pass the model
+            distribution_data,
             self.settings
         )
         if fig is None:

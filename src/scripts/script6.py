@@ -1,4 +1,3 @@
-# === script6.py ===
 # === Module Docstring ===
 """
 Multi-dimensional plot: PCA/t-SNE clustering with embeddings (Script 6).
@@ -9,39 +8,15 @@ and renders interactive t-SNE plots (individual or group-level).
 === SCRIPT_6_DETAILS README ===
 Configure Script6 via: SCRIPT_6_DETAILS = [PLOT_TYPE, BY_GROUP, DRAW_ELLIPSES, USE_EMBEDDINGS, HYBRID_FEATURES, EMBEDDING_MODEL]
 
-1. PLOT_TYPE (str):
-   "pca"  -> 2-D PCA projection only
-   "tsne" -> t-SNE projection (PCA pre-step)
-   "both" -> separate PCA and t-SNE plots
-
-2. BY_GROUP (bool):
-   True  -> group-level plot (AvT isolated)
-   False -> per-author plot
-
-3. DRAW_ELLIPSES (bool):
-   True  -> draw confidence ellipses (75% individual, 50% group)
-   False -> no ellipses
-
-4. USE_EMBEDDINGS (bool):
-   True  -> load Hugging-Face sentence embeddings
-   False -> hand-crafted features only
-
-5. HYBRID_FEATURES (bool):
-   True  -> combine hand-crafted + embeddings (best results)
-   False -> embeddings only
-   (ignored when USE_EMBEDDINGS=False)
-
-6. EMBEDDING_MODEL (int):
-   1 -> "AnnaWegmann/Style-Embedding"        -> style-focused, ignores content
-   2 -> "sentence-transformers/all-MiniLM-L6-v2" -> fast, general
-   3 -> "sentence-transformers/all-mpnet-base-v2" -> high-quality (default)
-   (ignored when USE_EMBEDDINGS=False)
+1. PLOT_TYPE (str): "pca" | "tsne" | "both"
+2. BY_GROUP (bool): True → group-level, False → per-author
+3. DRAW_ELLIPSES (bool): True → draw confidence ellipses
+4. USE_EMBEDDINGS (bool): True → load Hugging-Face embeddings
+5. HYBRID_FEATURES (bool): True → combine hand-crafted + embeddings
+6. EMBEDDING_MODEL (int): 1=Style-Embedding, 2=all-MiniLM, 3=all-mpnet (default)
 
 Example:
-SCRIPT_6_DETAILS = ["tsne", True, True, False, True, 1]   # -> TTFT1_tsne
-SCRIPT_6_DETAILS = ["pca",   False, False, False, True, 3] # -> FFFF3_pca
-
-Note: by_year is always True (yearly aggregation for stability)
+>>> SCRIPT_6_DETAILS = ["tsne", True, True, False, True, 1]
 """
 
 # === Imports ===
@@ -52,7 +27,6 @@ import pandas as pd
 from loguru import logger
 import warnings
 
-# === Suppress joblib warning on Windows ===
 warnings.filterwarnings(
     "ignore",
     message="Could not find the number of physical cores for the following reason"
@@ -70,25 +44,23 @@ def _validate_script6_details(details: list) -> None:
     Validate SCRIPT_6_DETAILS configuration.
 
     Args:
-        details: List of 6 configuration values
+        details: List of 6 configuration values.
 
     Raises:
-        ValueError, TypeError: If invalid
+        ValueError: If length or value invalid.
+        TypeError: If type mismatch.
     """
     if len(details) != 6:
         raise ValueError("SCRIPT_6_DETAILS must have exactly 6 values")
 
     plot_type, by_group, draw_ellipses, use_emb, hybrid, model_id = details
 
-    # Validate plot_type
     if plot_type not in {"pca", "tsne", "both"}:
         raise ValueError("PLOT_TYPE must be 'pca', 'tsne', or 'both'")
 
-    # Validate bools
     if not all(isinstance(x, bool) for x in [by_group, draw_ellipses, use_emb]):
         raise TypeError("BY_GROUP, DRAW_ELLIPSES, USE_EMBEDDINGS must be bool")
 
-    # Validate hybrid & model only if embeddings are used
     if use_emb:
         if not isinstance(hybrid, bool):
             raise TypeError("HYBRID_FEATURES must be bool when USE_EMBEDDINGS=True")
@@ -112,6 +84,18 @@ class Script6(BaseScript):
         settings: MultiDimPlotSettings | None = None,
         script_details: list | None = None,
     ) -> None:
+        """
+        Initialize Script6 with configuration.
+
+        Args:
+            file_manager: FileManager (required).
+            data_preparation: DataPreparation for style aggregation.
+            plot_manager: PlotManager for rendering.
+            image_dir: Directory to save plots.
+            df: Enriched DataFrame (optional).
+            settings: Multi-dimensional plot settings.
+            script_details: List of 6 config values (see README).
+        """
         super().__init__(
             file_manager,
             data_preparation=data_preparation,
@@ -121,33 +105,28 @@ class Script6(BaseScript):
         )
         self.image_dir = image_dir
 
-        # === Validate configuration ===
         if script_details is not None:
             _validate_script6_details(script_details)
             self.script_details = script_details
         else:
-            self.script_details = ["tsne", True, False, True, True, 3]  # default
+            self.script_details = ["tsne", True, False, True, True, 3]
             logger.info("No SCRIPT_6_DETAILS provided. Using defaults.")
 
     def _get_config_code(self) -> str:
         """Convert SCRIPT_6_DETAILS to compact code: TTFT1_tsne"""
         details = self.script_details
         mapping = {True: "T", False: "F"}
-        
-        # Bool code (indices 1-4) - compact, no separator
         bool_code = "".join(mapping.get(details[i], "X") for i in range(1, 5))
-        
-        # model_id (index 5)
-        model_code = str(details[5])
-        
-        # plot_type (index 0)
-        plot_type = details[0]
-        
-        # Join with _
-        return "_".join([bool_code, model_code, plot_type])
+        return "_".join([bool_code, str(details[5]), details[0]])
 
     def run(self) -> dict[str, Path] | None:
-        """Generate and save t-SNE style plots with config-coded filenames."""
+        """
+        Generate and save t-SNE/PCA style plots with config-coded filenames.
+
+        Returns:
+            dict: Mapping of plot name to PNG path.
+            None: If data or plot fails.
+        """
         if self.df is None or self.df.empty:
             self.log_error("No enriched DataFrame. Run Script0 first.")
             return None
@@ -172,7 +151,6 @@ class Script6(BaseScript):
             self.log_error("Plot creation failed.")
             return None
 
-        # === Generate config code: TTFT1_tsne ===
         config_code = self._get_config_code()
         logger.info(f"Script6 config: {details} → {config_code}")
 
@@ -182,13 +160,10 @@ class Script6(BaseScript):
 
         for name, fig in figs.items():
             suffix = f"_{config_code}"
-
-            # Save HTML
             html_path = style_dir / f"style_{name}{suffix}.html"
             fig.write_html(str(html_path))
             logger.success(f"Saved HTML: {html_path}")
 
-            # Save PNG (requires kaleido)
             png_path = style_dir / f"style_{name}{suffix}.png"
             try:
                 fig.write_image(str(png_path), width=1200, height=800)
@@ -199,7 +174,6 @@ class Script6(BaseScript):
 
             results[name] = png_path
 
-        # Save CSV
         csv_path = style_dir / f"style_summary{suffix}.csv"
         data.agg_df.to_csv(csv_path, index=False)
         logger.success(f"Saved summary: {csv_path}")

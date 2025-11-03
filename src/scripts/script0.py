@@ -10,6 +10,8 @@ Examples
 >>> from src.scripts.script0 import Script0
 >>> script = Script0(file_manager, data_editor, data_preparation, processed_dir, config, image_dir)
 >>> result = script.run()
+>>> result["df"].shape
+(12345, 20)
 """
 
 # === Imports ===
@@ -30,26 +32,45 @@ class Script0(BaseScript):
 
     def __init__(
         self,
-        file_manager: FileManager,
-        data_editor: DataEditor,
-        data_preparation: DataPreparation,
+        file_manager,
+        data_editor,
+        data_preparation,
         processed_dir: Path,
         config: dict[str, Any],
         image_dir: Path,
     ) -> None:
+        """
+        Initialize Script0 with required components.
+
+        Args:
+            file_manager: FileManager for loading raw data.
+            data_editor: DataEditor for cleaning.
+            data_preparation: DataPreparation for enrichment.
+            processed_dir: Directory to save processed files.
+            config: Full config dictionary from config.toml.
+            image_dir: Directory for output images (unused here).
+        """
         super().__init__(file_manager, data_editor=data_editor, data_preparation=data_preparation)
-        self.processed_dir = processed_dir
+        self.processed_dir = processed_processed_dir
         self.config = config
         self.image_dir = image_dir
         self.tables_dir = Path("tables")
         self.tables_dir.mkdir(exist_ok=True)
 
     def run(self) -> dict[str, Any] | None:
-        """Execute preprocessing and return DataFrame."""
+        """
+        Execute preprocessing and return enriched DataFrame.
+
+        Returns:
+            dict: Contains 'df' (DataFrame) and 'tables_dir' (Path).
+            None: If preprocessing fails.
+
+        Raises:
+            Exception: Propagated and logged via loguru.
+        """
         logger.info("Script0: Starting preprocessing...")
 
         try:
-            # Run preprocessing via FileManager
             result = self.file_manager.get_preprocessed_data(
                 self.data_editor, self.data_preparation, self.config, self.processed_dir
             )
@@ -63,13 +84,11 @@ class Script0(BaseScript):
                 self.log_error("Script0: Empty DataFrame after preprocessing.")
                 return None
 
-            # Save Parquet
             timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
             parquet_path = self.processed_dir / f"combined_{timestamp}.parq"
             df.to_parquet(parquet_path, index=False)
             logger.info(f"Script0: Saved parquet -> {parquet_path}")
 
-            # Save CSV for inspection
             csv_path = self.tables_dir / f"combined_{timestamp}.csv"
             df.to_csv(csv_path, index=False)
             logger.info(f"Script0: Saved CSV -> {csv_path}")
