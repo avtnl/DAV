@@ -28,6 +28,7 @@ from src.plot_manager import (
     CategoriesPlotSettings,
     DistributionPlotSettings,
     ArcPlotSettings,
+    BubblePlotSettings,
     PlotManager,
 )
 from src.file_manager import FileManager
@@ -38,7 +39,7 @@ from .script2 import Script2
 from .script3 import Script3
 from .script3 import Script3
 from .script4 import Script4
-# from .script5 import Script5  # ← FUTURE
+from .script5 import Script5
 
 # === Pipeline Class ===
 class Pipeline:
@@ -132,7 +133,11 @@ class Pipeline:
                     [file_manager, data_preparation, plot_manager, image_dir, tables_dir],
                     df
                 ),
-                # 5: (Script5, [...], df),
+                5: (
+                    Script5,
+                    [file_manager, data_preparation, plot_manager, image_dir, df],
+                    None
+                )
             }
 
             # === Single Execution Loop ===
@@ -163,6 +168,10 @@ class Pipeline:
                 # Inject config for Script4
                 if script_id == 4:
                     args.append(ArcPlotSettings())
+
+                # NEW: Inject settings for Script5
+                if script_id == 5:
+                    args.append(BubblePlotSettings())
 
                 # Inject df if provided (after settings)
                 if df_arg is not None and script_id in {1, 2, 3, 4, 5}:
@@ -219,8 +228,7 @@ class Pipeline:
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Added Script4 to registry with ArcPlotSettings injection (2025-11-03)
-# NEW: df appended after settings to match Script4.__init__ (2025-11-03)
+
 # NEW: Final working version with df injection (2025-11-01)
 # NEW: 3-tuple registry: (cls, args, df)
 # NEW: Script1 receives df and config
@@ -229,3 +237,7 @@ class Pipeline:
 # NEW: Added Script3 with correct df injection order (2025-11-01)
 # NEW: df appended after settings to match Script3.__init__ (2025-11-01)
 # NEW: DistributionPlotSettings injected for Script3 (2025-11-01)
+# NEW: Added Script4 to registry with ArcPlotSettings injection (2025-11-03)
+# NEW: df appended after settings to match Script4.__init__ (2025-11-03)
+# NEW: Added Script5 to registry with BubbleNewPlotSettings injection (2025-11-03)
+# NEW: df in base_args to match Script5.__init__ (2025-11-03)

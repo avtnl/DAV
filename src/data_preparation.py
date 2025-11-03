@@ -84,9 +84,13 @@ class ArcPlotData(BaseModel):
         arbitrary_types_allowed = True
 
 
-# === 5. Bubble Plot Data Contract (Script5) – placeholder ===
+# === 5. Bubble Plot Data Contract (Script5) ===
 class BubblePlotData(BaseModel):
-    pass  # to be filled later
+    """Validated container for the feature table used by the bubble plot."""
+    feature_df: pd.DataFrame
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 # === Base Handler ===
@@ -366,9 +370,47 @@ class DataPreparation(BaseHandler):
             logger.exception(f"build_visual_relationships_arc failed: {e}")
             return None
 
-    # === 5. Bubble (Script5) – stub ===
-    def build_visual_relationships_bubble(self, df_groups: pd.DataFrame, groups: list[str]) -> BubblePlotData | None:
-        ...
+# === 5. Bubble (Script5) ===
+    def build_visual_relationships_bubble(self, df_groups: pd.DataFrame) -> BubblePlotData | None:
+        df = self._handle_empty_df(df_groups, "build_visual_relationships_bubble")
+        if df.empty:
+            return None
+
+        try:
+            required_cols = [
+                Columns.WHATSAPP_GROUP.value,
+                Columns.AUTHOR.value,
+                Columns.NUMBER_OF_WORDS.value,
+                Columns.NUMBER_OF_PUNCTUATIONS.value,
+            ]
+            if not all(col in df.columns for col in required_cols):
+                logger.error(f"Bubble plot missing required input columns: {required_cols}")
+                return None
+
+            agg_df = (
+                df.groupby([Columns.WHATSAPP_GROUP.value, Columns.AUTHOR.value])
+                .agg(
+                    **{
+                        Columns.AVG_WORDS.value: (Columns.NUMBER_OF_WORDS.value, "mean"),
+                        Columns.AVG_PUNCT.value: (Columns.NUMBER_OF_PUNCTUATIONS.value, "mean"),
+                        Columns.MESSAGE_COUNT.value: (Columns.AUTHOR.value, "size"),
+                    }
+                )
+                .reset_index()
+            )
+
+            if agg_df.empty:
+                logger.error("No author-group combinations after aggregation.")
+                return None
+
+            logger.success(
+                f"Bubble feature table built – {len(agg_df)} author-group rows"
+            )
+            return BubblePlotData(feature_df=agg_df)
+
+        except Exception as e:
+            logger.exception(f"build_visual_relationships_bubble failed: {e}")
+            return None
 
 
 # === CODING STANDARD ===
@@ -383,5 +425,8 @@ class DataPreparation(BaseHandler):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: DistributionPlotData + build_visual_distribution using LIST_OF_ALL_EMOJIS (2025-11-01)
-# NEW: High-level placeholders for Arc & Bubble (2025-11-01)
+# NEW: Full refactor with Google docstring, return type, and SEnum (2025-10-31)
+# NEW: Renamed BubbleNewPlotSettings → BubblePlotSettings (2025-11-03)
+# NEW: Fixed df assignment – use BaseScript.df, removed self.df = df (2025-11-03)
+# NEW: Fixed pipeline registry – df in base_args, no df_arg for Script5 (2025-11-03)
+# NEW: Renamed output columns to match Columns.AVG_WORDS, AVG_PUNCT, MESSAGE_COUNT (2025-11-03)

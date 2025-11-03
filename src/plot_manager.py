@@ -110,7 +110,7 @@ class ArcPlotSettings(PlotSettings):
 
 
 # === 5. Bubble Plot Settings (Script5) ===
-class BubbleNewPlotSettings(PlotSettings):
+class BubblePlotSettings(PlotSettings):
     bubble_alpha: float = 0.6
     min_bubble_size: int = 50
     max_bubble_size: int = 1000
@@ -500,7 +500,7 @@ class PlotManager:
     def build_visual_relationships_bubble(
         self,
         feature_df: pd.DataFrame,
-        settings: BubbleNewPlotSettings = BubbleNewPlotSettings(),
+        settings: BubblePlotSettings = BubblePlotSettings(),
     ) -> plt.Figure | None:
         try:
             required = {

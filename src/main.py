@@ -16,7 +16,7 @@ from src.scripts.pipeline import Pipeline
 # === Pipeline Configuration ===
 # Order matters! Script0 (preprocessing) runs automatically first.
 # Only include scripts you want to execute.
-SCRIPTS = [1,2,3,4]
+SCRIPTS = [3]
 
 # === Main Execution ===
 if __name__ == "__main__":
