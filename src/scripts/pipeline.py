@@ -29,6 +29,7 @@ from src.plot_manager import (
     DistributionPlotSettings,
     ArcPlotSettings,
     BubblePlotSettings,
+    MultiDimPlotSettings,
     PlotManager,
 )
 from src.file_manager import FileManager
@@ -37,9 +38,10 @@ from .script0 import Script0
 from .script1 import Script1
 from .script2 import Script2
 from .script3 import Script3
-from .script3 import Script3
 from .script4 import Script4
 from .script5 import Script5
+from .script6 import Script6  # ← NEW
+
 
 # === Pipeline Class ===
 class Pipeline:
@@ -71,7 +73,10 @@ class Pipeline:
     # === Main Runner ===
     @staticmethod
     # ruff: noqa: C901, PLR0912, PLR0915
-    def run(scripts: list[int] | None = None) -> None:
+    def run(
+        scripts: list[int] | None = None,
+        script_6_details: list | None = None,  # ← Passed directly to Script6
+    ) -> None:
         """Execute scripts in order with preprocessing fallback."""
         try:
             # Load config
@@ -137,6 +142,11 @@ class Pipeline:
                     Script5,
                     [file_manager, data_preparation, plot_manager, image_dir, df],
                     None
+                ),
+                6: (
+                    Script6,
+                    [file_manager, data_preparation, plot_manager, image_dir, df],
+                    None
                 )
             }
 
@@ -152,7 +162,7 @@ class Pipeline:
                 cls, base_args, df_arg = script_registry[script_id]
                 args = base_args.copy()  # e.g. [file_manager, ..., image_dir]
 
-                # Inject config for Script1
+                # === Script1: Categories ===
                 if script_id == 1:
                     config_obj = CategoriesPlotSettings(
                         figsize=(16, 9),
@@ -162,22 +172,46 @@ class Pipeline:
                     )
                     args.append(config_obj)
 
+                # === Script3: Distribution ===
                 if script_id == 3:
-                    args.append(DistributionPlotSettings())  # ← settings
+                    args.append(DistributionPlotSettings())
 
-                # Inject config for Script4
+                # === Script4: Arc ===
                 if script_id == 4:
                     args.append(ArcPlotSettings())
 
-                # NEW: Inject settings for Script5
+                # === Script5: Bubble ===
                 if script_id == 5:
                     args.append(BubblePlotSettings())
+
+                # === Script6: Multi-Dimensional Style ===
+                if script_id == 6:
+                    if script_6_details is None:
+                        logger.error("SCRIPT_6_DETAILS not provided for Script6. Check main.py.")
+                        continue
+
+                    # ORDER: [plot_type, by_group, draw_ellipses, use_embeddings, hybrid_features, embedding_model]
+                    plot_type = script_6_details[0]
+                    by_group = script_6_details[1]
+                    draw_ellipses = script_6_details[2]
+                    use_embeddings = script_6_details[3]
+                    hybrid_features = script_6_details[4]
+                    embedding_model = script_6_details[5]
+
+                    args.append(MultiDimPlotSettings(
+                        by_group=by_group,
+                        draw_ellipses=draw_ellipses,
+                        use_embeddings=use_embeddings,
+                        hybrid_features=hybrid_features,
+                        embedding_model=embedding_model,
+                    ))
+                    args.append(script_6_details)  # Pass full list to Script6
 
                 # Inject df if provided (after settings)
                 if df_arg is not None and script_id in {1, 2, 3, 4, 5}:
                     args.append(df_arg)
 
-                # Special handling for Script0
+                # === Special handling for Script0 ===
                 if script_id == 0:
                     logger.info("Running Script0 (preprocessing)...")
                     try:
@@ -195,7 +229,7 @@ class Pipeline:
                         return
                     continue
 
-                # Instantiate
+                # === Instantiate ===
                 try:
                     instance = cls(*args)
                     instances[script_id] = instance
@@ -204,7 +238,7 @@ class Pipeline:
                     logger.error(f"Failed to initialize Script {script_id}: {e}")
                     continue
 
-                # Run
+                # === Run ===
                 logger.info(f"Running Script {script_id}...")
                 try:
                     instance.run()
@@ -228,7 +262,6 @@ class Pipeline:
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-
 # NEW: Final working version with df injection (2025-11-01)
 # NEW: 3-tuple registry: (cls, args, df)
 # NEW: Script1 receives df and config
@@ -239,5 +272,8 @@ class Pipeline:
 # NEW: DistributionPlotSettings injected for Script3 (2025-11-01)
 # NEW: Added Script4 to registry with ArcPlotSettings injection (2025-11-03)
 # NEW: df appended after settings to match Script4.__init__ (2025-11-03)
-# NEW: Added Script5 to registry with BubbleNewPlotSettings injection (2025-11-03)
+# NEW: Added Script5 to registry with BubblePlotSettings injection (2025-11-03)
 # NEW: df in base_args to match Script5.__init__ (2025-11-03)
+# NEW: Added Script6 with direct script_6_details injection (2025-11-03)
+# NEW: Validation moved to script6.py (2025-11-03)
+# NEW: Removed pipeline instance state (2025-11-03)

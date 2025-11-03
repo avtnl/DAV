@@ -24,7 +24,7 @@ import pandas as pd
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from .constants import Columns
+from .constants import Columns, Script6ConfigKeys
 from .data_preparation import CategoryPlotData, TimePlotData
 
 
@@ -125,6 +125,15 @@ class BubblePlotSettings(PlotSettings):
             "tillies": "gray",
         }
     )
+
+
+# === 6. Multi-Dimensional Plot Settings (Script6) ===
+class MultiDimPlotSettings(PlotSettings):
+    by_group: bool = True
+    draw_ellipses: bool = False
+    use_embeddings: bool = True
+    hybrid_features: bool = True
+    embedding_model: int = 3  # 1=Style, 2=MiniLM, 3=MPNet
 
 
 # === Plot Manager Class ===
@@ -551,6 +560,138 @@ class PlotManager:
             return None
 
 
+# === 6. Multi-Dimensional Style (Script6) ===
+    def build_visual_multi_dimensions(
+        self,
+        data: MultiDimPlotData,
+        settings: MultiDimPlotSettings,
+    ) -> dict[str, go.Figure] | None:
+        if data.agg_df.empty:
+            logger.error("Empty agg_df in MultiDimPlotData")
+            return None
+
+        try:
+            import plotly.express as px
+            import plotly.graph_objects as go
+            from scipy.stats import chi2
+
+            figs = {}
+
+            # === Helper: Ellipse ===
+            def get_ellipse_points(mean_x, mean_y, width, height, angle):
+                t = np.linspace(0, 2 * np.pi, 100)
+                x = width / 2 * np.cos(t)
+                y = height / 2 * np.sin(t)
+                points = np.column_stack([x, y])
+                theta = np.radians(angle)
+                rot = np.array([[np.cos(theta), -np.sin(theta)],
+                                [np.sin(theta),  np.cos(theta)]])
+                rotated = points @ rot.T
+                rotated[:, 0] += mean_x
+                rotated[:, 1] += mean_y
+                return rotated[:, 0], rotated[:, 1]
+
+            def hex_to_rgba(hex_color, alpha):
+                hex_color = hex_color.lstrip('#')
+                return f"rgba({int(hex_color[0:2],16)}, {int(hex_color[2:4],16)}, {int(hex_color[4:6],16)}, {alpha})"
+
+            # === Individual Plot ===
+            if not settings.by_group:
+                fig = px.scatter(
+                    data.agg_df,
+                    x="tsne_x", y="tsne_y",
+                    size="msg_count",
+                    color=Columns.AUTHOR.value,
+                    hover_data={"msg_count": True},
+                    title="Linguistic Style Clusters (t-SNE) – Per Author",
+                )
+
+                if settings.draw_ellipses:
+                    for author in data.agg_df[Columns.AUTHOR.value].unique():
+                        sub = data.agg_df[data.agg_df[Columns.AUTHOR.value] == author]
+                        if len(sub) < 2:
+                            continue
+                        x, y = sub["tsne_x"], sub["tsne_y"]
+                        cov = np.cov(x, y)
+                        mean_x, mean_y = x.mean(), y.mean()
+                        lambda_, v = np.linalg.eig(cov)
+                        lambda_ = np.sqrt(lambda_)
+                        chi = np.sqrt(chi2.ppf(0.75, 2))  # 75% confidence
+                        width, height = 2 * lambda_[0] * chi, 2 * lambda_[1] * chi
+                        angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
+
+                        # Get color from existing trace
+                        trace_names = [d.name for d in fig.data]
+                        if author in trace_names:
+                            color = fig.data[trace_names.index(author)].marker.color
+                        else:
+                            color = "#1f77b4"  # fallback
+
+                        ell_x, ell_y = get_ellipse_points(mean_x, mean_y, width, height, angle)
+                        fig.add_trace(go.Scatter(
+                            x=ell_x, y=ell_y, mode="lines", fill="toself",
+                            fillcolor=hex_to_rgba(color, 0.2),
+                            line=dict(color=color, width=2),
+                            name=f"{author} 75%", showlegend=False
+                        ))
+
+                figs["individual"] = fig
+
+            # === Group Plot ===
+            if settings.by_group:
+                data.agg_df["plot_group"] = data.agg_df.apply(
+                    lambda row: "AvT" if row[Columns.AUTHOR.value] == "AvT" else row[Columns.WHATSAPP_GROUP_TEMP],
+                    axis=1
+                )
+                group_colors = {
+                    "maap": "#1f77b4",
+                    "dac": "#ff7f0e",
+                    "golfmaten": "#2ca02c",
+                    "tillies": "#808080",
+                    "AvT": "#d62728"
+                }
+                fig = px.scatter(
+                    data.agg_df,
+                    x="tsne_x", y="tsne_y",
+                    color="plot_group",
+                    size="msg_count",
+                    color_discrete_map=group_colors,
+                    hover_data={"msg_count": True, Columns.AUTHOR.value: True},
+                    title="Linguistic Style Clusters (t-SNE) – 5 Groups (AvT Isolated)",
+                )
+
+                if settings.draw_ellipses:
+                    for grp in data.agg_df["plot_group"].unique():
+                        sub = data.agg_df[data.agg_df["plot_group"] == grp]
+                        if len(sub) < 2:
+                            continue
+                        x, y = sub["tsne_x"], sub["tsne_y"]
+                        cov = np.cov(x, y)
+                        mean_x, mean_y = x.mean(), y.mean()
+                        lambda_, v = np.linalg.eig(cov)
+                        lambda_ = np.sqrt(lambda_)
+                        chi = np.sqrt(chi2.ppf(0.50, 2))  # 50% confidence
+                        width, height = 2 * lambda_[0] * chi, 2 * lambda_[1] * chi
+                        angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
+
+                        color = group_colors.get(grp, "#333333")
+                        ell_x, ell_y = get_ellipse_points(mean_x, mean_y, width, height, angle)
+                        fig.add_trace(go.Scatter(
+                            x=ell_x, y=ell_y, mode="lines", fill="toself",
+                            fillcolor=hex_to_rgba(color, 0.25),
+                            line=dict(color=color, width=2),
+                            name=f"{grp} 50%", showlegend=False
+                        ))
+
+                figs["group"] = fig
+
+            return figs
+
+        except Exception as e:
+            logger.exception(f"Multi-dimensional plot failed: {e}")
+            return None
+        
+
 # === CODING STANDARD ===
 # - `# === Module Docstring ===` before """
 # - Google-style docstrings
@@ -567,3 +708,4 @@ class PlotManager:
 # NEW: BaseModel contracts for Script1 & Script2
 # NEW: Clean, modular, production-ready
 # NEW: All unused code removed
+# NEW: Added MultiDimPlotSettings, build_visual_multi_dimensions (2025-11-03)

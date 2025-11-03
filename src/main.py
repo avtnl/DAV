@@ -1,26 +1,25 @@
 # === Module Docstring ===
 """
 Entry point for the WhatsApp Chat Analyzer pipeline.
-
-Configures and runs selected analysis scripts via :class:`src.scripts.pipeline.Pipeline`.
-
-Examples
---------
->>> from src.scripts.pipeline import Pipeline
->>> Pipeline.run(scripts=[1, 2, 5])
 """
 
 # === Imports ===
 from src.scripts.pipeline import Pipeline
 
+
 # === Pipeline Configuration ===
-# Order matters! Script0 (preprocessing) runs automatically first.
 # Only include scripts you want to execute.
-SCRIPTS = [3]
+# SCRIPT_6_DETAILS is only applicable if Script6 is included in SCRIPTS.
+# See script6.py for full configuration details.
+SCRIPTS = [6]
+SCRIPT_6_DETAILS = ["tsne", True, True, False, True, 1]  # Only used if 6 in SCRIPTS | by_group, draw_ellipses, use_emb, hybrid, model_id
 
 # === Main Execution ===
 if __name__ == "__main__":
-    Pipeline.run(scripts=SCRIPTS)
+    Pipeline.run(
+        scripts=SCRIPTS,
+        script_6_details=SCRIPT_6_DETAILS  # ← REQUIRED for Script6
+    )
 
 # === CODING STANDARD (APPLY TO ALL CODE) ===
 # - `# === Module Docstring ===` before """
@@ -35,3 +34,4 @@ if __name__ == "__main__":
 # - Add markers #NEW at the end of the module capturing the latest changes. There can be a list of more #NEW lines.
 
 # NEW: Standardized main entry with Google docstring and SCRIPTS config (2025-10-31)
+# NEW: script_validation(scripts, SCRIPT_6_DETAILS)

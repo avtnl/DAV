@@ -24,6 +24,7 @@ class Columns(StrEnum):
     TIMESTAMP = "timestamp"
     AUTHOR = "author"
     WHATSAPP_GROUP = "whatsapp_group"
+    WHATSAPP_GROUP_TEMP = "whatsapp_group_temp"
     MESSAGE = "message"
     YEAR = "year"
     MONTH = "month"
@@ -159,6 +160,29 @@ class DeleteAttributes(Enum):
     TRUE = True
 
 
+# === Embedding Models ===
+class EmbeddingModel(int, Enum):
+    """Mapping for Script6 embedding models."""
+    STYLE = 1
+    MINILM = 2
+    MPNET = 3
+
+
+# === Script6 Configuration Keys ===
+class Script6ConfigKeys(StrEnum):
+    """
+    Configuration keys for Script6 passed via SCRIPT_6_DETAILS.
+
+    Used in main.py, pipeline.py, script6.py, and data_preparation.py.
+    """
+    PLOT_TYPE = "plot_type"
+    BY_GROUP = "by_group"
+    DRAW_ELLIPSES = "draw_ellipses"
+    USE_EMBEDDINGS = "use_embeddings"
+    HYBRID_FEATURES = "hybrid_features"
+    EMBEDDING_MODEL = "embedding_model"
+
+
 # === CODING STANDARD (APPLY TO ALL CODE) ===
 # - `# === Module Docstring ===` before """
 # - Google-style docstrings
@@ -172,3 +196,4 @@ class DeleteAttributes(Enum):
 # - Add markers #NEW at the end of the module
 
 # NEW: Added missing columns and footer (2025-11-01)
+# NEW: Added EmbeddingModel, Script6 config keys (2025-11-03)
