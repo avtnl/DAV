@@ -40,7 +40,8 @@ from .script2 import Script2
 from .script3 import Script3
 from .script4 import Script4
 from .script5 import Script5
-from .script6 import Script6  # ← NEW
+from .script6 import Script6
+from .script7 import Script7
 
 
 # === Pipeline Class ===
@@ -147,7 +148,12 @@ class Pipeline:
                     Script6,
                     [file_manager, data_preparation, plot_manager, image_dir, df],
                     None
-                )
+                ),
+                7: (
+                    Script7,
+                    [file_manager, image_dir],
+                    None
+                )                
             }
 
             # === Single Execution Loop ===
@@ -206,6 +212,10 @@ class Pipeline:
                         embedding_model=embedding_model,
                     ))
                     args.append(script_6_details)  # Pass full list to Script6
+
+                # === Script7: Streamlit Dashboard ===
+                if script_id == 7:
+                    args = [file_manager, image_dir]
 
                 # Inject df if provided (after settings)
                 if df_arg is not None and script_id in {1, 2, 3, 4, 5}:
