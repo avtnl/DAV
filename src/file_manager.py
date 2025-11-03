@@ -24,7 +24,20 @@ import pandas as pd
 import pytz
 import wa_analyzer.preprocess as preprocessor
 from loguru import logger
-from src.constants import Columns, Groups
+from src.constants import (
+    CONFIG_FILE,
+    TEMP_CHAT_FILE,
+    Columns,
+    ConfigKeys,
+    FileExtensions,
+    FilePatterns,
+    FilePrefixes,
+    Groups,
+    GROUP_MAP_FROM_CLEANED,
+    PreprocessorArgs,
+    RAW_FILE_MAPPING,
+    ImageFilenames,
+)
 from src.data_editor import DataEditor
 
 
@@ -36,16 +49,19 @@ class FileManager:
         self.processed_dir = processed_dir or Path("data/processed")
         self.processed_dir.mkdir(parents=True, exist_ok=True)
 
+
     # === Get Latest Enriched DataFrame ===
+
     def get_latest_preprocessed_df(self) -> pd.DataFrame | None:
         """
-        Load the most recent enriched CSV file: whatsapp_all_enriched-*.csv
+        Load the most recent enriched CSV file matching the enriched pattern.
 
         Returns:
             pd.DataFrame or None if no file found or load failed.
         """
         try:
-            files = list(self.processed_dir.glob("whatsapp_all_enriched-*.csv"))
+            pattern = f"{FilePrefixes.WHATSAPP_ALL_ENRICHED}-*{FileExtensions.CSV}"
+            files = list(self.processed_dir.glob(pattern))
             if not files:
                 logger.warning("No enriched CSV files found in processed directory.")
                 return None
@@ -61,8 +77,22 @@ class FileManager:
 
 
     def find_latest_file(
-        self, processed_dir: Path, prefix: str = "organized_data", suffix: str = ".csv"
+        self,
+        processed_dir: Path,
+        prefix: str = FilePrefixes.ORGANIZED,
+        suffix: str = FileExtensions.CSV,
     ) -> Path | None:
+        """
+        Find the most recent file matching the timestamped pattern.
+
+        Args:
+            processed_dir: Directory to search.
+            prefix: File prefix (default: organized_data).
+            suffix: File extension (default: .csv).
+
+        Returns:
+            Path to the latest file, or None if not found.
+        """
         pattern = f"{prefix}-(\\d{{8}}-\\d{{6}}){re.escape(suffix)}"
         try:
             files = list(processed_dir.glob(f"{prefix}-*{suffix}"))
@@ -86,35 +116,34 @@ class FileManager:
             logger.error(f"Failed to find latest file: {e}")
             return None
 
+
     # === Configuration & Preprocessing Pipeline ===
 
     def read_csv(
         self,
     ) -> tuple[list[Path] | None, Path | None, dict[str, str] | None, dict[str, str] | None]:
+        """
+        Load configuration and optionally trigger preprocessing for all raw files.
+
+        Returns:
+            Tuple of (datafiles, processed_dir, group_map, parq_files).
+            Returns (None, None, None, None) on failure.
+        """
         try:
-            configfile = Path("config.toml").resolve()
-            with configfile.open("rb") as f:
+            with CONFIG_FILE.open("rb") as f:
                 config = tomllib.load(f)
 
-            processed = Path(config["processed"])
-            raw_dir = Path(config["raw"])
-            preprocess = config["preprocess"]
+            processed = Path(config[ConfigKeys.PROCESSED])
+            raw_dir = Path(config[ConfigKeys.RAW])
+            preprocess = config[ConfigKeys.PREPROCESS]
 
-            # Define raw file to group mapping
-            raw_files = {
-                "raw_1": ("current_1", "maap"),
-                "raw_2a": ("current_2a", "golfmaten"),
-                "raw_2b": ("current_2b", "golfmaten"),
-                "raw_3": ("current_3", "dac"),
-                "raw_4": ("current_4", "tillies"),
-            }
-            group_map = {current_key: group for _, (current_key, group) in raw_files.items()}
+            group_map = {current_key: group for _, (current_key, group) in RAW_FILE_MAPPING.items()}
 
             if preprocess:
                 datafiles: list[Path] = []
                 parq_files: dict[str, str] = {}
 
-                for raw_key, (current_key, _group) in raw_files.items():
+                for raw_key, (current_key, _group) in RAW_FILE_MAPPING.items():
                     if raw_key not in config:
                         logger.warning(f"Key {raw_key} not found in config.toml")
                         continue
@@ -123,8 +152,8 @@ class FileManager:
                         logger.warning(f"Raw file {raw_file} does not exist")
                         continue
 
-                    # Rename raw file to _chat.txt
-                    chat_file = raw_dir / "_chat.txt"
+                    # Copy raw file to temporary chat file
+                    chat_file = raw_dir / TEMP_CHAT_FILE
                     shutil.copy(raw_file, chat_file)
                     logger.info(f"Copied {raw_file} to {chat_file}")
 
@@ -133,7 +162,7 @@ class FileManager:
                         "%Y%m%d-%H%M%S"
                     )
                     logger.info(f"Preprocessing with timestamp: {now}")
-                    preprocessor.main(["--device", "ios"])
+                    preprocessor.main([PreprocessorArgs.DEVICE, PreprocessorArgs.IOS])
 
                     # Find the generated CSV file
                     datafile = self.find_name_csv(processed, now)
@@ -142,7 +171,7 @@ class FileManager:
                         continue
 
                     # Find the corresponding Parquet file
-                    parq_file = datafile.with_suffix(".parq")
+                    parq_file = datafile.with_suffix(FileExtensions.PARQUET)
                     if not parq_file.exists():
                         logger.warning(f"Parquet file {parq_file} not found")
                         continue
@@ -151,7 +180,7 @@ class FileManager:
                     parq_files[current_key] = parq_file.name
                     logger.info(f"Processed {raw_file} → CSV: {datafile}, Parquet: {parq_file}")
 
-                    # Clean up _chat.txt
+                    # Clean up temporary file
                     chat_file.unlink()
                     logger.info(f"Removed temporary {chat_file}")
 
@@ -166,7 +195,7 @@ class FileManager:
                         logger.warning(f"Key {current_key} not found in config.toml")
                         continue
                     datafile = processed / config[current_key]
-                    datafile = datafile.with_suffix(".csv")  # Convert .parq to .csv
+                    datafile = datafile.with_suffix(FileExtensions.CSV)
                     if not datafile.exists():
                         logger.warning(f"CSV file {datafile} does not exist")
                         continue
@@ -182,6 +211,7 @@ class FileManager:
             logger.exception(f"Failed to read config or preprocess: {e}")
             return None, None, None, None
 
+
     # === Data Loading & Enrichment ===
 
     def get_preprocessed_data(
@@ -191,6 +221,18 @@ class FileManager:
         config: dict,
         processed_dir: Path,
     ) -> dict | None:
+        """
+        Load and enrich preprocessed data from multiple sources.
+
+        Args:
+            data_editor: Instance of DataEditor for enrichment.
+            data_preparation: Unused (kept for compatibility).
+            config: Full config dictionary.
+            processed_dir: Directory containing processed files.
+
+        Returns:
+            Dict with 'df', 'tables_dir', and 'dataframes', or None on failure.
+        """
         try:
             datafiles, processed, group_map, parq_files = self.read_csv()
             if not datafiles:
@@ -198,7 +240,7 @@ class FileManager:
                 return None
 
             dataframes: dict[str, pd.DataFrame] = {}
-            preprocess = config["preprocess"]
+            preprocess = config[ConfigKeys.PREPROCESS]
 
             if preprocess:
                 for datafile in datafiles:
@@ -208,7 +250,7 @@ class FileManager:
                     df = data_editor.clean_author(df)
                     df[Columns.HAS_EMOJI] = df[Columns.MESSAGE].apply(data_editor.has_emoji)
                     for key, parq_name in parq_files.items():
-                        if parq_name.replace(".parq", ".csv") == datafile.name:
+                        if parq_name.replace(FileExtensions.PARQUET, FileExtensions.CSV) == datafile.name:
                             df[Columns.WHATSAPP_GROUP] = group_map[key]
                             break
                     else:
@@ -217,7 +259,7 @@ class FileManager:
             else:
                 for key, group in group_map.items():
                     csv_path = processed / config[key]
-                    csv_path = csv_path.with_suffix(".csv")
+                    csv_path = csv_path.with_suffix(FileExtensions.CSV)
                     if not csv_path.exists():
                         continue
                     df = data_editor.convert_timestamp(csv_path)
@@ -232,7 +274,7 @@ class FileManager:
             df = data_editor.concatenate_df(dataframes)
             df = data_editor.filter_group_names(df)
             df = data_editor.clean_for_deleted_media_patterns(df)
-            df = data_editor.organize_extended_df(df)  # One call for full enrichment
+            df = data_editor.organize_extended_df(df)
 
             if df is None:
                 return None
@@ -246,9 +288,20 @@ class FileManager:
             logger.exception(f"Preprocessing failed: {e}")
             return None
 
+
     def load_dataframe(
         self, datafile: Path, mapping: dict[str, str] | None = None
     ) -> pd.DataFrame | None:
+        """
+        Load a CSV file into a DataFrame with optional column renaming.
+
+        Args:
+            datafile: Path to the CSV file.
+            mapping: Optional dict to rename columns.
+
+        Returns:
+            pd.DataFrame or None on failure.
+        """
         if mapping is None:
             mapping = {}
         try:
@@ -263,39 +316,86 @@ class FileManager:
             logger.error(f"Failed to load DataFrame from {datafile}: {e}")
             return None
 
+
     # === File Saving Utilities ===
 
-    def save_csv(self, df: pd.DataFrame, processed_dir: Path, prefix: str = "whatsapp") -> Path:
+    def save_csv(self, df: pd.DataFrame, processed_dir: Path, prefix: str = FilePrefixes.WHATSAPP) -> Path:
+        """
+        Save DataFrame to timestamped CSV.
+
+        Args:
+            df: DataFrame to save.
+            processed_dir: Output directory.
+            prefix: File prefix.
+
+        Returns:
+            Path to saved file.
+        """
         now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
         logger.info(f"Generated timestamp: {now}")
-        output = processed_dir / f"{prefix}-{now}.csv"
+        output = processed_dir / f"{prefix}-{now}{FileExtensions.CSV}"
         logger.info(f"Saving CSV to: {output}")
         df.to_csv(output, index=False)
         return output
 
-    def save_parq(self, df: pd.DataFrame, processed_dir: Path, prefix: str = "whatsapp") -> Path:
+
+    def save_parq(self, df: pd.DataFrame, processed_dir: Path, prefix: str = FilePrefixes.WHATSAPP) -> Path:
+        """
+        Save DataFrame to timestamped Parquet.
+
+        Args:
+            df: DataFrame to save.
+            processed_dir: Output directory.
+            prefix: File prefix.
+
+        Returns:
+            Path to saved file.
+        """
         now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
         logger.info(f"Generated timestamp: {now}")
-        output = processed_dir / f"{prefix}-{now}.parq"
+        output = processed_dir / f"{prefix}-{now}{FileExtensions.PARQUET}"
         logger.info(f"Saving Parquet to: {output}")
         df.to_parquet(output, index=False)
         return output
 
+
     def save_combined_files(
         self, df: pd.DataFrame, processed_dir: Path
     ) -> tuple[Path | None, Path | None]:
+        """
+        Save enriched DataFrame as both CSV and Parquet.
+
+        Args:
+            df: Enriched DataFrame.
+            processed_dir: Output directory.
+
+        Returns:
+            Tuple of (csv_path, parq_path).
+        """
         try:
-            csv_file = self.save_csv(df, processed_dir, prefix="whatsapp_all")
-            parq_file = self.save_parq(df, processed_dir, prefix="whatsapp_all")
+            csv_file = self.save_csv(df, processed_dir, prefix=FilePrefixes.WHATSAPP_ALL)
+            parq_file = self.save_parq(df, processed_dir, prefix=FilePrefixes.WHATSAPP_ALL)
             logger.info(f"DataFrame saved as: {csv_file} and {parq_file}")
             return csv_file, parq_file
         except Exception as e:
             logger.exception(f"Failed to save DataFrame: {e}")
             return None, None
 
+
     def save_png(
-        self, fig, image_dir: Path, filename: str = "yearly_bar_chart_combined"
+        self, fig, image_dir: Path, filename: str = ImageFilenames.YEARLY_BAR_CHART
     ) -> Path | None:
+        """
+        Save a matplotlib figure as PNG with timestamp.
+
+        Args:
+            fig: Matplotlib figure.
+            image_dir: Output directory.
+            filename: Base filename.
+
+        Returns:
+            Path to saved image or None.
+        """
         try:
             now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
             output = image_dir / f"{filename}-{now}.png"
@@ -307,31 +407,46 @@ class FileManager:
             logger.exception(f"Failed to save PNG to {output}: {e}")
             return None
 
-    def save_table(self, df: pd.DataFrame, tables_dir: Path, prefix: str = "table") -> Path:
+
+    def save_table(self, df: pd.DataFrame, tables_dir: Path, prefix: str = FilePrefixes.TABLE) -> Path:
+        """
+        Save DataFrame as indexed CSV table.
+
+        Args:
+            df: DataFrame to save.
+            tables_dir: Output directory.
+            prefix: File prefix.
+
+        Returns:
+            Path to saved table.
+        """
         now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
         logger.info(f"Generated timestamp: {now}")
-        output = tables_dir / f"{prefix}-{now}.csv"
+        output = tables_dir / f"{prefix}-{now}{FileExtensions.CSV}"
         logger.info(f"Saving table to: {output}")
         df.to_csv(output, index=True)
         return output
 
+
     # === Group Enrichment & Concatenation ===
 
     def enrich_all_groups(self, data_editor: DataEditor, processed_dir: Path) -> Path | None:
-        group_map = {
-            "maap": "maap",
-            "golf": "golfmaten",
-            "dac": "dac",
-            "voorganger-golf": "golfmaten",
-            "til": "tillies",
-        }
+        """
+        Enrich and concatenate all cleaned group CSVs into a single enriched file.
 
+        Args:
+            data_editor: DataEditor instance for enrichment.
+            processed_dir: Directory containing cleaned CSVs.
+
+        Returns:
+            Path to the enriched output file, or None on failure.
+        """
         try:
             dfs: list[pd.DataFrame] = []
-            for csv_file in processed_dir.glob("whatsapp-*-cleaned.csv"):
+            for csv_file in processed_dir.glob(FilePatterns.CLEANED_CSV):
                 name_part = csv_file.stem.split("-", 3)[-1]
                 group_key = name_part.split("-cleaned")[0]
-                group = group_map.get(group_key)
+                group = GROUP_MAP_FROM_CLEANED.get(group_key)
 
                 if not group:
                     logger.warning(f"Unknown group in {csv_file.name}, skipping")
@@ -354,7 +469,7 @@ class FileManager:
 
             combined = pd.concat(dfs, ignore_index=True)
             out_path = (
-                processed_dir / f"whatsapp_all_enriched-{pd.Timestamp.now():%Y%m%d-%H%M%S}.csv"
+                processed_dir / f"{FilePrefixes.WHATSAPP_ALL_ENRICHED}-{pd.Timestamp.now():%Y%m%d-%H%M%S}{FileExtensions.CSV}"
             )
             combined.to_csv(out_path, index=False)
             logger.success(f"Enriched file saved: {out_path}")
@@ -374,6 +489,6 @@ class FileManager:
 # - Examples: with >>>
 # - No long ----- lines
 # - No mixed styles
-# - Add markers #NEW at the end of the module capturing the latest changes.
+# - Add markers #NEW at the end of the module
 
-# NEW: Full standardization with Google-style docstrings, StrEnum, and type hints (2025-10-31)
+# NEW: Full refactor with constants.py integration, docstrings, blank lines, and GROUP_MAP_FROM_CLEANED retained (2025-11-03)

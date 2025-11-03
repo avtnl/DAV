@@ -12,7 +12,8 @@ All string enums can be used directly in DataFrame operations:
 
 # === Imports ===
 from enum import Enum, StrEnum
-
+from typing import Any, Dict, Tuple
+from pathlib import Path
 
 # === Column Definitions ===
 class Columns(StrEnum):
@@ -120,6 +121,71 @@ class Groups(StrEnum):
     UNKNOWN = "unknown"
 
 
+# === File-name prefixes, suffixes and patterns ===
+class FilePrefixes(StrEnum):
+    """Prefixes used when generating timestamped output files."""
+    ORGANIZED = "organized_data"
+    WHATSAPP = "whatsapp"
+    WHATSAPP_ALL = "whatsapp_all"
+    WHATSAPP_ALL_ENRICHED = "whatsapp_all_enriched"
+    TABLE = "table"
+
+
+class FileExtensions(StrEnum):
+    """Common file extensions."""
+    CSV = ".csv"
+    PARQUET = ".parq"
+
+
+class FilePatterns(StrEnum):
+    """Glob patterns for locating processed files."""
+    CLEANED_CSV = "whatsapp-*-cleaned.csv"
+
+
+# === Config keys & static paths ===
+class ConfigKeys(StrEnum):
+    """Keys read from ``config.toml``."""
+    PROCESSED = "processed"
+    RAW = "raw"
+    PREPROCESS = "preprocess"
+
+
+CONFIG_FILE: Path = Path("config.toml")
+TEMP_CHAT_FILE: Path = Path("_chat.txt")
+
+
+# === Pre-processor CLI arguments ===
+class PreprocessorArgs(StrEnum):
+    """Arguments passed to ``preprocessor.main()``."""
+    DEVICE = "--device"
+    IOS = "ios"
+
+
+# === Mapping raw → current → group ===
+# NOTE: Keep the raw-key names exactly as they appear in config.toml.
+RAW_FILE_MAPPING: Dict[str, Tuple[str, str]] = {
+    "raw_1": ("current_1", Groups.MAAP),
+    "raw_2a": ("current_2a", Groups.GOLFMATEN),
+    "raw_2b": ("current_2b", Groups.GOLFMATEN),
+    "raw_3": ("current_3", Groups.DAC),
+    "raw_4": ("current_4", Groups.TILLIES),
+}
+
+# Helper to get only the group part (used in enrich_all_groups)
+GROUP_MAP_FROM_CLEANED: Dict[str, str] = {
+    "maap": Groups.MAAP,
+    "golf": Groups.GOLFMATEN,
+    "dac": Groups.DAC,
+    "voorganger-golf": Groups.GOLFMATEN,
+    "til": Groups.TILLIES,
+}
+
+# === NEW: Default image filename ===
+class ImageFilenames(StrEnum):
+    """Default base names for saved figures."""
+    YEARLY_BAR_CHART = "yearly_bar_chart_combined"
+
+
 # === Interaction Types for Arc Diagram ===
 class InteractionType(StrEnum):
     """Types of author interactions in the arc diagram.
@@ -210,3 +276,5 @@ class Script6ConfigKeys(StrEnum):
 
 # NEW: Added missing columns and footer (2025-11-01)
 # NEW: Added EmbeddingModel, Script6 config keys (2025-11-03)
+# NEW: (2025-11-03) – All hard-coded literals moved to constants
+
