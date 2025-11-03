@@ -1,7 +1,7 @@
 # === script3.py ===
 # === Module Docstring ===
 """
-Emoji distribution plot for the MAAP group.
+Distribution plot: Emoji distribution for the MAAP group (Script 3).
 
 Filters the enriched DataFrame for the MAAP group, prepares the emoji-frequency
 DataFrame via :meth:`src.data_preparation.DataPreparation.build_visual_distribution`,

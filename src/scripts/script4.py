@@ -1,6 +1,7 @@
 # === Module Docstring ===
 """
-Arc diagram of messaging interactions for the MAAP group.
+Relationship plot: Arc diagram of messaging interactions for the MAAP group (Script 4).
+Note: This plot is a bonus and not part of the 5 plots assignment!
 
 Builds participation table and renders network arcs via
 :meth:`src.plot_manager.PlotManager.build_visual_relationships_arc`.
@@ -35,31 +36,28 @@ class Script4(BaseScript):
         plot_manager,
         image_dir: Path,
         tables_dir: Path,
-        group_authors: Any,
-        original_df=None,
         settings: ArcPlotSettings | None = None,
+        df: pd.DataFrame | None = None,
     ) -> None:
         super().__init__(
             file_manager,
             data_preparation=data_preparation,
             plot_manager=plot_manager,
             settings=settings or ArcPlotSettings(),
-            df=original_df,
+            df=df,
         )
         self.image_dir = image_dir
         self.tables_dir = tables_dir
-        self.group_authors = group_authors
 
     # === Private Helpers ===
     def _build_participation_table(self, df_group: pd.DataFrame, group: str) -> pd.DataFrame | None:
         """Build and save participation table."""
-        participation_df = self.data_preparation.build_visual_relationships_arc(
-            df_group, self.group_authors.get(group, [])
-        )
-        if participation_df is None or participation_df.empty:
+        data = self.data_preparation.build_visual_relationships_arc(df_group)
+        if data is None or data.participation_df.empty:
             self.log_error("participation table empty.")
             return None
-        self.save_table(participation_df, self.tables_dir, f"participation_{group}")
+        participation_df = data.participation_df
+        self.file_manager.save_table(participation_df, self.tables_dir, f"participation_{group}")  # ← use file_manager
         logger.info(f"Saved participation table for {group}")
         return participation_df
 
@@ -102,7 +100,6 @@ class Script4(BaseScript):
 # - Examples: with >>>
 # - No long ----- lines
 # - No mixed styles
-# - Add markers #NEW at the end of the module capturing the latest changes. There can be a list of more #NEW lines.
+# - Add markers #NEW at the end of the module
 
-
-# NEW: Full refactor with Google docstring, section comments, and SEnum (2025-10-31)
+# NEW: Use file_manager.save_table instead of self.save_table (2025-11-03)

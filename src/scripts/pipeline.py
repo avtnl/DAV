@@ -26,7 +26,8 @@ from src.data_editor import DataEditor
 from src.data_preparation import DataPreparation
 from src.plot_manager import (
     CategoriesPlotSettings,
-    DistributionPlotSettings,  # ← ADDED
+    DistributionPlotSettings,
+    ArcPlotSettings,
     PlotManager,
 )
 from src.file_manager import FileManager
@@ -34,8 +35,10 @@ from src.file_manager import FileManager
 from .script0 import Script0
 from .script1 import Script1
 from .script2 import Script2
-from .script3 import Script3  # ← ADDED
-
+from .script3 import Script3
+from .script3 import Script3
+from .script4 import Script4
+# from .script5 import Script5  # ← FUTURE
 
 # === Pipeline Class ===
 class Pipeline:
@@ -117,14 +120,18 @@ class Pipeline:
                 2: (
                     Script2,
                     [file_manager, data_preparation, plot_manager, image_dir],
-                    df  # Pass df
+                    df
                 ),
-                3: (  # ← ADDED
+                3: (
                     Script3,
                     [file_manager, data_editor, data_preparation, plot_manager, image_dir, df],
                     None
                 ),
-                # 4: (Script4, [...], df),
+                4: (
+                    Script4,
+                    [file_manager, data_preparation, plot_manager, image_dir, tables_dir],
+                    df
+                ),
                 # 5: (Script5, [...], df),
             }
 
@@ -150,9 +157,12 @@ class Pipeline:
                     )
                     args.append(config_obj)
 
-                # Inject config for Script3
                 if script_id == 3:
                     args.append(DistributionPlotSettings())  # ← settings
+
+                # Inject config for Script4
+                if script_id == 4:
+                    args.append(ArcPlotSettings())
 
                 # Inject df if provided (after settings)
                 if df_arg is not None and script_id in {1, 2, 3, 4, 5}:
@@ -209,6 +219,8 @@ class Pipeline:
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
+# NEW: Added Script4 to registry with ArcPlotSettings injection (2025-11-03)
+# NEW: df appended after settings to match Script4.__init__ (2025-11-03)
 # NEW: Final working version with df injection (2025-11-01)
 # NEW: 3-tuple registry: (cls, args, df)
 # NEW: Script1 receives df and config

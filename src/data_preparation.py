@@ -75,9 +75,13 @@ class DistributionPlotData(BaseModel):
         arbitrary_types_allowed = True
 
 
-# === 4. Arc Plot Data Contract (Script4) – placeholder ===
+# === 4. Arc Plot Data Contract (Script4) ===
 class ArcPlotData(BaseModel):
-    pass  # to be filled later
+    """Validated container for the participation table used by the arc diagram."""
+    participation_df: pd.DataFrame
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 # === 5. Bubble Plot Data Contract (Script5) – placeholder ===
@@ -282,9 +286,85 @@ class DataPreparation(BaseHandler):
             logger.exception(f"build_visual_distribution failed: {e}")
             return None
 
-    # === 4. Arc (Script4) – stub ===
-    def build_visual_relationships_arc(self, df_group: pd.DataFrame, authors: list[str]) -> ArcPlotData | None:
-        ...
+    # === 4. Arc (Script4) ===
+    def build_visual_relationships_arc(self, df_group: pd.DataFrame) -> ArcPlotData | None:
+        """
+        Build the participation table for the MAAP arc diagram.
+
+        Uses ``x_number_of_unique_participants_that_day`` to identify 2- or 3-person days.
+        Authors are derived from the data (must be exactly 4).
+
+        Args:
+            df_group: DataFrame filtered to MAAP group.
+
+        Returns:
+            ArcPlotData or None.
+        """
+        df = self._handle_empty_df(df_group, "build_visual_relationships_arc")
+        if df.empty:
+            return None
+
+        try:
+            # 1. Extract authors from data
+            authors = sorted(df[Columns.AUTHOR].unique())
+            if len(authors) != 4:
+                logger.error(f"MAAP group must have exactly 4 authors, found {len(authors)}")
+                return None
+
+            # 2. Add date column
+            df = df.copy()
+            df["date"] = df[Columns.TIMESTAMP].dt.date
+
+            rows = []
+
+            # 3. Group by date
+            for day, day_df in df.groupby("date"):
+                n_part = day_df[Columns.X_NUMBER_OF_UNIQUE_PARTICIPANTS_THAT_DAY].iloc[0]
+                if n_part not in (2, 3):
+                    continue
+
+                total_messages = len(day_df)
+                author_counts = day_df[Columns.AUTHOR].value_counts()
+                pct = {a: (author_counts.get(a, 0) / total_messages) * 100 for a in authors}
+
+                if n_part == 2:
+                    active = sorted([a for a in authors if pct[a] > 0])
+                    author_label = " & ".join(active)
+                    row = {
+                        "type": "Pairs",
+                        "author": author_label,
+                        "total_messages": total_messages,
+                    }
+                    for a in authors:
+                        row[a] = f"{pct[a]:.0f}%" if a in active else 0
+
+                else:  # n_part == 3
+                    missing = [a for a in authors if pct[a] == 0][0]
+                    author_label = f"Missing: {missing}"
+                    row = {
+                        "type": "Non-participant",
+                        "author": author_label,
+                        "total_messages": total_messages,
+                    }
+                    for a in authors:
+                        row[a] = f"{pct[a]:.0f}%" if pct[a] > 0 else 0
+
+                rows.append(row)
+
+            if not rows:
+                logger.error("No qualifying days found for arc diagram.")
+                return None
+
+            participation_df = pd.DataFrame(rows)
+            col_order = ["type", "author", "total_messages"] + authors
+            participation_df = participation_df[col_order]
+
+            logger.success(f"Arc table built: {len(participation_df)} rows")
+            return ArcPlotData(participation_df=participation_df)
+
+        except Exception as e:
+            logger.exception(f"build_visual_relationships_arc failed: {e}")
+            return None
 
     # === 5. Bubble (Script5) – stub ===
     def build_visual_relationships_bubble(self, df_groups: pd.DataFrame, groups: list[str]) -> BubblePlotData | None:

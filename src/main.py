@@ -7,7 +7,7 @@ Configures and runs selected analysis scripts via :class:`src.scripts.pipeline.P
 Examples
 --------
 >>> from src.scripts.pipeline import Pipeline
->>> Pipeline.run(scripts=[7, 1, 2])
+>>> Pipeline.run(scripts=[1, 2, 5])
 """
 
 # === Imports ===
@@ -16,7 +16,7 @@ from src.scripts.pipeline import Pipeline
 # === Pipeline Configuration ===
 # Order matters! Script0 (preprocessing) runs automatically first.
 # Only include scripts you want to execute.
-SCRIPTS = [1,2,3]
+SCRIPTS = [1,2,3,4]
 
 # === Main Execution ===
 if __name__ == "__main__":
