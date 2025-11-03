@@ -1,3 +1,4 @@
+# === script0.py ===
 # === Module Docstring ===
 """
 Preprocess raw WhatsApp chat exports (Script0).
@@ -7,7 +8,6 @@ Runs automatically if no cache exists.
 
 Examples
 --------
->>> from src.scripts.script0 import Script0
 >>> script = Script0(file_manager, data_editor, data_preparation, processed_dir, config, image_dir)
 >>> result = script.run()
 >>> result["df"].shape
@@ -50,8 +50,12 @@ class Script0(BaseScript):
             config: Full config dictionary from config.toml.
             image_dir: Directory for output images (unused here).
         """
-        super().__init__(file_manager, data_editor=data_editor, data_preparation=data_preparation)
-        self.processed_dir = processed_processed_dir
+        super().__init__(
+            file_manager=file_manager,
+            data_editor=data_editor,
+            data_preparation=data_preparation,
+        )
+        self.processed_dir = processed_dir
         self.config = config
         self.image_dir = image_dir
         self.tables_dir = Path("tables")
@@ -113,5 +117,5 @@ class Script0(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Fixed all pre-commit issues (2025-11-01)
-# NEW: String forward refs + .ruff.toml ignore F821
+# NEW: Fixed typo: processed_processed_dir → processed_dir (2025-11-03)
+# NEW: Removed *args, **kwargs; df not passed (not needed) (2025-11-03)

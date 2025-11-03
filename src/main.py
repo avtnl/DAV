@@ -14,12 +14,25 @@ from src.scripts.pipeline import Pipeline
 SCRIPTS = [1,2,3,4,5,6,7]
 SCRIPT_6_DETAILS = ["tsne", True, True, False, True, 1]  # Only used if 6 in SCRIPTS | by_group, draw_ellipses, use_emb, hybrid, model_id
 
+
 # === Main Execution ===
 if __name__ == "__main__":
-    Pipeline.run(
+    result = Pipeline.run(
         scripts=SCRIPTS,
-        script_6_details=SCRIPT_6_DETAILS  # ← REQUIRED for Script6
+        script_6_details=SCRIPT_6_DETAILS
     )
+
+    # === Graceful Dashboard Exit (Script7 only) ===
+    if 7 in SCRIPTS:
+        print("\nDashboard: http://localhost:8501")
+        print("Close browser and press ENTER to exit.")
+        try:
+            input()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            print("Goodbye!\n")
+
 
 # === CODING STANDARD (APPLY TO ALL CODE) ===
 # - `# === Module Docstring ===` before """
@@ -35,3 +48,4 @@ if __name__ == "__main__":
 
 # NEW: Standardized main entry with Google docstring and SCRIPTS config (2025-10-31)
 # NEW: script_validation(scripts, SCRIPT_6_DETAILS)
+# NEW: Added graceful exit for Script7 with ENTER prompt (2025-11-03)

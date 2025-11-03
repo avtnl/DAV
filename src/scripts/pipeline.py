@@ -1,3 +1,4 @@
+# === pipeline.py ===
 # === Module Docstring ===
 """
 Central pipeline orchestrator.
@@ -96,25 +97,90 @@ class Pipeline:
             plot_manager = PlotManager()
             plot_manager.data_preparation = data_preparation
 
-            df: pd.DataFrame | None = None
+            df: pd.DataFrame | None = file_manager.get_latest_preprocessed_df()
             tables_dir = Path("tables")
             tables_dir.mkdir(exist_ok=True)
 
-            df = file_manager.get_latest_preprocessed_df()
             if df is None or df.empty:
                 logger.info("No enriched CSV or Script0 requested - forcing Script0.")
                 scripts = [0] + [s for s in scripts if s != 0]
 
             # === Script Registry ===
             script_registry = {
-                0: (Script0, [file_manager, data_editor, data_preparation, processed_dir, config, image_dir], None),
-                1: (Script1, [file_manager, data_preparation, plot_manager, image_dir, tables_dir, df], None),
-                2: (Script2, [file_manager, data_preparation, plot_manager, image_dir], df),
-                3: (Script3, [file_manager, data_editor, data_preparation, plot_manager, image_dir, df], None),
-                4: (Script4, [file_manager, data_preparation, plot_manager, image_dir, tables_dir], df),
-                5: (Script5, [file_manager, data_preparation, plot_manager, image_dir, df], None),
-                6: (Script6, [file_manager, data_preparation, plot_manager, image_dir, df], None),
-                7: (Script7, [file_manager, image_dir], None)
+                0: (Script0, {
+                    "file_manager": file_manager,
+                    "data_editor": data_editor,
+                    "data_preparation": data_preparation,
+                    "processed_dir": processed_dir,
+                    "config": config,
+                    "image_dir": image_dir,
+                }),
+                1: (Script1, {
+                    "file_manager": file_manager,
+                    "data_preparation": data_preparation,
+                    "plot_manager": plot_manager,
+                    "image_dir": image_dir,
+                    "tables_dir": tables_dir,
+                    "df": df,
+                    "settings": CategoriesPlotSettings(
+                        figsize=(16, 9),
+                        group_spacing=3.0,
+                        title="Anthony's participation is significantly lower for the 3rd group",
+                        subtitle="Too much to handle or too much crap?",
+                    ),
+                }),
+                2: (Script2, {
+                    "file_manager": file_manager,
+                    "data_preparation": data_preparation,
+                    "plot_manager": plot_manager,
+                    "image_dir": image_dir,
+                    "df": df,
+                }),
+                3: (Script3, {
+                    "file_manager": file_manager,
+                    "data_editor": data_editor,
+                    "data_preparation": data_preparation,
+                    "plot_manager": plot_manager,
+                    "image_dir": image_dir,
+                    "df": df,
+                    "settings": DistributionPlotSettings(),
+                }),
+                4: (Script4, {
+                    "file_manager": file_manager,
+                    "data_preparation": data_preparation,
+                    "plot_manager": plot_manager,
+                    "image_dir": image_dir,
+                    "tables_dir": tables_dir,
+                    "df": df,
+                    "settings": ArcPlotSettings(),
+                }),
+                5: (Script5, {
+                    "file_manager": file_manager,
+                    "data_preparation": data_preparation,
+                    "plot_manager": plot_manager,
+                    "image_dir": image_dir,
+                    "df": df,
+                    "settings": BubblePlotSettings(),
+                }),
+                6: (Script6, {
+                    "file_manager": file_manager,
+                    "data_preparation": data_preparation,
+                    "plot_manager": plot_manager,
+                    "image_dir": image_dir,
+                    "df": df,
+                    "settings": MultiDimPlotSettings(
+                        by_group=script_6_details[1] if script_6_details else True,
+                        draw_ellipses=script_6_details[2] if script_6_details else False,
+                        use_embeddings=script_6_details[3] if script_6_details else True,
+                        hybrid_features=script_6_details[4] if script_6_details else True,
+                        embedding_model=script_6_details[5] if script_6_details else 3,
+                    ),
+                    "script_details": script_6_details or ["tsne", True, False, True, True, 3],
+                }),
+                7: (Script7, {
+                    "file_manager": file_manager,
+                    "image_dir": image_dir,
+                }),
             }
 
             instances: dict[int, Any] = {}
@@ -124,50 +190,12 @@ class Pipeline:
                     logger.warning(f"Script {script_id} not in registry. Skipping.")
                     continue
 
-                cls, base_args, df_arg = script_registry[script_id]
-                args = base_args.copy()
-
-                if script_id == 1:
-                    config_obj = CategoriesPlotSettings(
-                        figsize=(16, 9),
-                        group_spacing=3.0,
-                        title="Anthony's participation is significantly lower for the 3rd group",
-                        subtitle="Too much to handle or too much crap?",
-                    )
-                    args.append(config_obj)
-
-                if script_id == 3:
-                    args.append(DistributionPlotSettings())
-
-                if script_id == 4:
-                    args.append(ArcPlotSettings())
-
-                if script_id == 5:
-                    args.append(BubblePlotSettings())
-
-                if script_id == 6:
-                    if script_6_details is None:
-                        logger.error("SCRIPT_6_DETAILS not provided for Script6. Check main.py.")
-                        continue
-                    args.append(MultiDimPlotSettings(
-                        by_group=script_6_details[1],
-                        draw_ellipses=script_6_details[2],
-                        use_embeddings=script_6_details[3],
-                        hybrid_features=script_6_details[4],
-                        embedding_model=script_6_details[5],
-                    ))
-                    args.append(script_6_details)
-
-                if script_id == 7:
-                    args = [file_manager, image_dir]
-
-                if df_arg is not None and script_id in {1, 2, 3, 4, 5}:
-                    args.append(df_arg)
+                cls, kwargs = script_registry[script_id]
 
                 if script_id == 0:
                     logger.info("Running Script0 (preprocessing)...")
                     try:
-                        instance = cls(*args)
+                        instance = cls(**kwargs)
                         result = instance.run()
                         if result is None or "df" not in result:
                             logger.error("Script0 failed or didn't return 'df'. Aborting.")
@@ -182,7 +210,7 @@ class Pipeline:
                     continue
 
                 try:
-                    instance = cls(*args)
+                    instance = cls(**kwargs)
                     instances[script_id] = instance
                     logger.info(f"Initialized Script {script_id}")
                 except Exception as e:
@@ -212,18 +240,6 @@ class Pipeline:
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Final working version with df injection (2025-11-01)
-# NEW: 3-tuple registry: (cls, args, df)
-# NEW: Script1 receives df and config
-# NEW: Clean, robust, production-ready
-# NEW: Removed duplicate config append for Script1 (2025-11-01)
-# NEW: Added Script3 with correct df injection order (2025-11-01)
-# NEW: df appended after settings to match Script3.__init__ (2025-11-01)
-# NEW: DistributionPlotSettings injected for Script3 (2025-11-01)
-# NEW: Added Script4 to registry with ArcPlotSettings injection (2025-11-03)
-# NEW: df appended after settings to match Script4.__init__ (2025-11-03)
-# NEW: Added Script5 to registry with BubblePlotSettings injection (2025-11-03)
-# NEW: df in base_args to match Script5.__init__ (2025-11-03)
-# NEW: Added Script6 with direct script_6_details injection (2025-11-03)
-# NEW: Validation moved to script6.py (2025-11-03)
-# NEW: Removed pipeline instance state (2025-11-03)
+# NEW: Used **kwargs in registry for clarity and safety (2025-11-03)
+# NEW: Removed positional args entirely (2025-11-03)
+# NEW: Added fallback for script_6_details (2025-11-03)

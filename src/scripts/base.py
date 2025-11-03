@@ -1,3 +1,4 @@
+# === base.py ===
 # === Module Docstring ===
 """
 Base module for all analysis scripts.
@@ -13,6 +14,7 @@ All scripts inherit from :class:`BaseScript` to ensure consistency.
 # === Imports ===
 from pathlib import Path
 from typing import Any
+from abc import ABC, abstractmethod
 
 import pandas as pd
 from loguru import logger
@@ -21,8 +23,11 @@ import warnings
 
 
 # === Base Script ===
-class BaseScript:
-    """Common functionality for all analysis scripts."""
+class BaseScript(ABC):
+    """Abstract base class for all analysis scripts.
+
+    Ensures consistent access to shared components and enforces ``run()`` method.
+    """
 
     def __init__(
         self,
@@ -32,22 +37,23 @@ class BaseScript:
         plot_manager=None,
         settings=None,
         df: pd.DataFrame | None = None,
-        *args,
-        **kwargs,
     ) -> None:
         """
         Initialize shared components.
 
         Args:
-            file_manager: FileManager instance for I/O operations.
+            file_manager: FileManager instance (required).
             data_editor: DataEditor instance (optional).
             data_preparation: DataPreparation instance (optional).
             plot_manager: PlotManager instance (optional).
             settings: Plot settings model (optional).
             df: Enriched DataFrame (optional).
-            *args: Ignored positional arguments.
-            **kwargs: Ignored keyword arguments.
+
+        Raises:
+            ValueError: If ``file_manager`` is missing.
         """
+        if not file_manager:
+            raise ValueError("file_manager is required")
         self.file_manager = file_manager
         self.data_editor = data_editor
         self.data_preparation = data_preparation
@@ -88,6 +94,11 @@ class BaseScript:
         plt.close(fig)
         return path
 
+    @abstractmethod
+    def run(self) -> Any | None:
+        """Execute the script's main logic. Must be implemented by subclasses."""
+        pass
+
 
 # === CODING STANDARD (APPLY TO ALL CODE) ===
 # - `# === Module Docstring ===` before """
@@ -101,6 +112,6 @@ class BaseScript:
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Added pandas import, full Google docstrings, and df parameter (2025-11-03)
-# NEW: Added emoji font support in save_figure() (2025-11-03)
-# NEW: Suppress matplotlib glyph warnings (2025-11-03)
+# NEW: Made BaseScript abstract with @abstractmethod (2025-11-03)
+# NEW: Added file_manager validation and class docstring (2025-11-03)
+# NEW: Removed *args, **kwargs from __init__ (2025-11-03)

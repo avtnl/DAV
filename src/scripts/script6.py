@@ -1,3 +1,4 @@
+# === script6.py ===
 # === Module Docstring ===
 """
 Multi-dimensional plot: PCA/t-SNE clustering with embeddings (Script 6).
@@ -22,6 +23,7 @@ Example:
 # === Imports ===
 from pathlib import Path
 from typing import Any
+import pandas as pd
 
 import pandas as pd
 from loguru import logger
@@ -80,7 +82,7 @@ class Script6(BaseScript):
         data_preparation,
         plot_manager,
         image_dir: Path,
-        df: pd.DataFrame | None = None,
+        df: pd.DataFrame,
         settings: MultiDimPlotSettings | None = None,
         script_details: list | None = None,
     ) -> None:
@@ -92,12 +94,12 @@ class Script6(BaseScript):
             data_preparation: DataPreparation for style aggregation.
             plot_manager: PlotManager for rendering.
             image_dir: Directory to save plots.
-            df: Enriched DataFrame (optional).
+            df: Enriched DataFrame (required).
             settings: Multi-dimensional plot settings.
             script_details: List of 6 config values (see README).
         """
         super().__init__(
-            file_manager,
+            file_manager=file_manager,
             data_preparation=data_preparation,
             plot_manager=plot_manager,
             settings=settings or MultiDimPlotSettings(),
@@ -193,9 +195,4 @@ class Script6(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Initial Script6 with full integration (2025-11-03)
-# NEW: Validation moved into script6.py (2025-11-03)
-# NEW: Direct script_6_details injection from pipeline (2025-11-03)
-# NEW: Embedded README in docstring (2025-11-03)
-# NEW: Conditional validation for USE_EMBEDDINGS (2025-11-03)
-# NEW: Added PLOT_TYPE toggle, updated validation and config code (2025-11-03)
+# NEW: df passed to super(); no *args, **kwargs (2025-11-03)

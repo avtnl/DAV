@@ -1,3 +1,4 @@
+# === script5.py ===
 # === Module Docstring ===
 """
 Relationships plot: Bubble plot of words vs punctuation across multiple groups (Script 5).
@@ -14,6 +15,7 @@ PosixPath('images/bubble_words_vs_punct.png')
 
 # === Imports ===
 from pathlib import Path
+import pandas as pd
 
 import pandas as pd
 from loguru import logger
@@ -29,14 +31,14 @@ class Script5(BaseScript):
     """Bubble plot across multiple groups."""
 
     def __init__(
-            self,
-            file_manager,
-            data_preparation,
-            plot_manager,
-            image_dir: Path,
-            df: pd.DataFrame | None = None,
-            settings: BubblePlotSettings | None = None,
-        ) -> None:
+        self,
+        file_manager,
+        data_preparation,
+        plot_manager,
+        image_dir: Path,
+        df: pd.DataFrame,
+        settings: BubblePlotSettings | None = None,
+    ) -> None:
         """
         Initialize Script5 with required components.
 
@@ -45,11 +47,11 @@ class Script5(BaseScript):
             data_preparation: DataPreparation for bubble data.
             plot_manager: PlotManager for rendering.
             image_dir: Directory to save plot.
-            df: Enriched DataFrame (optional, passed to BaseScript).
+            df: Enriched DataFrame (required).
             settings: Bubble plot settings (optional).
         """
         super().__init__(
-            file_manager,
+            file_manager=file_manager,
             data_preparation=data_preparation,
             plot_manager=plot_manager,
             settings=settings or BubblePlotSettings(),
@@ -99,6 +101,4 @@ class Script5(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Full refactor with Google docstring, return type, and SEnum (2025-10-31)
-# NEW: Renamed BubbleNewPlotSettings → BubblePlotSettings (2025-11-03)
-# NEW: Fixed df assignment – use BaseScript.df, removed self.df = df (2025-11-03)
+# NEW: df passed to super(); no *args, **kwargs (2025-11-03)

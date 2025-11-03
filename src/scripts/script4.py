@@ -1,3 +1,4 @@
+# === script4.py ===
 # === Module Docstring ===
 """
 Relationship plot: Arc diagram of messaging interactions for the MAAP group (Script 4).
@@ -16,7 +17,7 @@ PosixPath('images/arc_diagram_maap.png')
 
 # === Imports ===
 from pathlib import Path
-from typing import Any
+import pandas as pd
 
 import pandas as pd
 from loguru import logger
@@ -37,8 +38,8 @@ class Script4(BaseScript):
         plot_manager,
         image_dir: Path,
         tables_dir: Path,
+        df: pd.DataFrame,
         settings: ArcPlotSettings | None = None,
-        df: pd.DataFrame | None = None,
     ) -> None:
         """
         Initialize Script4 with required components.
@@ -49,11 +50,11 @@ class Script4(BaseScript):
             plot_manager: PlotManager for rendering.
             image_dir: Directory to save plot.
             tables_dir: Directory to save participation table.
+            df: Enriched DataFrame (required).
             settings: Arc plot settings (optional).
-            df: Enriched DataFrame (optional, passed to BaseScript).
         """
         super().__init__(
-            file_manager,
+            file_manager=file_manager,
             data_preparation=data_preparation,
             plot_manager=plot_manager,
             settings=settings or ArcPlotSettings(),
@@ -126,4 +127,4 @@ class Script4(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Use file_manager.save_table instead of self.save_table (2025-11-03)
+# NEW: df passed to super(); no *args, **kwargs (2025-11-03)

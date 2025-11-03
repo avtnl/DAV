@@ -1,3 +1,4 @@
+# === script7.py ===
 # === Module Docstring ===
 """
 Launch Streamlit dashboard (Script7).
@@ -36,8 +37,6 @@ class Script7(BaseScript):
         self,
         file_manager,
         image_dir: Path,
-        *args,
-        **kwargs,
     ) -> None:
         """
         Initialize Script7 with required file_manager and image directory.
@@ -45,10 +44,8 @@ class Script7(BaseScript):
         Args:
             file_manager: FileManager instance (required for BaseScript).
             image_dir: Directory containing generated plots.
-            *args: Ignored positional arguments.
-            **kwargs: Ignored keyword arguments.
         """
-        super().__init__(file_manager, *args, **kwargs)
+        super().__init__(file_manager=file_manager)
         self.image_dir = image_dir
         self.dashboard_path = Path("src/dashboard/streamlit_app.py").resolve()
         self.port = 8501
@@ -118,7 +115,5 @@ class Script7(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Added file_manager to __init__ to satisfy BaseScript requirements (2025-11-03)
-# NEW: Final Script7 with smart browser auto-open using sys.stdin.isatty() (2025-11-03)
-# NEW: Safe for CI/CD, Docker, and local dev (2025-11-03)
-# NEW: Returns process, URL, and port for monitoring (2025-11-03)
+# NEW: Removed *args, **kwargs; use keyword args in super() (2025-11-03)
+# NEW: No df needed — not passed to BaseScript (2025-11-03)

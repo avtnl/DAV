@@ -1,3 +1,4 @@
+# === script1.py ===
 # === Module Docstring ===
 """
 Category plot: Messages per author per group (Script 1).
@@ -14,6 +15,7 @@ PosixPath('images/category_plot.png')
 
 # === Imports ===
 from pathlib import Path
+import pandas as pd
 
 from loguru import logger
 from src.constants import Columns, Groups
@@ -33,10 +35,8 @@ class Script1(BaseScript):
         plot_manager,
         image_dir: Path,
         tables_dir: Path,
-        df,
+        df: pd.DataFrame,
         settings: CategoriesPlotSettings | None = None,
-        *args,
-        **kwargs,
     ) -> None:
         """
         Initialize Script1 with required components.
@@ -49,20 +49,16 @@ class Script1(BaseScript):
             tables_dir: Directory to save participation tables.
             df: Enriched DataFrame (required).
             settings: Plot settings (optional).
-            *args: Ignored positional arguments.
-            **kwargs: Ignored keyword arguments.
         """
         super().__init__(
             file_manager=file_manager,
             data_preparation=data_preparation,
             plot_manager=plot_manager,
             settings=settings or CategoriesPlotSettings(),
-            *args,
-            **kwargs,
+            df=df,
         )
         self.image_dir = image_dir
         self.tables_dir = tables_dir
-        self.df = df
 
     def run(self) -> Path | None:
         """
@@ -103,5 +99,5 @@ class Script1(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Fixed df injection – stored locally, not passed to BaseScript (2025-11-02)
-# NEW: Uses keyword args in super().__init__() to avoid DataFrame truth error
+# NEW: Removed *args, **kwargs; df passed to super() (2025-11-03)
+# NEW: Removed local self.df = df (2025-11-03)

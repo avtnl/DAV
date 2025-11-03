@@ -1,3 +1,4 @@
+# === script2.py ===
 # === Module Docstring ===
 """
 Time plot: DAC weekly heartbeat (Script 2).
@@ -14,6 +15,7 @@ PosixPath('images/time_plot_dac.png')
 
 # === Imports ===
 from pathlib import Path
+import pandas as pd
 
 from loguru import logger
 from src.constants import Columns, Groups
@@ -32,7 +34,7 @@ class Script2(BaseScript):
         data_preparation,
         plot_manager,
         image_dir: Path,
-        df,
+        df: pd.DataFrame,
     ) -> None:
         """
         Initialize Script2 with required components.
@@ -48,9 +50,9 @@ class Script2(BaseScript):
             file_manager=file_manager,
             data_preparation=data_preparation,
             plot_manager=plot_manager,
+            df=df,
         )
         self.image_dir = image_dir
-        self.df = df
 
     def run(self) -> Path | None:
         """
@@ -97,5 +99,5 @@ class Script2(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Fixed df injection – stored locally, not passed to BaseScript (2025-11-02)
-# NEW: Uses keyword args in super().__init__() to avoid DataFrame truth error
+# NEW: Removed *args, **kwargs; df passed to super() (2025-11-03)
+# NEW: Removed local self.df = df (2025-11-03)

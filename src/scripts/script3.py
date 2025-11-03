@@ -1,3 +1,4 @@
+# === script3.py ===
 # === Module Docstring ===
 """
 Distribution plot: Emoji distribution for the MAAP group (Script 3).
@@ -16,6 +17,7 @@ PosixPath('images/emoji_counts_once.png')
 
 # === Imports ===
 from pathlib import Path
+import pandas as pd
 
 from loguru import logger
 from src.constants import Columns, Groups
@@ -35,10 +37,8 @@ class Script3(BaseScript):
         data_preparation,
         plot_manager,
         image_dir: Path,
-        df,
+        df: pd.DataFrame,
         settings: DistributionPlotSettings | None = None,
-        *args,
-        **kwargs,
     ) -> None:
         """
         Initialize Script3 with required components.
@@ -51,8 +51,6 @@ class Script3(BaseScript):
             image_dir: Directory to save plot.
             df: Enriched DataFrame (required).
             settings: Plot settings (optional).
-            *args: Ignored positional arguments.
-            **kwargs: Ignored keyword arguments.
         """
         super().__init__(
             file_manager=file_manager,
@@ -60,11 +58,9 @@ class Script3(BaseScript):
             data_preparation=data_preparation,
             plot_manager=plot_manager,
             settings=settings or DistributionPlotSettings(),
-            *args,
-            **kwargs,
+            df=df,
         )
         self.image_dir = image_dir
-        self.df = df
 
     def run(self) -> Path | None:
         """
@@ -108,7 +104,5 @@ class Script3(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Fixed df injection – df stored directly, not passed to BaseScript (2025-11-01)
-# NEW: Prevents "truth value of DataFrame" error
-# NEW: Refactored to use pre-computed LIST_OF_ALL_EMOJIS (2025-11-01)
-# NEW: Returns DistributionPlotData and passes its DataFrame to PlotManager (2025-11-01)
+# NEW: Removed *args, **kwargs; df passed to super() (2025-11-03)
+# NEW: Removed local self.df = df (2025-11-03)
