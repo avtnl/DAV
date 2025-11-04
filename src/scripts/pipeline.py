@@ -6,7 +6,7 @@ Central pipeline orchestrator.
 Loads config, manages caching, initializes components, and runs selected scripts
 in order. Automatically runs Script0 (preprocessing) if needed.
 
-Uses **BaseModel configs**, **validated data contracts**, and **flexible script registry**.
+Uses flexible script registry with keyword arguments for clean, safe execution.
 """
 
 # === Imports ===
@@ -16,7 +16,7 @@ import sys
 import tomllib
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List
 
 import pandas as pd
 import pytz
@@ -24,16 +24,16 @@ from loguru import logger
 
 from src.data_editor import DataEditor
 from src.data_preparation import DataPreparation
+from src.file_manager import FileManager
 from src.plot_manager import (
-    CategoriesPlotSettings,
-    DistributionPlotSettings,
     ArcPlotSettings,
     BubblePlotSettings,
+    CategoriesPlotSettings,
+    TimePlotSettings,
+    DistributionPlotSettings,
     MultiDimPlotSettings,
     PlotManager,
 )
-from src.file_manager import FileManager
-
 from .script0 import Script0
 from .script1 import Script1
 from .script2 import Script2
@@ -46,12 +46,16 @@ from .script7 import Script7
 
 # === Pipeline Class ===
 class Pipeline:
-    """Orchestrates script execution with caching, logging, and BaseModel configs."""
+    """Orchestrates script execution with caching, logging, and flexible registry."""
 
     # === Logging Setup ===
     @staticmethod
     def _setup_logging() -> Path:
-        """Create timestamped log file and configure loguru."""
+        """Create timestamped log file and configure loguru.
+
+        Returns:
+            Path to the log file.
+        """
         log_dir = Path("logs")
         log_dir.mkdir(exist_ok=True)
         timestamp = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
@@ -65,8 +69,12 @@ class Pipeline:
 
     # === Config Loading ===
     @staticmethod
-    def _load_config() -> dict[str, Any]:
-        """Load TOML config from root."""
+    def _load_config() -> Dict[str, Any]:
+        """Load TOML config from root.
+
+        Returns:
+            Config dictionary.
+        """
         configfile = Path("config.toml").resolve()
         with configfile.open("rb") as f:
             return tomllib.load(f)
@@ -74,8 +82,8 @@ class Pipeline:
     # === Main Runner ===
     @staticmethod
     def run(
-        scripts: list[int] | None = None,
-        script_6_details: list | None = None,
+        scripts: List[int] | None = None,
+        script_6_details: List[Any] | None = None,
     ) -> None:
         """Execute scripts in order with preprocessing fallback."""
         try:
@@ -97,24 +105,35 @@ class Pipeline:
             plot_manager = PlotManager()
             plot_manager.data_preparation = data_preparation
 
-            df: pd.DataFrame | None = file_manager.get_latest_preprocessed_df()
+            # === DO NOT LOAD DF HERE ===
+            df: pd.DataFrame | None = None
             tables_dir = Path("tables")
             tables_dir.mkdir(exist_ok=True)
 
-            if df is None or df.empty:
-                logger.info("No enriched CSV or Script0 requested - forcing Script0.")
+            # === RUN SCRIPT0 FIRST IF NEEDED ===
+            if 0 in scripts or df is None:
+                logger.info("Running Script0 to generate or refresh data...")
                 scripts = [0] + [s for s in scripts if s != 0]
 
-            # === Script Registry ===
+                # Run Script0 immediately to populate df
+                instance = Script0(
+                    file_manager=file_manager,
+                    data_editor=data_editor,
+                    data_preparation=data_preparation,
+                    processed_dir=processed_dir,
+                    config=config,
+                    image_dir=image_dir,
+                )
+                result = instance.run()
+                if result is None or "df" not in result:
+                    logger.error("Script0 failed or didn't return 'df'. Aborting.")
+                    return
+                df = result["df"]
+                tables_dir = result.get("tables_dir", tables_dir)
+                logger.info(f"Script0 completed. DF shape: {df.shape}")
+
+            # === Script Registry (df now available) ===
             script_registry = {
-                0: (Script0, {
-                    "file_manager": file_manager,
-                    "data_editor": data_editor,
-                    "data_preparation": data_preparation,
-                    "processed_dir": processed_dir,
-                    "config": config,
-                    "image_dir": image_dir,
-                }),
                 1: (Script1, {
                     "file_manager": file_manager,
                     "data_preparation": data_preparation,
@@ -135,6 +154,7 @@ class Pipeline:
                     "plot_manager": plot_manager,
                     "image_dir": image_dir,
                     "df": df,
+                    "settings": TimePlotSettings()
                 }),
                 3: (Script3, {
                     "file_manager": file_manager,
@@ -183,31 +203,17 @@ class Pipeline:
                 }),
             }
 
-            instances: dict[int, Any] = {}
+            instances: Dict[int, Any] = {}
 
             for script_id in scripts:
+                if script_id == 0:
+                    continue  # Already run
+
                 if script_id not in script_registry:
                     logger.warning(f"Script {script_id} not in registry. Skipping.")
                     continue
 
                 cls, kwargs = script_registry[script_id]
-
-                if script_id == 0:
-                    logger.info("Running Script0 (preprocessing)...")
-                    try:
-                        instance = cls(**kwargs)
-                        result = instance.run()
-                        if result is None or "df" not in result:
-                            logger.error("Script0 failed or didn't return 'df'. Aborting.")
-                            return
-                        df = result["df"]
-                        tables_dir = result.get("tables_dir", tables_dir)
-                        instances[script_id] = instance
-                        logger.info(f"Script0 completed. DF shape: {df.shape}")
-                    except Exception as e:
-                        logger.exception(f"Script0 failed: {e}")
-                        return
-                    continue
 
                 try:
                     instance = cls(**kwargs)
@@ -243,3 +249,6 @@ class Pipeline:
 # NEW: Used **kwargs in registry for clarity and safety (2025-11-03)
 # NEW: Removed positional args entirely (2025-11-03)
 # NEW: Added fallback for script_6_details (2025-11-03)
+# NEW: (2025-11-04) – Adjusted Script0 forcing logic for new cache/reuse handling
+# NEW: (2025-11-04) – Added "df": df to Script2 to fix 'No DataFrame provided' error
+# NEW: (2025-11-04) – Run Script0 before registry to ensure df is available

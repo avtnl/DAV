@@ -333,27 +333,40 @@ class DataPreparation(BaseHandler):
         try:
             df_dac = df[df[Columns.WHATSAPP_GROUP] == Groups.DAC].copy()
             if df_dac.empty:
-                logger.warning("No messages in DAC group for time plot")
+                logger.warning(f"No messages for group '{Groups.DAC.value}'. Skipping.")
                 return None
 
-            weekly_counts = df_dac.groupby(Columns.WEEK).size()
-            p = weekly_counts.groupby(weekly_counts.index).mean()
-            p = p.reindex(WEEKS_IN_YEAR, fill_value=0.0)
+            week_col = Columns.WEEK.value
+            if week_col not in df_dac.columns:
+                logger.error(f"Missing required column '{week_col}' in DAC DataFrame.")
+                return None
 
-            weekly_avg_dict = p.to_dict()
-            average_all = float(p.mean())
-            date_range = (
-                df_dac[Columns.TIMESTAMP].min().date(),
-                df_dac[Columns.TIMESTAMP].max().date(),
+            # Weekly message count per author
+            weekly_counts = df_dac.groupby(week_col).size()
+
+            # Number of unique authors per week
+            authors_per_week = df_dac.groupby(week_col)[Columns.AUTHOR.value].nunique()
+
+            # Average messages per author per week (rounded to 1 decimal)
+            weekly_avg = (weekly_counts / authors_per_week).round(1)
+
+            # Fill missing weeks (1–52) with 0.0
+            weekly_avg = weekly_avg.reindex(WEEKS_IN_YEAR, fill_value=0.0)
+
+            data = TimePlotData(
+                weekly_avg=weekly_avg.to_dict(),
+                global_avg=float(weekly_avg.mean()),
+                date_range=(
+                    df_dac[Columns.TIMESTAMP].min(),
+                    df_dac[Columns.TIMESTAMP].max(),
+                ),
             )
 
-            result = TimePlotData(
-                weekly_avg=weekly_avg_dict,
-                global_avg=average_all,
-                date_range=date_range,
+            logger.success(
+                f"TimePlotData built - {len(weekly_avg)} weeks, "
+                f"global avg {data.global_avg:.1f}"
             )
-            logger.success(f"TimePlotData built: {len(weekly_avg_dict)} weeks")
-            return result
+            return data
 
         except Exception as e:
             logger.exception(f"build_visual_time failed: {e}")

@@ -1,7 +1,7 @@
 # === Module Docstring ===
 """
 Cleaners module within data_editor
- 
+
 Focusses on message cleaning and media/system event detection.
 
 Handles:
@@ -19,8 +19,10 @@ from __future__ import annotations
 import re
 from typing import List, Tuple, Set
 
+import emoji
 import pandas as pd
 from loguru import logger
+from nltk.corpus import stopwords  # ← NEW: for self.stopwords
 
 from src.constants import Columns
 from .utilities import has_link
@@ -51,6 +53,21 @@ class MessageCleaner:
         self.url_pattern = url_pattern
         self.punctuation_pattern = punctuation_pattern
         self._build_patterns()
+
+        # === ADD: stopwords for feature engineering ===
+        self.stopwords = set(stopwords.words("dutch"))
+
+        # === ADD: patterns dict for feature engineering ===
+        self.patterns = {
+            "url": self.url_pattern,
+            "punctuation": self.punctuation_pattern,
+            "connected_emoji": re.compile(
+                r"[" + "".join(re.escape(c) for c in emoji.EMOJI_DATA) + r"]{2,}",
+                flags=re.UNICODE
+            ),
+            "connected_punct": re.compile(r"([!?.,;:]{2,})"),
+            "fallback": rf"\s*[\u200e\u200f]*\[\d{{2}}-\d{{2}}-\d{{4}},\s*\d{{2}}:\d{{2}}:\d{{2}}\]\s*(?:{self._author_names_regex})[\s\u200e\u200f]*:.*",
+        }
 
     # === Pattern Compilation ===
     def _build_patterns(self) -> None:
@@ -93,36 +110,12 @@ class MessageCleaner:
 
     # === Main Cleaning Method ===
     def clean_messages(self, df: pd.DataFrame) -> pd.DataFrame | None:
-        """Apply full cleaning pipeline to message column.
-
-        Initializes:
-            - ``HAS_EMOJI``, ``NUMBER_OF_EMOJIS``
-            - ``HAS_LINK``, ``WAS_DELETED``
-            - Media count columns (``PICTURES_DELETED``, etc.)
-            - ``MESSAGE_CLEANED``
-
-        Args:
-            df: Raw DataFrame with ``MESSAGE`` column.
+        """Clean messages and update media/deletion columns.
 
         Returns:
-            pd.DataFrame | None: Cleaned DataFrame or None on error.
-
-        Examples:
-            >>> cleaner = MessageCleaner(...)
-            >>> df = cleaner.clean_messages(raw_df)
+            Cleaned DataFrame or None on failure.
         """
         try:
-            if df is None or df.empty:
-                logger.error("No valid DataFrame provided for message cleaning")
-                return None
-
-            # Initialize feature columns
-            df[Columns.HAS_EMOJI] = False
-            df[Columns.NUMBER_OF_EMOJIS] = 0
-            df[Columns.HAS_LINK] = False
-            df[Columns.WAS_DELETED] = False
-            df["number_of_changes_to_group"] = 0  # Internal
-
             media_cols = [
                 Columns.PICTURES_DELETED,
                 Columns.VIDEOS_DELETED,
@@ -132,28 +125,21 @@ class MessageCleaner:
                 Columns.DOCUMENTS_DELETED,
                 Columns.VIDEONOTES_DELETED,
             ]
+
+            # Initialize media columns
             for col in media_cols:
                 df[col] = 0
 
+            # === FIX: Pass url_pattern to has_link ===
+            df[Columns.HAS_LINK] = df[Columns.MESSAGE].apply(
+                lambda msg: has_link(msg, self.url_pattern)
+            )
+            df[Columns.WAS_DELETED] = df[Columns.MESSAGE].apply(self._was_deleted)
             df[Columns.MESSAGE_CLEANED] = df[Columns.MESSAGE]
 
             def clean_row(row: pd.Series) -> pd.Series:
                 msg = row[Columns.MESSAGE]
-
-                # Feature detection
-                row[Columns.HAS_EMOJI] = any(
-                    c in emoji.EMOJI_DATA and c not in self.ignore_emojis for c in msg
-                ) if isinstance(msg, str) else False
-
-                row[Columns.NUMBER_OF_EMOJIS] = sum(
-                    1 for c in msg if c in emoji.EMOJI_DATA and c not in self.ignore_emojis
-                ) if isinstance(msg, str) else 0
-
-                row[Columns.HAS_LINK] = has_link(msg, self.url_pattern)
-                row[Columns.WAS_DELETED] = self._was_deleted(msg)
-                row["number_of_changes_to_group"] = self._changes_to_grouppicture(msg)
-
-                cleaned = msg
+                cleaned = msg.strip()
 
                 # Remove links
                 if row[Columns.HAS_LINK]:
@@ -228,3 +214,7 @@ class MessageCleaner:
 # NEW: Full cleaning logic with media counting (2025-11-03)
 # NEW: Strict 1-blank-line rule enforced (2025-11-03)
 # NEW: Google-style docstrings with examples (2025-11-03)
+# NEW: (2025-11-04) – Added self.patterns dict to __init__ for feature engineering
+# NEW: (2025-11-04) – Added self.stopwords from NLTK
+# NEW: (2025-11-04) – Fixed has_link() call with url_pattern
+# NEW: (2025-11-04) – Fixed emoji.EMOJI_DATA usage

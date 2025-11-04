@@ -26,7 +26,7 @@ from .features import FeatureEngineer
 from src.constants import Columns, Groups
 
 if TYPE_CHECKING:
-    from .utilities import Utililities  # Type hint only
+    from .utilities import Utilities  # Type hint only
 
 
 # === Main Orchestrator ===
@@ -84,87 +84,81 @@ class DataEditor:
             url_pattern=self.url_pattern,
             punctuation_pattern=self.punctuation_pattern,
         )
-        self.engineer = FeatureEngineer(initials_map=self.initials_map)
+        self.engineer = FeatureEngineer()
 
     # === Step 1: Author Initials Mapping ===
     def replace_author_by_initials(self, df: pd.DataFrame) -> pd.DataFrame:
         """Replace full author names by initials in author columns.
 
-        Applies ``self.initials_map`` to:
-            - ``AUTHOR``
-            - ``PREVIOUS_AUTHOR``
-            - ``NEXT_AUTHOR``
-
-        Args:
-            df: DataFrame with author columns.
+        Handles 'author', 'previous_author', 'next_author'.
 
         Returns:
-            pd.DataFrame: Same DataFrame with initials applied.
+            DataFrame with initials.
         """
-        author_cols = [Columns.AUTHOR, Columns.PREVIOUS_AUTHOR, Columns.NEXT_AUTHOR]
-        for col in author_cols:
-            if col in df.columns:
-                df[col] = df[col].map(self.initials_map).fillna(df[col])
-        logger.info("All author columns converted to initials (ND, LL, AvT, …)")
+        try:
+            author_cols = [Columns.AUTHOR, Columns.PREVIOUS_AUTHOR, Columns.NEXT_AUTHOR]
+
+            for col in author_cols:
+                if col in df.columns:
+                    df[col] = df[col].map(self.initials_map).fillna(df[col])
+
+            logger.info("All author columns converted to initials (ND, LL, AvT, …)")
+            return df
+        except Exception as e:
+            logger.exception(f"Author initials replacement failed: {e}")
+            return df
+
+    # === Step 2: Group Isolation ===
+    def _isolate_avt(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Isolate AvT-only rows into 'whatsapp_group_temp' column."""
+        df[Columns.WHATSAPP_GROUP_TEMP] = np.where(
+            df[Columns.AUTHOR] == "AvT",
+            Groups.AVT,
+            df[Columns.WHATSAPP_GROUP],
+        )
         return df
 
     # === Main Pipeline ===
     def organize_extended_df(self, df: pd.DataFrame) -> pd.DataFrame | None:
-        """Run the complete cleaning and feature engineering pipeline.
+        """Full pipeline: clean, engineer, map initials, isolate groups, reorder columns.
 
-        Pipeline steps:
-            0. Clean messages (media, links, system)
-            1. Map authors to initials
-            2. Add time features (year, month, week, day)
-            3. Add core style (length, response time, etc.)
-            4. Add emoji & punctuation features
-            5. Add daily percentage features
-            6. Add text features (words, capitals, numbers)
-            7. Add active years & early leaver (drop leavers)
-            8. Create ``whatsapp_group_temp`` (AvT isolated)
-            9. Reorder columns
+        Steps:
+        1. Clean messages and extract media/deletion flags
+        2. Add all engineered features
+        3. Map authors to initials
+        4. Isolate AvT group
+        5. Reorder columns (only existing ones to avoid KeyError)
 
         Args:
-            df: Raw WhatsApp export with at least ``TIMESTAMP``, ``AUTHOR``, ``MESSAGE``.
+            df: Input DataFrame with timestamp, author, message, whatsapp_group.
 
         Returns:
-            pd.DataFrame | None: Final feature-complete DataFrame or None on error.
-
-        Examples:
-            >>> editor = DataEditor()
-            >>> final_df = editor.organize_extended_df(raw_df)
+            Fully enriched DataFrame or None on failure.
         """
         try:
-            if df is None or df.empty:
-                logger.error("No valid DataFrame provided for organizing")
-                return None
-
-            # 0. Clean messages
+            # Step 1: Clean messages
             df = self.cleaner.clean_messages(df)
             if df is None:
                 return None
 
-            # 1. Apply initials
+            # Step 2: Add engineered features
+            df = self.engineer.add_all_features(
+                df,
+                ignore_emojis=self.ignore_emojis,
+                patterns=self.cleaner.patterns,
+                stopwords=self.cleaner.stopwords,
+            )
+
+            # Step 3: Map initials
             df = self.replace_author_by_initials(df)
 
-            # 2–6. Feature engineering
-            df = self.engineer.add_all_features(df)
+            # Step 4: Isolate AvT
+            df = self._isolate_avt(df)
 
-            # 7. Drop early leavers (done in engineer)
-            # Note: ``EARLY_LEAVER`` column is added and filtered
-
-            # 8. Create whatsapp_group_temp
-            df["whatsapp_group_temp"] = np.where(
-                df[Columns.AUTHOR] == Groups.AVT,
-                Groups.AVT,
-                df[Columns.WHATSAPP_GROUP],
-            )
-            logger.info("Created 'whatsapp_group_temp' (AvT isolated)")
-
-            # 9. Final column order
+            # Step 5: Final column ordering (only existing columns)
             organized_columns = [
                 Columns.WHATSAPP_GROUP,
-                "whatsapp_group_temp",
+                Columns.WHATSAPP_GROUP_TEMP,
                 Columns.TIMESTAMP,
                 Columns.YEAR,
                 Columns.MONTH,
@@ -226,7 +220,11 @@ class DataEditor:
                 Columns.Y_SEQUENCE_AUTHORS_THAT_DAY,
                 Columns.Y_SEQUENCE_RESPONSE_TIMES_THAT_DAY,
             ]
-            df = df[organized_columns]
+
+            # Reorder only existing columns
+            available_cols = [col for col in organized_columns if col in df.columns]
+            df = df[available_cols + [c for c in df.columns if c not in available_cols]]
+
             logger.info(
                 f"Final DF: {len(df)} rows, {len(df.columns)} cols - all authors are initials"
             )
@@ -252,3 +250,4 @@ class DataEditor:
 # NEW: Full blank line standardization (1 line only) (2025-11-03)
 # NEW: Enhanced organize_extended_df docstring with full step list (2025-11-03)
 # NEW: Added note about early leaver drop (2025-11-03)
+# NEW: (2025-11-04) – Moved column reordering to end of organize_extended_df to avoid KeyError; Use available_cols to handle missing columns

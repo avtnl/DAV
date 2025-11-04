@@ -1,20 +1,28 @@
+# === Paths ===
 raw = "data/raw"
 processed = "data/processed"
 image = "img"
 input = "_chat.txt"
+
+# === Preprocessing & Caching ===
 preprocess = false
-current_dac = "whatsapp-20250910-005041-dac-cleaned.parq"
-current = "whatsapp-20250910-002822-maap-cleaned.parq"
+reuse_whatsapp_all = true
+
+# === Raw Files (TXT) ===
 raw_1 = "_chat_maap.txt"
 raw_2a = "_chat_vooranger_golfmaten.txt"
 raw_2b = "_chat_golfmaten.txt"
 raw_3 = "_chat_dac.txt"
 raw_4 = "_chat_tillies.txt"
+#raw_5 = "_chat_najaarscompetitie.txt"
+
+# === Current Files (cleaned Parquet) ===
 current_1 = "whatsapp-20250910-002822-maap-cleaned.parq"
 current_2a = "whatsapp-20250910-004727-golf-cleaned.parq"
 current_2b = "whatsapp-20250910-012654-voorganger-golf-cleaned.parq"
 current_3 = "whatsapp-20250910-005041-dac-cleaned.parq"
 current_4 = "whatsapp-20250910-012135-til-cleaned.parq"
-inputpath = "whatsapp-20250910-002822-maap-cleaned.csv"
+
+# === Other ===
 datetime_format = "%d-%m-%Y, %H:%M:%S"
 drop_authors = []

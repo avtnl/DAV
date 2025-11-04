@@ -1,4 +1,3 @@
-# === script0.py ===
 # === Module Docstring ===
 """
 Preprocess raw WhatsApp chat exports (Script0).
@@ -18,13 +17,12 @@ Examples
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 import pandas as pd
 from loguru import logger
 
 from .base import BaseScript
-
 
 # === Script 0 ===
 class Script0(BaseScript):
@@ -32,11 +30,11 @@ class Script0(BaseScript):
 
     def __init__(
         self,
-        file_manager,
-        data_editor,
-        data_preparation,
+        file_manager: Any,
+        data_editor: Any,
+        data_preparation: Any,
         processed_dir: Path,
-        config: dict[str, Any],
+        config: Dict[str, Any],
         image_dir: Path,
     ) -> None:
         """
@@ -61,7 +59,7 @@ class Script0(BaseScript):
         self.tables_dir = Path("tables")
         self.tables_dir.mkdir(exist_ok=True)
 
-    def run(self) -> dict[str, Any] | None:
+    def run(self) -> Dict[str, Any] | None:
         """
         Execute preprocessing and return enriched DataFrame.
 
@@ -76,34 +74,22 @@ class Script0(BaseScript):
 
         try:
             result = self.file_manager.get_preprocessed_data(
-                self.data_editor, self.data_preparation, self.config, self.processed_dir
+                data_editor=self.data_editor,
+                data_preparation=self.data_preparation,
+                config=self.config,
+                processed_dir=self.processed_dir,
             )
 
             if result is None or "df" not in result:
                 self.log_error("Script0: FileManager returned None or no 'df'.")
                 return None
 
-            df = result["df"]
-            if df is None or df.empty:
-                self.log_error("Script0: Empty DataFrame after preprocessing.")
-                return None
-
-            timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-            parquet_path = self.processed_dir / f"combined_{timestamp}.parq"
-            df.to_parquet(parquet_path, index=False)
-            logger.info(f"Script0: Saved parquet -> {parquet_path}")
-
-            csv_path = self.tables_dir / f"combined_{timestamp}.csv"
-            df.to_csv(csv_path, index=False)
-            logger.info(f"Script0: Saved CSV -> {csv_path}")
-
             logger.success("Script0: Preprocessing completed successfully.")
-            return {"df": df, "tables_dir": self.tables_dir}
+            return {"df": result["df"], "tables_dir": self.tables_dir}
 
         except Exception as e:
             logger.exception(f"Script0: Preprocessing failed: {e}")
             return None
-
 
 # === CODING STANDARD (APPLY TO ALL CODE) ===
 # - `# === Module Docstring ===` before """
@@ -119,3 +105,4 @@ class Script0(BaseScript):
 
 # NEW: Fixed typo: processed_processed_dir → processed_dir (2025-11-03)
 # NEW: Removed *args, **kwargs; df not passed (not needed) (2025-11-03)
+# NEW: (2025-11-04) – Simplified run to wrapper around get_preprocessed_data; Removed duplicate saving

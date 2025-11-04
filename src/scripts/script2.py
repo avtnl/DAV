@@ -35,6 +35,7 @@ class Script2(BaseScript):
         plot_manager,
         image_dir: Path,
         df: pd.DataFrame,
+        settings: TimePlotSettings | None = None,
     ) -> None:
         """
         Initialize Script2 with required components.
