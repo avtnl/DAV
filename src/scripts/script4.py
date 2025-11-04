@@ -1,4 +1,3 @@
-# === script4.py ===
 # === Module Docstring ===
 """
 Relationship plot: Arc diagram of messaging interactions for the MAAP group (Script 4).
@@ -17,11 +16,13 @@ PosixPath('images/arc_diagram_maap.png')
 
 # === Imports ===
 from pathlib import Path
-import pandas as pd
+from typing import Any
 
 import pandas as pd
 from loguru import logger
+
 from src.constants import Columns, Groups
+from src.data_preparation import ArcPlotData          # <-- NEW: import the model
 from src.plot_manager import ArcPlotSettings
 
 from .base import BaseScript
@@ -33,9 +34,9 @@ class Script4(BaseScript):
 
     def __init__(
         self,
-        file_manager,
-        data_preparation,
-        plot_manager,
+        file_manager: Any,
+        data_preparation: Any,
+        plot_manager: Any,
         image_dir: Path,
         tables_dir: Path,
         df: pd.DataFrame,
@@ -75,11 +76,12 @@ class Script4(BaseScript):
         Returns:
             pd.DataFrame: Participation table or None if empty.
         """
-        data = self.data_preparation.build_visual_relationships_arc(df_group)
-        if data is None or data.participation_df.empty:
+        arc_data = self.data_preparation.build_visual_relationships_arc(df_group)
+        if arc_data is None or arc_data.participation_df.empty:
             self.log_error("participation table empty.")
             return None
-        participation_df = data.participation_df
+
+        participation_df = arc_data.participation_df
         self.file_manager.save_table(participation_df, self.tables_dir, f"participation_{group}")
         logger.info(f"Saved participation table for {group}")
         return participation_df
@@ -92,39 +94,28 @@ class Script4(BaseScript):
             Path: Path to saved PNG file.
             None: If data missing or plot fails.
         """
+        # === Filter MAAP group ===
         df_maap = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.MAAP.value].copy()
         if df_maap.empty:
             self.log_error(f"No data for group '{Groups.MAAP.value}'. Skipping.")
             return None
 
-        arc_data = self.data_preparation.build_visual_relationships_arc(df_maap)
+        # === Build arc data (returns ArcPlotData model) ===
+        arc_data: ArcPlotData | None = self.data_preparation.build_visual_relationships_arc(df_maap)
         if arc_data is None:
             self.log_error("build_visual_relationships_arc returned None.")
             return None
 
         logger.info(f"Arc diagram data: {len(arc_data.participation_df)} participation rows")
 
+        # === Generate plot (pass the model) ===
         fig = self.plot_manager.build_visual_relationships_arc(
-            arc_data,
+            arc_data,           # <-- pass ArcPlotData, not raw DataFrame
             self.settings
         )
         if fig is None:
             self.log_error("Failed to create arc diagram.")
             return None
 
+        # === Save and return path ===
         return self.save_figure(fig, self.image_dir, "arc_diagram_maap")
-
-
-# === CODING STANDARD (APPLY TO ALL CODE) ===
-# - `# === Module Docstring ===` before """
-# - Google-style docstrings
-# - `# === Section Name ===` for all blocks
-# - Inline: `# One space, sentence case`
-# - Tags: `# TODO:`, `# NOTE:`, `# NEW: (YYYY-MM-DD)`, `# FIXME:`
-# - Type hints in function signatures
-# - Examples: with >>>
-# - No long ----- lines
-# - No mixed styles
-# - Add markers #NEW at the end of the module
-
-# NEW: df passed to super(); no *args, **kwargs (2025-11-03)

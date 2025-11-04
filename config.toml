@@ -6,7 +6,7 @@ input = "_chat.txt"
 
 # === Preprocessing & Caching ===
 preprocess = false
-reuse_whatsapp_all = true
+reuse_whatsapp_all = false
 
 # === Raw Files (TXT) ===
 raw_1 = "_chat_maap.txt"

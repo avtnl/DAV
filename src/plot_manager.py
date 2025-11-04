@@ -412,11 +412,9 @@ class PlotManager:
     ) -> plt.Figure | None:
         """
         Plot author interaction network as an arc diagram.
-
         Args:
             data: Validated ArcPlotData
             settings: Plot settings
-
         Returns:
             matplotlib Figure or None
         """
@@ -432,20 +430,31 @@ class PlotManager:
             pair_weights = {}
             triple_weights = {}
             total_weights = {}
-
             combined_df = df
+
+            # === PAIRS ===
             pairs = combined_df[combined_df["type"] == InteractionType.PAIRS]
             for _, row in pairs.iterrows():
-                a1, a2 = [a.strip() for a in row[Columns.AUTHOR.value].split(" & ")]
+                pair_str = None
+                for col in row.index:
+                    val = str(row[col])
+                    if " & " in val and val not in ["Pairs", "Non-participant"]:
+                        pair_str = val
+                        break
+                if not pair_str:
+                    continue
+                a1, a2 = [a.strip() for a in pair_str.split(" & ", 1)]
                 key = frozenset([a1, a2])
                 pair_weights[key] = row["total_messages"]
                 total_weights[key] = total_weights.get(key, 0) + row["total_messages"]
 
+            # === TRIPLES (NON-PARTICIPANT) ===
             triples = combined_df[combined_df["type"] == InteractionType.NON_PARTICIPANT]
             for _, row in triples.iterrows():
                 participants = [c for c in participant_cols if row[c] != 0]
                 if len(participants) != len(authors) - 1:
                     continue
+
                 total_msg = row["total_messages"]
                 pct = {}
                 for p in participants:
@@ -455,6 +464,7 @@ class PlotManager:
                             pct[p] = int(val.split("%")[0]) / 100
                         except Exception:
                             continue
+
                 for i, j in itertools.combinations(participants, 2):
                     if i in pct and j in pct:
                         w = (pct[i] + pct[j]) * total_msg
@@ -490,6 +500,7 @@ class PlotManager:
                     sorted_pair = tuple(sorted([a1, a2]))
                     x_off = settings.special_x_offsets.get((*sorted_pair, arc_type), 0)
                     lw = (1 + 5 * (w / max_w)) * settings.amplifier
+
                     t = np.linspace(0, 1, 100)
                     x = (1 - t) ** 2 * x1 + 2 * (1 - t) * t * (xm + x_off) + t**2 * x2
                     y = (1 - t) ** 2 * y1 + 2 * (1 - t) * t * (ym + height) + t**2 * y2
@@ -504,7 +515,7 @@ class PlotManager:
 
             for auth, (x, y) in pos.items():
                 ax.scatter([x], [y], s=settings.node_size, color=settings.node_color,
-                           edgecolors=settings.node_edge_color, zorder=4)
+                        edgecolors=settings.node_edge_color, zorder=4)
                 ax.text(x, y, auth, ha="center", va="center",
                         fontsize=settings.node_fontsize, fontweight=settings.node_fontweight, zorder=5)
 
@@ -512,13 +523,13 @@ class PlotManager:
             ax.set_title(settings.title_template.format(group=group))
             ax.axis("off")
             plt.tight_layout()
+
             logger.success("Arc diagram built successfully")
             return fig
 
         except Exception as e:
             logger.exception(f"Arc diagram failed: {e}")
             return None
-
 
     # === 5. Bubble (Script5) ===
     def build_visual_relationships_bubble(
