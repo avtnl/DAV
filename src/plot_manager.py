@@ -52,31 +52,47 @@ class PlotSettings(BaseModel):
 
 # === 1. Categories Plot Settings (Script1) ===
 class CategoriesPlotSettings(PlotSettings):
+    title: str = "Anthony's participation is significantly lower for the 3rd group"
+    subtitle: str = "Too much to handle or too much crap?"
+    ylabel: str = Columns.MESSAGE_COUNT.human
     group_spacing: float = Field(2.5, ge=0.5, le=5.0)
     bar_width: float = Field(0.8, ge=0.1, le=1.0)
     trendline_color: str = "red"
     trendline_style: str = "--"
     trendline_width: float = 2.5
-    title: str = "Anthony's participation is significantly lower for the 3rd group"
-    subtitle: str = "Too much to handle or too much crap?"
-    ylabel: str = Columns.MESSAGE_COUNT.human
+
+    title_fontsize: int = 24
+    title_fontweight: str = "bold"
+    title_pad: float = 40
+    title_ha: str = "center"
+
+    subtitle_fontsize: int = 18
+    subtitle_fontweight: str = "bold"
+    subtitle_color: str = "dimgray"
+    subtitle_y: float = 0.85
+    subtitle_ha: str = "center"
 
 
 # === 2. Time Plot Settings (Script2) ===
 class TimePlotSettings(PlotSettings):
-    vline_weeks: list[float] = Field(default_factory=lambda: [11.5, 18.5, 34.5])
-    week_ticks: list[int] = Field(default_factory=lambda: [1, 5, 9, 14, 18, 23, 27, 31, 36, 40, 44, 49])
-    month_labels: list[str] = Field(
-        default_factory=lambda: [
-            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-        ]
-    )
+    title: str = "Golf season, decoded by WhatsApp heartbeat"
+    subtitle: str = "Whatsapp_group is 'dac' (Dinsdag Avond Competitie)"
     rest_label: str = "---------Rest---------"
     prep_label: str = "---Prep---"
     play_label: str = "---------Play---------"
-    line_color: str = "black"
+    line_color: str = "green"
     linewidth: float = 2.5
+
+    title_fontsize: int = 24
+    title_fontweight: str = "bold"
+    title_pad: float = 40
+    title_ha: str = "center"
+
+    subtitle_fontsize: int = 18
+    subtitle_fontweight: str = "bold"
+    subtitle_color: str = "dimgray"
+    #subtitle_y: float = 0.80
+    subtitle_ha: str = "center"
 
 
 # === 3. Distribution Plot Settings (Script3) ===
@@ -171,7 +187,6 @@ class PlotManager:
         try:
             fig, ax = plt.subplots(figsize=(14, 6.5))  # Shorter canvas
             plt.subplots_adjust(top=0.65)              # Axes end earlier → more room above
-            fig.tight_layout(pad=4.0)                  # Push everything out, including titles
 
             # Define group colors
             group_colors = {
@@ -228,17 +243,6 @@ class PlotManager:
                 mid = start_x + (n_auth - 1) / 2
                 group_midpoints.append(mid)
                 cur_x += settings.group_spacing
-
-            # # Draw bars
-            # ax.bar(
-            #     x_pos,
-            #     heights,
-            #     width=settings.bar_width,
-            #     color=bar_colors,
-            #     edgecolor="black",
-            #     linewidth=1.3,
-            #     align="center",
-            # )
 
             # Draw bars with special edge for AvT
             edgecolors = []
@@ -302,20 +306,42 @@ class PlotManager:
                     zorder=6,
                 )
 
+            #Title and subtitle
             ax.set_title(
-                "Anthony's participation is significantly lower for the 3rd group",
-                fontsize=24,
-                fontweight="bold",
-                pad=40,        # NEW: Push title UP into the new space
-                ha="center",
+                settings.title,
+                fontsize=settings.title_fontsize,
+                fontweight=settings.title_fontweight,
+                pad=settings.title_pad,
+                ha=settings.title_ha,
             )
-            fig.suptitle(
-                "Too much to handle or too much crap?",
-                fontsize=18,
-                fontweight="bold",
-                color="dimgray",
-                y=0.85,        # NEW: Position in the new top space
-                ha="center",
+
+            # fig.suptitle(
+            #     settings.title,
+            #     fontsize=settings.title_fontsize,
+            #     fontweight=settings.title_fontweight,
+            #     y=0.98,
+            #     ha=settings.title_ha,
+            # )
+
+            # fig.suptitle(
+            #     settings.subtitle,
+            #     fontsize=settings.subtitle_fontsize,
+            #     fontweight=settings.subtitle_fontweight,
+            #     color=settings.subtitle_color,
+            #     y=settings.subtitle_y,
+            #     ha=settings.subtitle_ha,
+            # )
+
+            fig.text(
+                x=0.5,                       # ← X position (required)
+                y=0.92,
+                s=settings.subtitle,         # ← TEXT to display (required)
+                fontsize=settings.subtitle_fontsize,
+                fontweight=settings.subtitle_fontweight,
+                color=settings.subtitle_color,
+                ha=settings.subtitle_ha,
+                va="top",                    # ← Recommended
+                transform=fig.transFigure    # ← Critical for figure-level
             )
 
             # Axis labels
@@ -375,37 +401,132 @@ class PlotManager:
             matplotlib Figure or None
         """
         try:
-            fig, ax = plt.subplots(figsize=settings.figsize)
+            # Figure setup aligned with Categories
+            fig, ax = plt.subplots(figsize=(14, 6.5))  # Shorter canvas
+            plt.subplots_adjust(top=0.85)              # Axes end earlier → more room above
 
-            weeks = list(data.weekly_avg.keys())
-            avg_counts = list(data.weekly_avg.values())
+            # Sorted weeks and values
+            weeks = sorted(data.weekly_avg.keys())
+            avg_counts = [data.weekly_avg[w] for w in weeks]
 
+            # Main line: weekly average
             ax.plot(
                 weeks,
                 avg_counts,
                 color=settings.line_color,
                 linewidth=settings.linewidth,
+                zorder=6,
             )
 
-            ax.axhline(
-                data.global_avg,
-                color="red",
-                linestyle="--",
-                label="Global Avg",
+            # Period boundaries (hardcoded)
+            vlines = [11.5, 18.5, 34.5]
+            starts = [1] + [int(v + 0.5) for v in vlines]
+            ends   = [int(v + 0.5) - 1 for v in vlines] + [52]
+
+            # Period labels and colors
+            period_labels = [
+                settings.rest_label,
+                settings.prep_label,
+                settings.play_label,
+                settings.rest_label,
+            ]
+            period_colors = ["#e8f5e9", "#c8e6c9", "#81c784", "#e8f5e9"]
+
+            # Helper
+            def period_avg(start: int, end: int) -> float:
+                vals = [data.weekly_avg.get(w, 0.0) for w in range(start, end + 1)]
+                return float(np.mean(vals)) if vals else 0.0
+
+            # Draw periods
+            period_avg_patch = None
+            y_min, y_max = ax.get_ylim()
+            label_y = y_min + 0.80 * (y_max - y_min)
+
+            for i in range(4):
+                s, e = starts[i], ends[i]
+                ax.axvspan(s - 0.5, e + 0.5, facecolor=period_colors[i], alpha=0.6, zorder=0)
+
+                p_avg = period_avg(s, e)
+                if p_avg > 0:
+                    line = ax.hlines(
+                        p_avg,
+                        xmin=s - 0.5,
+                        xmax=e + 0.5,
+                        color="red",
+                        linestyle="--",
+                        linewidth=1.2,
+                        zorder=4,
+                        label="Period Avg" if period_avg_patch is None else "",
+                    )
+                    if period_avg_patch is None:
+                        period_avg_patch = line
+
+                mid = (s + e) / 2
+                ax.text(
+                    mid,
+                    label_y,
+                    period_labels[i],
+                    ha="center",
+                    va="center",
+                    fontsize=12,
+                    color="black",
+                    fontweight="bold",
+                    zorder=7,
+                )
+
+            # Vertical separators
+            for v in vlines:
+                ax.axvline(v, color="gray", linestyle="--", alpha=0.6, zorder=1)
+
+            # X-axis
+            key_dates = {11: "March 15th", 18: "May 1st", 36: "September 1st"}
+            ax.set_xticks(sorted(key_dates.keys()))
+            ax.set_xticklabels([key_dates[w] for w in sorted(key_dates)], fontsize=10, ha="center")
+            ax.set_xlabel("Time over Year", fontsize=12, labelpad=10)
+
+            # Title and subtitle
+            # fig.suptitle(
+            #     settings.title,
+            #     fontsize=settings.title_fontsize,
+            #     fontweight=settings.title_fontweight,
+            #     y=0.98,
+            #     ha=settings.title_ha,
+            # )
+
+            ax.set_title(
+                settings.title,
+                fontsize=settings.title_fontsize,
+                fontweight=settings.title_fontweight,
+                pad=settings.title_pad,
+                ha=settings.title_ha,
             )
 
-            for vline in settings.vline_weeks:
-                ax.axvline(vline, color="gray", linestyle="--", alpha=0.5)
+            fig.text(
+                x=0.5,                       # ← X position (required)
+                y=0.92,
+                s=settings.subtitle,         # ← TEXT to display (required)
+                fontsize=settings.subtitle_fontsize,
+                fontweight=settings.subtitle_fontweight,
+                color=settings.subtitle_color,
+                ha=settings.subtitle_ha,
+                va="top",                    # ← Recommended
+                transform=fig.transFigure    # ← Critical for figure-level
+            )
 
-            ax.set_xticks(settings.week_ticks)
-            ax.set_xticklabels(settings.month_labels, rotation=0)
+            # Y-label
+            ax.set_ylabel("Average message count per week (2017 - 2025)", fontsize=12)
 
-            ax.set_title(settings.title or f"Weekly Message Averages ({Groups.DAC})")
-            ax.set_xlabel(settings.xlabel or "Week of Year")
-            ax.set_ylabel(settings.ylabel or "Average Messages")
+            # Legend
+            if period_avg_patch:
+                ax.legend(handles=[period_avg_patch], loc="upper right", fontsize=12)
 
-            ax.legend()
+            # Grid
+            ax.grid(True, axis="y", linestyle="--", alpha=0.7, zorder=0)
+            ax.set_axisbelow(True)
             plt.tight_layout()
+            plt.show()
+
+            logger.success("Time plot built – aligned with Categories")
             return fig
 
         except Exception as e:
@@ -486,8 +607,8 @@ class PlotManager:
             lines1, labels1 = ax.get_legend_handles_labels()
             lines2, labels2 = ax2.get_legend_handles_labels()
             ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
-
             plt.tight_layout()
+            plt.show()
             logger.success("Distribution plot built successfully")
             return fig
 
