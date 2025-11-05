@@ -97,13 +97,13 @@ class TimePlotSettings(PlotSettings):
 
 # === 3. Distribution Plot Settings (Script3) ===
 class DistributionPlotSettings(PlotSettings):
-    bar_color: str = "steelblue"
-    cumulative_color: str = "red"
-    bar_alpha: float = 0.7
+    bar_color: str = "purple"
+    cumulative_color: str = "orange"
+    bar_alpha: float = 0.9
     line_width: float = 2.0
     cum_label: str = "Cumulative %"
-    top_n: int = 20
-    cum_threshold: float = 80.0
+    cum_threshold: float = 75.0
+    top_table: int = 25  # For table, not bars
 
 
 # === 4. Arc Plot Settings (Script4) ===
@@ -541,79 +541,143 @@ class PlotManager:
         settings: DistributionPlotSettings = DistributionPlotSettings(),
     ) -> plt.Figure | None:
         """
-        Plot emoji frequency with cumulative percentage.
+        Bar + cumulative line chart of emoji frequencies for the MAAP group.
 
         Args:
-            data: Validated DistributionPlotData
-            settings: Plot settings
+            data: Validated DistributionPlotData (emoji_counts_df)
+            settings: Plot settings (top_n, colours, etc.)
 
         Returns:
             matplotlib Figure or None
         """
-        try:
-            df = data.emoji_counts_df
-            required = ["emoji", "count_once", "percent_once"]
-            if not all(col in df.columns for col in required):
-                logger.error("emoji_counts_df missing required columns")
-                return None
+        df = data.emoji_counts_df
+        if df.empty:
+            logger.error("Emoji distribution DataFrame is empty")
+            return None
 
-            n = len(df)
-            fig, ax = plt.subplots(figsize=(max(n * 0.05, 8), 8))
+        try:
+            # === Set emoji font ===
+            plt.rcParams["font.family"] = "Segoe UI Emoji"  # ← FIX SQUARES
+
+            # === Prepare data ===
+            df = df.sort_values("count_once", ascending=False).copy()
+            total_once = df["count_once"].sum()
+            df["percent_once"] = df["count_once"] / total_once * 100
+            df["cum_percent"] = df["percent_once"].cumsum()
+
+            # === Create figure ===
+            fig, ax = plt.subplots(
+                figsize=(max(8, len(df) * 0.35), 8)
+            )
             ax2 = ax.twinx()
 
-            x_pos = np.arange(n)
+            x_pos = np.arange(len(df))
 
-            ax.vlines(
-                x=x_pos,
-                ymin=0,
-                ymax=df["percent_once"],
-                color=settings.bar_color,
-                linewidth=0.8,
-                alpha=0.8,
-                label="Emoji %"
-            )
-
-            ax.plot(
+            # === Draw bars ===
+            ax.bar(
                 x_pos,
                 df["percent_once"],
-                'o',
-                markersize=2,
-                color=settings.bar_color,
-                alpha=0.6
+                width=0.5,
+                align="center",
+                color="purple",
+                alpha=0.9,
             )
+            ax.set_ylabel(
+                "Likelihood (%) of finding an Emoji in a random message",
+                fontsize=12,
+                labelpad=20,
+            )
+            ax.set_title(
+                "The Long Tail of Emotion: Few Speak for Many",
+                fontsize=20,
+                pad=20,
+            )
+            ax.set_xlim(-0.5, len(df))
+            ylim_bottom, ylim_top = ax.get_ylim()
+            ax.set_ylim(ylim_bottom - 3, ylim_top)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            ax.spines["left"].set_position(("outward", 20))
+            ax.tick_params(axis="y", labelsize=10)
 
-            ax.set_ylabel("Likelihood (%)", fontsize=12, labelpad=10)
-            ax.set_title(settings.title or "Emoji Distribution (MAAP)", fontsize=16, pad=20)
-            ax.set_xlim(-0.5, n - 0.5)
+            # === 75% highlight ===
+            cum_np = np.array(df["cum_percent"])
+            idx_75 = np.where(cum_np >= 75)[0][0]
+            x_75 = idx_75 + 1
+            y_75 = len(df)
+            ax.axvspan(-0.5, idx_75 + 0.5, facecolor="lightgreen", alpha=0.2)
+            ax.axvline(x=idx_75 + 0.5, color="orange", linestyle="--", linewidth=1)
+
+            # Annotations
+            left_mid = idx_75 / 2
+            right_mid = (idx_75 + 0.5) + (y_75 - idx_75 - 1) / 2
+            y_text = ylim_bottom - 1.5
+            ax.text(left_mid, y_text, f"<-- {x_75} emojies -->", ha="center", fontsize=12)
+            ax.text(right_mid, y_text, f"<-- {y_75} emojies -->", ha="center", fontsize=12)
             ax.set_xticks([])
 
-            cum = df["percent_once"].cumsum()
+            # === Cumulative line ===
             ax2.plot(
-                x_pos,
-                cum,
-                color=settings.cumulative_color,
-                linewidth=settings.line_width,
-                label=settings.cum_label,
+                x_pos + 0.25,
+                df["cum_percent"],
+                color="orange",
+                linewidth=2,
+                label="Cumulative %",
             )
-
-            if (cum >= settings.cum_threshold).any():
-                idx_thresh = np.where(cum >= settings.cum_threshold)[0][0]
-                ax2.axhline(settings.cum_threshold, color=settings.cumulative_color, linestyle="--", linewidth=1)
-                ax.axvspan(-0.5, idx_thresh + 0.5, facecolor="lightgreen", alpha=0.15)
-
-            ax2.set_ylabel("Cumulative %", fontsize=12, labelpad=10)
+            ax2.axhline(
+                y=75,
+                color="orange",
+                linestyle="--",
+                linewidth=1,
+                xmin=-0.5,
+                xmax=len(df) + 0.5,
+            )
+            ax2.set_ylabel(
+                "Cumulative Percentage (%)",
+                fontsize=12,
+                labelpad=20,
+            )
             ax2.set_ylim(0, 100)
+            ax2.set_yticks(np.arange(0, 101, 10))
+            ax2.spines["right"].set_position(("outward", 20))
+            ax2.tick_params(axis="y", labelsize=10, colors="orange")
+            ax2.spines["right"].set_color("orange")
 
-            lines1, labels1 = ax.get_legend_handles_labels()
-            lines2, labels2 = ax2.get_legend_handles_labels()
-            ax.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+            # === Top-25 table ===
+            top_25 = df.head(25).copy()
+            top_25["cum_percent"] = top_25["percent_once"].cumsum()
+            table_data = [
+                [str(i + 1) for i in range(25)],
+                top_25["emoji"].tolist(),
+                [f"{c:.0f}" for c in top_25["count_once"]],
+                [f"{p:.1f}%" for p in top_25["cum_percent"]],
+            ]
+            table = ax.table(
+                cellText=table_data,
+                rowLabels=["Rank", "Emoji", "Count", "Cum"],
+                colWidths=[0.05] * 25,
+                loc="bottom",
+                bbox=[0.1, -0.45, 0.8, 0.3],  # ← MATCH ATTACHMENT
+            )
+            table.auto_set_font_size(False)
+            table.set_fontsize(10)
+            table.scale(1, 1.5)
+
+            fig.text(0.5, 0.27, "Top 25:", ha="center", fontsize=12)  # ← MATCH
+
+            # === Layout ===
+            ax2.legend(loc="upper left", fontsize=8)  # ← MATCH
             plt.tight_layout()
+            plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)  # ← MATCH
             plt.show()
-            logger.success("Distribution plot built successfully")
+            
+            logger.success(
+                f"Emoji distribution plot built – {len(df)} unique emojis"
+            )
             return fig
 
         except Exception as e:
-            logger.exception(f"Distribution plot failed: {e}")
+            logger.exception(f"build_visual_distribution failed: {e}")
             return None
 
 

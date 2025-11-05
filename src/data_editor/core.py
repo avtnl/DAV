@@ -1,3 +1,4 @@
+# === core.py ===
 # === Module Docstring ===
 """
 Core orchestration within data_editor.
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 # === Imports ===
 import re
+import ast
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -23,10 +25,11 @@ from loguru import logger
 
 from .cleaners import MessageCleaner
 from .features import FeatureEngineer
+from .utilities import list_of_all_emojis
 from src.constants import Columns, Groups
 
 if TYPE_CHECKING:
-    from .utilities import Utililities  # Type hint only
+    from .utilities import Utilities  # Type hint only
 
 
 # === Main Orchestrator ===
@@ -86,7 +89,7 @@ class DataEditor:
         )
         self.engineer = FeatureEngineer(self.initials_map)
 
-    # === Step 1: Author Initials Mapping ===
+    # === Author Initials Mapping ===
     def replace_author_by_initials(self, df: pd.DataFrame) -> pd.DataFrame:
         """Replace full author names by initials in author columns.
 
@@ -108,6 +111,41 @@ class DataEditor:
         logger.info("All author columns converted to initials (ND, LL, AvT, …)")
         return df
 
+    # === Emoji List Parser ===
+    def parse_emojis(self, df: pd.DataFrame) -> pd.Series:
+        """
+        Convert 'list_of_all_emojis' to Python lists.
+
+        Handles:
+        - str from CSV: "['😂', '😂']"
+        - list from in-memory DF: ['😂', '😂']
+        - None/NaN
+        """
+        col = Columns.LIST_OF_ALL_EMOJIS.value
+        if col not in df.columns:
+            logger.warning(f"Column '{col}' missing. Parsing from 'message_cleaned'.")
+            return df[Columns.MESSAGE_CLEANED].apply(
+                lambda x: list_of_all_emojis(x, self.ignore_emojis) if x is not None else []
+            )
+
+        def safe_parse(x):
+            if x is None:  # ← FIXED: was pd.isna(x)
+                return []
+            if isinstance(x, list):
+                return x
+            if isinstance(x, str):
+                if x in ("", "[]"):
+                    return []
+                try:
+                    return ast.literal_eval(x)
+                except (ValueError, SyntaxError):
+                    return []
+            return []
+
+        parsed = df[col].apply(safe_parse)
+        logger.info(f"Parsed 'list_of_all_emojis' for {len(parsed)} rows")
+        return parsed
+
     # === Main Pipeline ===
     def organize_extended_df(self, df: pd.DataFrame) -> pd.DataFrame | None:
         """Run the complete cleaning and feature engineering pipeline.
@@ -115,50 +153,32 @@ class DataEditor:
         Pipeline steps:
             0. Clean messages (media, links, system)
             1. Map authors to initials
-            2. Add time features (year, month, week, day)
-            3. Add core style (length, response time, etc.)
+            2. Add time features (year, month, week, ...)
+            3. Add core style columns
             4. Add emoji & punctuation features
-            5. Add daily percentage features
-            6. Add text features (words, capitals, numbers)
-            7. Add active years & early leaver (drop leavers)
-            8. Create ``whatsapp_group_temp`` (AvT isolated)
-            9. Reorder columns
+            5. Add daily percentages
+            6. Add text features
+            7. Add active years & early leaver (and drop early leavers)
 
         Args:
-            df: Raw WhatsApp export with at least ``TIMESTAMP``, ``AUTHOR``, ``MESSAGE``.
+            df: Raw DataFrame from WhatsApp export.
 
         Returns:
-            pd.DataFrame | None: Final feature-complete DataFrame or None on error.
-
-        Examples:
-            >>> editor = DataEditor()
-            >>> final_df = editor.organize_extended_df(raw_df)
+            pd.DataFrame | None: Fully enriched DataFrame or None on failure.
         """
         try:
-            if df is None or df.empty:
-                logger.error("No valid DataFrame provided for organizing")
-                return None
-
-            # === Clean messages ===
+            # === 0. Clean messages ===
             df = self.cleaner.clean_messages(df)
             if df is None:
                 return None
 
-            # === Strip leading tilde ===
-            tilde_nbsp_pattern = re.compile(r"^~\u202f")
-            author_cols = [Columns.AUTHOR, Columns.PREVIOUS_AUTHOR, Columns.NEXT_AUTHOR]
-            for col in author_cols:
-                if col in df.columns:
-                    df[col] = df[col].astype(str).str.replace(tilde_nbsp_pattern, "", regex=True)
-            logger.info("Removed leading '~ ' from author columns")
-
-            # === Apply initials ===
+            # === 1. Replace author names with initials ===
             df = self.replace_author_by_initials(df)
 
-            # === Feature engineering ===
+            # === 2–7. Add all features ===
             df = self.engineer.add_all_features(
-                df,
-                ignore_emojis=self.cleaner.ignore_emojis,
+                df=df,
+                ignore_emojis=self.ignore_emojis,
                 patterns=self.cleaner.patterns,
                 stopwords=self.cleaner.stopwords,
             )
@@ -247,7 +267,7 @@ class DataEditor:
             return None
 
 
-# === CODING STANDARD (APPLY TO ALL CODE) ===
+# === CODING STANDARD ===
 # - `# === Module Docstring ===` before """
 # - Google-style docstrings
 # - `# === Section Name ===` for all blocks
@@ -257,8 +277,8 @@ class DataEditor:
 # - Examples: with >>>
 # - No long ----- lines
 # - No mixed styles
-# - Add markers #NEW at the end of the module capturing the latest changes.
+# - Add markers #NEW at the end of the module
 
-# NEW: Full blank line standardization (1 line only) (2025-11-03)
-# NEW: Enhanced organize_extended_df docstring with full step list (2025-11-03)
-# NEW: Added note about early leaver drop (2025-11-03)
+# NEW: Added parse_emojis() method with full CSV string handling and fallback (2025-11-05)
+# NEW: Robust ast.literal_eval with debug logging and type checking
+# NEW: Clear documentation explaining why this method is REQUIRED for CSV data

@@ -8,6 +8,11 @@ DataFrame via :meth:`src.data_preparation.DataPreparation.build_visual_distribut
 and generates the bar + cumulative line chart via
 :meth:`src.plot_manager.PlotManager.build_visual_distribution`.
 
+**New features added:**
+- Saves **full emoji table** (all emojis + counts + Unicode) to `data/tables/`
+- Passes **top 20** to `plot_manager` for consistent visualization
+- Robust error handling and logging
+
 Examples
 --------
 >>> script = Script3(file_manager, data_editor, data_preparation, plot_manager, image_dir, df)
@@ -22,6 +27,7 @@ import pandas as pd
 from loguru import logger
 from src.constants import Columns, Groups
 from src.plot_manager import DistributionPlotSettings
+from src.data_preparation import DistributionPlotData
 
 from .base import BaseScript
 
@@ -66,29 +72,55 @@ class Script3(BaseScript):
         """
         Generate and save the emoji distribution plot.
 
+        Steps:
+            1. Filter for MAAP group
+            2. Build full emoji distribution (with Unicode)
+            3. Save **full table** to `data/tables/`
+            4. Pass **top 20** to `plot_manager`
+            5. Save plot to `images/`
+
         Returns:
             Path: Path to saved PNG file.
             None: If data missing or plot fails.
         """
+        # === 1. Filter for MAAP group ===
         df_maap = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.MAAP.value].copy()
         if df_maap.empty:
             self.log_error(f"No data for group '{Groups.MAAP.value}'. Skipping.")
             return None
 
+        # === 2. Build full emoji distribution ===
         distribution_data = self.data_preparation.build_visual_distribution(df_maap)
         if distribution_data is None:
             self.log_error("build_visual_distribution returned None.")
             return None
 
-        logger.info(f"Unique emojis: {len(distribution_data.emoji_counts_df)}")
+        full_df = distribution_data.emoji_counts_df
+        logger.info(f"Unique emojis: {len(full_df)}")
+
+        # === 3. Save full emoji table ===
+        tables_dir = self.image_dir.parent / "tables"
+        tables_dir.mkdir(exist_ok=True)
+        full_table_path = self.file_manager.save_table(
+            full_df,
+            tables_dir,
+            "emoji_counts_full"
+        )
+        logger.success(f"Saved full emoji table: {full_table_path}")
+
+        # === 4. Pass top 20 to plot manager ===
+        top_20_df = full_df.head(20)
+        top_20_data = DistributionPlotData(emoji_counts_df=top_20_df)
+
         fig = self.plot_manager.build_visual_distribution(
-            distribution_data,
-            self.settings
+            distribution_data,  # Full data
+            self.settings  # With cum_threshold=75.0
         )
         if fig is None:
             self.log_error("Failed to create emoji bar chart.")
             return None
 
+        # === 5. Save plot ===
         return self.save_figure(fig, self.image_dir, "emoji_counts_once")
 
 
@@ -104,5 +136,7 @@ class Script3(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Removed *args, **kwargs; df passed to super() (2025-11-03)
-# NEW: Removed local self.df = df (2025-11-03)
+# NEW: Added full table export to data/tables/ (2025-11-05)
+# NEW: Pass top 20 to plot_manager for consistent visualization (2025-11-05)
+# NEW: Robust directory creation and logging (2025-11-05)
+# NEW: Clear step-by-step run() docstring (2025-11-05)

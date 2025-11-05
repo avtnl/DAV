@@ -25,6 +25,7 @@ import pandas as pd
 import numpy as np
 from loguru import logger
 from pydantic import BaseModel, Field, model_validator, validator
+from emoji import demojize
 
 from .constants import Columns, Groups, Script6ConfigKeys
 
@@ -47,7 +48,7 @@ class AuthorMessages(BaseModel):
     message_count: int = Field(..., ge=0)
     is_avt: bool = False
     active_years: int = Field(0, ge=0)
-    
+
     class Config:
         extra = "forbid"
 
@@ -108,14 +109,14 @@ class TimePlotData(BaseModel):
 class DistributionPlotData(BaseModel):
     """Validated container for the emoji-frequency DataFrame."""
     emoji_counts_df: pd.DataFrame = Field(
-        ..., description="Columns: ['emoji', 'count_once', 'percent_once']"
+        ..., description="Columns: ['emoji', 'count_once', 'percent_once', 'unicode_code', 'unicode_name']"
     )
 
     @model_validator(mode="after")
     def validate_columns(self):
-        required = {"emoji", "count_once", "percent_once"}
-        if not required.issubset(self.emoji_counts_df.columns):
-            missing = required - set(self.emoji_counts_df.columns)
+        required = {"emoji", "count_once", "percent_once", "unicode_code", "unicode_name"}
+        missing = required - set(self.emoji_counts_df.columns)
+        if missing:
             raise ValueError(f"Missing required columns: {missing}")
         return self
 
@@ -411,70 +412,46 @@ class DataPreparation(BaseHandler):
     # === 3. Distribution (Script3) ===
     def build_visual_distribution(self, df: pd.DataFrame) -> DistributionPlotData | None:
         """
-        Build emoji frequency data for distribution plot.
-
-        Handles ALL input types safely: NaN, None, empty lists/arrays, strings.
-
-        Example:
-        >>> parse_emoji_list('["😂"]') → ['😂']
+        Build emoji frequency table with count_once, percent_once, and Unicode info.
         """
-        try:
-            # === Safe parsing ===
-            def parse_emoji_list(cell):
-                # === SAFE CHECK: Handle NaN/None FIRST ===
-                if cell is None or (isinstance(cell, float) and pd.isna(cell)):
-                    return []
-                
-                # === HANDLE EMPTY LISTS/ARRAYS ===
-                if isinstance(cell, (list, np.ndarray)):
-                    if hasattr(cell, 'size'):
-                        return list(cell) if cell.size > 0 else []
-                    return list(cell) if len(cell) > 0 else []
-                
-                # === HANDLE STRINGS ===
-                if isinstance(cell, str):
-                    cell = cell.strip()
-                    if not cell or cell == "[]":
-                        return []
-                    try:
-                        parsed = ast.literal_eval(cell)
-                        if isinstance(parsed, (list, tuple, set)):
-                            return list(parsed)
-                        return []
-                    except (ValueError, SyntaxError):
-                        return []
-                
-                # === FALLBACK ===
-                return []
-
-            # === APPLY PARSING ===
-            emoji_series = df[Columns.LIST_OF_ALL_EMOJIS.value].apply(parse_emoji_list)
-            
-            # === FLATTEN SAFELY ===
-            all_emojis = []
-            for sublist in emoji_series:
-                if isinstance(sublist, (list, np.ndarray)) and len(sublist) > 0:
-                    all_emojis.extend(sublist)
-
-            # === EARLY RETURN IF NO EMOJIS ===
-            if not all_emojis:
-                logger.info("No emojis found – returning empty DistributionPlotData")
-                empty_df = pd.DataFrame(columns=["emoji", "count_once", "percent_once"])
-                return DistributionPlotData(emoji_counts_df=empty_df)
-
-            # === BUILD COUNTS ===
-            counts_series = pd.Series(all_emojis).value_counts()
-            counts_df = counts_series.reset_index()
-            counts_df.columns = ["emoji", "count_once"]
-            counts_df["percent_once"] = (counts_df["count_once"] / len(df) * 100).round(2)
-
-            # === VALIDATE & RETURN ===
-            logger.info(f"Built distribution: {len(counts_df)} unique emojis")
-            return DistributionPlotData(emoji_counts_df=counts_df)
-
-        except Exception as e:
-            logger.exception(f"build_visual_distribution failed: {e}")
+        df_emoji = df[df[Columns.HAS_EMOJI.value]].copy()
+        if df_emoji.empty:
+            logger.warning("No messages with emojis found in group.")
             return None
+
+        # Parse emoji lists (handles CSV string → list)
+        emojis_list = self.data_editor.parse_emojis(df_emoji)
+        if emojis_list.empty:
+            logger.warning("No valid emoji lists after parsing.")
+            return None
+
+        # Count unique per message
+        emoji_counts = Counter()
+        for emojis in emojis_list:
+            for emoji in set(emojis):
+                emoji_counts[emoji] += 1
+
+        if not emoji_counts:
+            return None
+
+        # Build full DF
+        emoji_counts_df = pd.DataFrame([
+            {"emoji": e, "count_once": c} for e, c in emoji_counts.most_common()
+        ])
+        total = emoji_counts_df["count_once"].sum()
+        emoji_counts_df["percent_once"] = emoji_counts_df["count_once"] / total * 100
+
+        # === ADD UNICODE ===
+        emoji_counts_df["unicode_code"] = emoji_counts_df["emoji"].apply(
+            lambda x: f"U+{ord(x):04X}"
+        )
+        emoji_counts_df["unicode_name"] = emoji_counts_df["emoji"].apply(
+            lambda x: demojize(x).strip(":").replace("_", " ").title()
+        )
+
+        logger.success(f"Built emoji distribution: {len(emoji_counts_df)} unique emojis")
+        return DistributionPlotData(emoji_counts_df=emoji_counts_df)
+
 
     # === 4. Arc (Script4) ===
     def build_visual_relationships_arc(self, df_group: pd.DataFrame) -> ArcPlotData | None:
