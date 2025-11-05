@@ -152,7 +152,7 @@ class PlotManager:
         settings: CategoriesPlotSettings = CategoriesPlotSettings(),
     ) -> plt.Figure | None:
         """
-        Plot total messages per author per group.
+        Plot total messages per author per group with fair AvT comparison.
 
         Args:
             data: Validated CategoryPlotData
@@ -160,104 +160,196 @@ class PlotManager:
 
         Returns:
             matplotlib Figure or None
+
+        Raises:
+            Exception: If plotting fails (logged).
         """
         if not data or not data.groups:
             logger.error("Invalid or empty CategoryPlotData")
             return None
 
         try:
-            fig, ax = plt.subplots(figsize=settings.figsize)
-            plt.subplots_adjust(top=0.88, bottom=0.2)
+            fig, ax = plt.subplots(figsize=(14, 6.5))  # Shorter canvas
+            plt.subplots_adjust(top=0.65)              # Axes end earlier → more room above
+            fig.tight_layout(pad=4.0)                  # Push everything out, including titles
 
+            # Define group colors
             group_colors = {
                 Groups.DAC: "green",
                 Groups.GOLFMATEN: "orange",
-                Groups.MAAP: "blue",
+                Groups.MAAP: "deepskyblue",
                 Groups.TILLIES: "gray",
             }
 
-            x_pos = []
-            heights = []
-            bar_colors = []
-            author_labels = []
-            group_midpoints = []
-            current_x = 0.0
+            # Prepare bar positions and metadata
+            x_pos: list[float] = []
+            heights: list[int] = []
+            bar_colors: list[str] = []
+            author_labels: list[str] = []
+            group_midpoints: list[float] = []
+            cur_x = 0.0
+
+            # Capture MAAP AvT position
+            maap_avt_x = None
+            maap_avt_h = None
+            maap_group_avg = None
 
             for group_data in data.groups:
-                n_authors = len(group_data.authors)
-                start_x = current_x
+                n_auth = len(group_data.authors)
+                start_x = cur_x
 
-                for author in group_data.authors:
-                    x_pos.append(current_x)
-                    heights.append(author.message_count)
-                    color = "#000000" if author.is_avt else group_colors.get(group_data.whatsapp_group, "gray")
-                    bar_colors.append(color)
-                    author_labels.append(author.author)
-                    current_x += 1.0
+                for auth in group_data.authors:
+                    x_pos.append(cur_x)
+                    heights.append(auth.message_count)
 
-                mid_x = start_x + (n_authors - 1) / 2
-                group_midpoints.append(mid_x)
-                current_x += settings.group_spacing
+                    # # AvT always black
+                    # col = "#000000" if auth.is_avt else group_colors.get(group_data.whatsapp_group, "gray")
+                    # bar_colors.append(col)
+                    # author_labels.append(auth.author)
 
-            bars = ax.bar(
+                    # AvT uses group color with thick gray border
+                    group_color = group_colors.get(group_data.whatsapp_group, "gray")
+                    if auth.is_avt:
+                        bar_colors.append(group_color)      # Same fill as group
+                        # Border handled in ax.bar() below
+                    else:
+                        bar_colors.append(group_color)
+                    author_labels.append(auth.author)    
+
+                    # Capture AvT in MAAP
+                    if group_data.whatsapp_group == Groups.MAAP and auth.is_avt:
+                        maap_avt_x = cur_x + 1.5  # Right of AvT bar
+                        maap_avt_h = auth.message_count
+                        maap_group_avg = group_data.group_avg
+                        logger.info(f"AvT in MAAP at x={cur_x}, height={maap_avt_h}")
+
+                    cur_x += 1.0
+
+                mid = start_x + (n_auth - 1) / 2
+                group_midpoints.append(mid)
+                cur_x += settings.group_spacing
+
+            # # Draw bars
+            # ax.bar(
+            #     x_pos,
+            #     heights,
+            #     width=settings.bar_width,
+            #     color=bar_colors,
+            #     edgecolor="black",
+            #     linewidth=1.3,
+            #     align="center",
+            # )
+
+            # Draw bars with special edge for AvT
+            edgecolors = []
+            linewidths = []
+            hatches = []
+            for auth in [a for g in data.groups for a in g.authors]:
+                hatches.append("//" if auth.is_avt else "")
+                if auth.is_avt:
+                    edgecolors.append("black")
+                    linewidths.append(2.0)   # Thicker border
+                else:
+                    edgecolors.append("black")
+                    linewidths.append(1.3)
+
+            ax.bar(
                 x_pos,
                 heights,
                 width=settings.bar_width,
                 color=bar_colors,
-                edgecolor="black",
-                linewidth=1.3,
+                edgecolor=edgecolors,    # NEW: Per-bar edge color
+                linewidth=linewidths,    # NEW: Per-bar line width
+                hatch=hatches, 
                 align="center",
             )
 
-            for mid_x, group_data in zip(group_midpoints, data.groups):
-                ax.hlines(
-                    y=group_data.group_avg,
-                    xmin=mid_x - 0.5,
-                    xmax=mid_x + 0.5,
-                    color=settings.trendline_color,
-                    linestyle=settings.trendline_style,
-                    linewidth=settings.trendline_width,
-                    zorder=5,
-                    label="Group Avg" if mid_x == group_midpoints[0] else "",
+            # Draw group average line ine red
+            avg_line_patch = None
+            for mid_x, gdata in zip(group_midpoints, data.groups):
+                if gdata.group_avg > 0:
+                    line_length = 0.5 * len(gdata.authors)
+                    line = ax.hlines(
+                        y=gdata.group_avg,
+                        xmin=mid_x - line_length,
+                        xmax=mid_x + line_length,
+                        color="red",
+                        linestyle="--",
+                        linewidth=settings.trendline_width,
+                        zorder=5,
+                        label="Group Avg (non-AvT)" if mid_x == group_midpoints[0] else "",
+                    )
+                    if avg_line_patch is None:       # lengend
+                        avg_line_patch = line
+
+                    # Log MAAP mid and avg
+                    if gdata.whatsapp_group == Groups.MAAP:
+                        logger.info(f"maap_mid: {mid_x}")
+                        logger.info(f"maap_group_avg: {gdata.group_avg}")
+
+            # Draw vertical red block arrow in MAAP
+            if maap_group_avg is not None and maap_avt_x is not None and maap_avt_h is not None:
+                ax.annotate(
+                    "",
+                    xy=(maap_avt_x, maap_avt_h),                   # tip at top of AvT bar
+                    xytext=(maap_avt_x, maap_group_avg),           # tip at group‑avg line
+                    arrowprops=dict(
+                        arrowstyle="<->,head_length=2.0,head_width=2.0",  # double‑headed
+                        color="red",
+                        lw=3.0,
+                        connectionstyle="arc3,rad=0",
+                    ),
+                    zorder=6,
                 )
 
-            ax.set_title(settings.title, fontsize=16, fontweight="bold", pad=20)
-            fig.suptitle(settings.subtitle, fontsize=11, color="dimgray", y=0.93)
+            ax.set_title(
+                "Anthony's participation is significantly lower for the 3rd group",
+                fontsize=24,
+                fontweight="bold",
+                pad=40,        # NEW: Push title UP into the new space
+                ha="center",
+            )
+            fig.suptitle(
+                "Too much to handle or too much crap?",
+                fontsize=18,
+                fontweight="bold",
+                color="dimgray",
+                y=0.85,        # NEW: Position in the new top space
+                ha="center",
+            )
+
+            # Axis labels
             ax.set_ylabel(settings.ylabel, fontsize=12)
-            ax.set_xlabel("WhatsApp Group → Author", fontsize=12)
+            ax.set_xlabel("WhatsApp Groups and participating Authors", fontsize=12)
+
             ax.set_xticks(x_pos)
             ax.set_xticklabels(author_labels, rotation=45, ha="right", fontsize=10)
 
-            for mid_x, group_data in zip(group_midpoints, data.groups):
-                ax.text(
-                    mid_x,
-                    ax.get_ylim()[1] * 1.03,
-                    group_data.whatsapp_group.upper(),
-                    ha="center",
-                    va="bottom",
-                    fontweight="bold",
-                    fontsize=12,
-                    color=group_colors.get(group_data.whatsapp_group, "black"),
-                )
-
+            # Build legend
             legend_patches = [
-                patches.Patch(facecolor=color, edgecolor="black", label=group.value.title())
-                for group, color in group_colors.items()
+                patches.Patch(facecolor=c, edgecolor="black", label=g.value.title())
+                for g, c in group_colors.items()
             ]
             legend_patches.append(patches.Patch(facecolor="black", edgecolor="black", label=Groups.AVT))
+            if avg_line_patch is not None:
+                legend_patches.append(avg_line_patch)  # NEW: Add red dashed line
+
             ax.legend(
                 handles=legend_patches,
                 title="Group",
                 loc="upper right",
-                bbox_to_anchor=(1.15, 1),
+                bbox_to_anchor=(1.15, 0.9),
                 frameon=True,
                 fancybox=True,
                 shadow=True,
             )
 
+            # Apply grid and layout
             ax.grid(True, axis="y", linestyle="--", alpha=0.7, zorder=0)
             ax.set_axisbelow(True)
             plt.tight_layout()
+            plt.show()
+
             logger.success("Category bar chart built successfully")
             return fig
 

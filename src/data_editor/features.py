@@ -227,25 +227,18 @@ class FeatureEngineer:
 
     # === Step 7: Active Years & Early Leaver ===
     def add_active_years_and_leaver(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Add active years and early leaver flag, then drop leavers.
-
-        Args:
-            df: DataFrame with ``TIMESTAMP`` and ``AUTHOR``.
-
-        Returns:
-            pd.DataFrame: Filtered DataFrame with active years.
-        """
         if Columns.TIMESTAMP not in df.columns or Columns.AUTHOR not in df.columns:
             df[Columns.ACTIVE_YEARS] = 0
             df[Columns.EARLY_LEAVER] = False
             return df
 
-        year_series = df[Columns.TIMESTAMP].dt.year
-        active_years = df.groupby(Columns.AUTHOR)[year_series.name].nunique()
-        df[Columns.ACTIVE_YEARS] = df[Columns.AUTHOR].map(active_years).fillna(0)
+        # Use pre-computed YEAR column
+        year_stats = df.groupby(Columns.AUTHOR)[Columns.YEAR].agg(['min', 'max'])
+        active_years = (year_stats['max'] - year_stats['min'] + 1).astype(int)
+        df[Columns.ACTIVE_YEARS] = df[Columns.AUTHOR].map(active_years).fillna(0).astype(int)
 
-        last_year = year_series.max()
-        active_last_year = df[df[Columns.TIMESTAMP].dt.year == last_year][Columns.AUTHOR].unique()
+        last_year = df[Columns.YEAR].max()
+        active_last_year = df[df[Columns.YEAR] == last_year][Columns.AUTHOR].unique()
         df[Columns.EARLY_LEAVER] = ~df[Columns.AUTHOR].isin(active_last_year)
 
         df = df[~df[Columns.EARLY_LEAVER]].reset_index(drop=True)

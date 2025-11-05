@@ -46,15 +46,17 @@ class AuthorMessages(BaseModel):
     author: str = Field(..., min_length=1)
     message_count: int = Field(..., ge=0)
     is_avt: bool = False
-
+    active_years: int = Field(0, ge=0)
+    
     class Config:
         extra = "forbid"
 
 
 class GroupMessages(BaseModel):
-    whatsapp_group: Literal["dac", "golfmaten", "maap", "tillies"]
-    authors: list[AuthorMessages] = Field(..., min_items=1)
-    group_avg: float = Field(..., ge=0.0)
+    whatsapp_group: str
+    authors: list[AuthorMessages]
+    group_avg: float = Field(..., description="Expected TOTAL messages for average non-AvT member")
+    avt_total: int = Field(0, description="AvT's actual total messages")
 
     @property
     def total_messages(self) -> int:
@@ -216,7 +218,7 @@ class DataPreparation(BaseHandler):
     # === 1. Categories (Script1) ===
     def build_visual_categories(self, df: pd.DataFrame) -> CategoryPlotData | None:
         """
-        Build category plot data: messages per author per group, with AvT highlighted.
+        Build category plot data: messages per author per group, with fair AvT comparison.
 
         Args:
             df: Input DataFrame with required columns.
@@ -232,12 +234,17 @@ class DataPreparation(BaseHandler):
             return None
 
         try:
-            mask = (df[Columns.TIMESTAMP] >= DATE_RANGE_START) & (df[Columns.TIMESTAMP] <= DATE_RANGE_END)
+            # Convert TIMESTAMP to tz-aware UTC to avoid tz-naive comparison error
+            ts = pd.to_datetime(df[Columns.TIMESTAMP], utc=True)
+            mask = (ts >= DATE_RANGE_START) & (ts <= DATE_RANGE_END)
             df_filtered = df[mask].copy()
             if df_filtered.empty:
-                logger.warning(f"No messages in date range {DATE_RANGE_START.date()} to {DATE_RANGE_END.date()}")
+                logger.warning(
+                    f"No messages in date range {DATE_RANGE_START.date()} to {DATE_RANGE_END.date()}"
+                )
                 return None
 
+            # Count messages per author per group
             counts = (
                 df_filtered.groupby([Columns.WHATSAPP_GROUP, Columns.AUTHOR], as_index=False)
                 .size()
@@ -247,56 +254,83 @@ class DataPreparation(BaseHandler):
                 logger.error("No message counts after grouping")
                 return None
 
+            # Enforce consistent group order
             group_order = sorted(counts[Columns.WHATSAPP_GROUP].unique())
             counts[Columns.WHATSAPP_GROUP] = pd.Categorical(
-                counts[Columns.WHATSAPP_GROUP],
-                categories=group_order,
-                ordered=True,
+                counts[Columns.WHATSAPP_GROUP], categories=group_order, ordered=True
             )
             counts = counts.sort_values(Columns.WHATSAPP_GROUP).reset_index(drop=True)
             counts["is_avt"] = counts[Columns.AUTHOR] == Groups.AVT
 
-            groups_data = []
+            # Merge ACTIVE_YEARS for tooltips (optional)
+            if Columns.ACTIVE_YEARS in df.columns:
+                active_years_map = df[[Columns.AUTHOR, Columns.ACTIVE_YEARS]].drop_duplicates()
+                counts = counts.merge(active_years_map, on=Columns.AUTHOR, how="left")
+                counts[Columns.ACTIVE_YEARS] = counts[Columns.ACTIVE_YEARS].fillna(0).astype(int)
+            else:
+                counts[Columns.ACTIVE_YEARS] = 0
+
+            # Build Pydantic containers
+            groups_data: list[GroupMessages] = []
             total_messages = 0
 
             for group in group_order:
                 grp = counts[counts[Columns.WHATSAPP_GROUP] == group]
                 non_avt = grp[~grp["is_avt"]].sort_values(Columns.MESSAGE_COUNT, ascending=False)
                 avt_row = grp[grp["is_avt"]]
-                group_avg = non_avt[Columns.MESSAGE_COUNT].mean() if not non_avt.empty else 0.0
-                authors = []
 
+                # Compute fair group average: mean of non-AvT total messages
+                group_avg = (
+                    float(non_avt[Columns.MESSAGE_COUNT].mean())
+                    if not non_avt.empty
+                    else 0.0
+                )
+
+                # Extract AvT total
+                avt_total = (
+                    int(avt_row.iloc[0][Columns.MESSAGE_COUNT])
+                    if not avt_row.empty
+                    else 0
+                )
+
+                # Build author list with optional active years
+                authors: list[AuthorMessages] = []
                 for _, row in non_avt.iterrows():
-                    msg_count = int(row[Columns.MESSAGE_COUNT])
+                    msg_cnt = int(row[Columns.MESSAGE_COUNT])
                     authors.append(
                         AuthorMessages(
                             author=str(row[Columns.AUTHOR]),
-                            message_count=msg_count,
+                            message_count=msg_cnt,
                             is_avt=False,
+                            active_years=int(row.get(Columns.ACTIVE_YEARS, 0)),
                         )
                     )
-                    total_messages += msg_count
+                    total_messages += msg_cnt
 
                 if not avt_row.empty:
                     row = avt_row.iloc[0]
-                    msg_count = int(row[Columns.MESSAGE_COUNT])
+                    msg_cnt = int(row[Columns.MESSAGE_COUNT])
                     authors.append(
                         AuthorMessages(
                             author=str(row[Columns.AUTHOR]),
-                            message_count=msg_count,
+                            message_count=msg_cnt,
                             is_avt=True,
+                            active_years=int(row.get(Columns.ACTIVE_YEARS, 0)),
                         )
                     )
-                    total_messages += msg_count
+                    total_messages += msg_cnt
 
+                # Pass fair average and AvT total to plot
                 groups_data.append(
                     GroupMessages(
                         whatsapp_group=group,
                         authors=authors,
-                        group_avg=float(group_avg),
+                        group_avg=group_avg,
+                        avt_total=avt_total,
                     )
                 )
 
+            # Final validated container
             result = CategoryPlotData(
                 groups=groups_data,
                 total_messages=total_messages,
