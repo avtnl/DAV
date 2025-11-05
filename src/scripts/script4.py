@@ -16,14 +16,17 @@ PosixPath('images/arc_diagram_maap.png')
 
 # === Imports ===
 from pathlib import Path
-from typing import Any
+from typing import Optional
 
 import pandas as pd
 from loguru import logger
 
 from src.constants import Columns, Groups
-from src.data_preparation import ArcPlotData          # <-- NEW: import the model
+from src.data_preparation import ArcPlotData
 from src.plot_manager import ArcPlotSettings
+from src.file_manager import FileManager
+from src.data_preparation import DataPreparation
+from src.plot_manager import PlotManager
 
 from .base import BaseScript
 
@@ -34,13 +37,13 @@ class Script4(BaseScript):
 
     def __init__(
         self,
-        file_manager: Any,
-        data_preparation: Any,
-        plot_manager: Any,
+        file_manager: FileManager,
+        data_preparation: DataPreparation,
+        plot_manager: PlotManager,
         image_dir: Path,
         tables_dir: Path,
         df: pd.DataFrame,
-        settings: ArcPlotSettings | None = None,
+        settings: Optional[ArcPlotSettings] = None,
     ) -> None:
         """
         Initialize Script4 with required components.

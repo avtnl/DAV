@@ -240,11 +240,11 @@ GROUP_MAP_FROM_CLEANED: Dict[str, str] = {
     "golf": Groups.GOLFMATEN,
     "dac": Groups.DAC,
     "voorganger-golf": Groups.GOLFMATEN,
-    "tillies": Groups.TILLIES,
+    "til": Groups.TILLIES,
     "najaarscompetitie": Groups.NAJAARSCOMPETITIE,
 }
 
-# === NEW: Default image filename ===
+# === Default image filename ===
 class ImageFilenames(StrEnum):
     """Default base names for saved figures."""
 

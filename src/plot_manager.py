@@ -412,6 +412,7 @@ class PlotManager:
     ) -> plt.Figure | None:
         """
         Plot author interaction network as an arc diagram.
+        Raises: ValueError if authors != 4
         Args:
             data: Validated ArcPlotData
             settings: Plot settings
@@ -432,7 +433,7 @@ class PlotManager:
             total_weights = {}
             combined_df = df
 
-            # === PAIRS ===
+            # === Pairs processing ===
             pairs = combined_df[combined_df["type"] == InteractionType.PAIRS]
             for _, row in pairs.iterrows():
                 pair_str = None
@@ -448,7 +449,7 @@ class PlotManager:
                 pair_weights[key] = row["total_messages"]
                 total_weights[key] = total_weights.get(key, 0) + row["total_messages"]
 
-            # === TRIPLES (NON-PARTICIPANT) ===
+            # === Triples processing ===
             triples = combined_df[combined_df["type"] == InteractionType.NON_PARTICIPANT]
             for _, row in triples.iterrows():
                 participants = [c for c in participant_cols if row[c] != 0]

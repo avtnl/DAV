@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 import pytz
-import wa_analyzer.preprocess as preprocessor
+from wa_analyzer.preprocess import main as preprocess_main
 from loguru import logger
 
 from .constants import (
@@ -177,7 +177,7 @@ class FileManager:
         dfs = []
         for path, group in cleaned_paths_with_groups:
             try:
-                df = pd.read_parquet(path)
+                df = pd.read_csv(path, parse_dates=[Columns.TIMESTAMP])
                 # Ensure minimal required columns
                 required_cols = [Columns.TIMESTAMP, Columns.AUTHOR, Columns.MESSAGE]
                 missing = [col for col in required_cols if col not in df.columns]
@@ -208,48 +208,119 @@ class FileManager:
 
         return {"df": enriched}
 
-    # === Helper: Run Preprocessor and Get Parquets ===
+    # === Helper: Run Preprocessor and Get CSVs (Robust Version) ===
     def _run_preprocessor_and_get_parquets(
         self, config: Dict[str, Any], processed_dir: Path
     ) -> List[Tuple[Path, str]]:
-        """Run wa-analyzer on all raw_* files and return list of (output .parq path, group) tuples.
-
-        Returns:
-            List of (Path, group) tuples, or empty list on failure.
+        """
+        Run wa-analyzer on all raw_* files and return list of (unique .csv path, group) tuples.
+        Uses expected filename + fallback to latest file (<5s old) to handle timestamp drift.
         """
         raw_dir = Path(config[ConfigKeys.RAW])
-        paths_with_groups = []
+        paths_with_groups: List[Tuple[Path, str]] = []
 
-        for idx, (raw_key, (current_key, group)) in enumerate(RAW_FILE_MAPPING.items(), start=1):
-            if raw_key not in config:
-                logger.warning(f"Key {raw_key} not found in config.toml")
-                continue
-            raw_file = raw_dir / config[raw_key]
-            if not raw_file.exists():
-                logger.warning(f"Raw file {raw_file} does not exist")
-                continue
+        # === Import direct function to avoid sys.exit() in __main__ guard ===
+        from wa_analyzer.preprocess import main as preprocess_main
 
-            # Copy to temp
-            temp_chat = raw_dir / TEMP_CHAT_FILE
-            shutil.copy(raw_file, temp_chat)
+        # === PREVENT sys.exit() FROM KILLING THE PROCESS ===
+        import sys
+        from loguru import logger
+        _original_exit = sys.exit
+        def _noop_exit(*args, **kwargs):
+            logger.warning(f"Preprocessor tried to sys.exit({args}, {kwargs}) — ignored")
+        sys.exit = _noop_exit
 
-            # Run preprocessor
-            now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
-            logger.info(f"Preprocessing {raw_file.name} → {now}")
-            preprocessor.main([PreprocessorArgs.DEVICE, PreprocessorArgs.IOS])
+        try:
+            for raw_key, (current_key, group) in RAW_FILE_MAPPING.items():
+                if raw_key not in config:
+                    logger.warning(f"Key {raw_key} not found in config.toml")
+                    continue
 
-            # Find output Parquet
-            parq_file = processed_dir / f"whatsapp-{now}{FileExtensions.PARQUET}"
-            if not parq_file.exists():
-                logger.error(f"Expected Parquet not found: {parq_file}")
+                raw_file = raw_dir / config[raw_key]
+                if not raw_file.exists():
+                    logger.warning(f"Raw file does not exist: {raw_file}")
+                    continue
+
+                # === GENERATE TIMESTAMP BEFORE PREPROCESSING ===
+                now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
+                logger.info(f"Preprocessing {raw_file.name} → {now}")
+
+                # === COPY TO TEMP LOCATION ===
+                temp_chat = raw_dir / TEMP_CHAT_FILE
+                try:
+                    shutil.copy(raw_file, temp_chat)
+                    logger.debug(f"Copied {raw_file.name} → {temp_chat}")
+                except Exception as e:
+                    logger.error(f"Failed to copy {raw_file} to {temp_chat}: {e}")
+                    continue
+
+                # === RUN PREPROCESSOR ===
+                try:
+                    preprocess_main([PreprocessorArgs.DEVICE, PreprocessorArgs.IOS])
+                except Exception as e:
+                    logger.error(f"Preprocessor failed for {raw_file.name}: {e}")
+                    temp_chat.unlink(missing_ok=True)
+                    continue
+
+                # === EXPECTED OUTPUT PATH ===
+                expected_csv = processed_dir / f"whatsapp-{now}{FileExtensions.CSV}"
+
+                # === CASE 1: Expected file exists → use it ===
+                if expected_csv.exists():
+                    csv_file = expected_csv
+                    logger.info(f"Found expected output: {csv_file.name}")
+
+                # === CASE 2: Fallback to latest file if <5 seconds old ===
+                else:
+                    candidates = list(processed_dir.glob("whatsapp-*.csv"))
+                    if not candidates:
+                        logger.error("No WhatsApp CSV files found in processed directory")
+                        temp_chat.unlink(missing_ok=True)
+                        continue
+
+                    latest_csv = max(candidates, key=lambda p: p.stat().st_mtime)
+                    age_sec = (datetime.now() - datetime.fromtimestamp(latest_csv.stat().st_mtime)).total_seconds()
+
+                    if age_sec < 5:
+                        logger.warning(
+                            f"Expected {expected_csv.name} not found. "
+                            f"Using latest: {latest_csv.name} (age: {age_sec:.1f}s)"
+                        )
+                        csv_file = latest_csv
+                    else:
+                        logger.error(
+                            f"Latest file {latest_csv.name} is {age_sec:.1f}s old — "
+                            f"too old, possible failed run. Skipping."
+                        )
+                        temp_chat.unlink(missing_ok=True)
+                        continue
+
+                # === RENAME TO UNIQUE FILENAME ===
+                file_id = raw_key.replace("raw_", "")  # raw_1 → "1", raw_2b → "2b"
+                unique_csv = processed_dir / f"whatsapp-{now}-{file_id}{FileExtensions.CSV}"
+
+                if csv_file != unique_csv:
+                    try:
+                        shutil.move(csv_file, unique_csv)
+                        logger.info(f"Renamed: {csv_file.name} → {unique_csv.name}")
+                        csv_file = unique_csv
+                    except Exception as e:
+                        logger.error(f"Failed to rename {csv_file} → {unique_csv}: {e}")
+                        temp_chat.unlink(missing_ok=True)
+                        continue
+
+                # === STORE RESULT ===
+                paths_with_groups.append((csv_file, group))
+                logger.info(f"Generated: {csv_file.name} for group {group}")
+
+                # === CLEAN UP TEMP FILE ===
                 temp_chat.unlink(missing_ok=True)
-                continue
 
-            paths_with_groups.append((parq_file, group))
-            temp_chat.unlink(missing_ok=True)
-            logger.info(f"Generated: {parq_file.name} for group {group}")
+            return paths_with_groups
 
-        return paths_with_groups
+        finally:
+            # === RESTORE sys.exit() ===
+            sys.exit = _original_exit
 
     # === Helper: Load Current Parquets ===
     def _load_current_parquets(self, config: Dict[str, Any], processed_dir: Path) -> List[Tuple[Path, str]]:

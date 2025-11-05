@@ -16,8 +16,9 @@ PosixPath('images/emoji_counts_once.png')
 from pathlib import Path
 
 from loguru import logger
+
 from src.constants import Columns, Groups
-from src.plot_manager import DistributionPlotSettings
+from src.dev.plot_manager import DistributionPlotSettings
 
 from .base import BaseScript
 

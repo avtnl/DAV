@@ -380,8 +380,12 @@ class DataPreparation(BaseHandler):
         Build emoji frequency data for distribution plot.
 
         Handles ALL input types safely: NaN, None, empty lists/arrays, strings.
+
+        Example:
+        >>> parse_emoji_list('["😂"]') → ['😂']
         """
         try:
+            # === Safe parsing ===
             def parse_emoji_list(cell):
                 # === SAFE CHECK: Handle NaN/None FIRST ===
                 if cell is None or (isinstance(cell, float) and pd.isna(cell)):

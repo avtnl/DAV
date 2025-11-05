@@ -18,8 +18,9 @@ from typing import Any
 
 import pandas as pd
 from loguru import logger
+
 from src.constants import Columns, Groups
-from src.plot_manager import ArcPlotSettings
+from src.dev.plot_manager import ArcPlotSettings
 
 from .base import BaseScript
 

@@ -16,7 +16,7 @@ PosixPath('images/bubble_plot_words_vs_punct.png')
 from pathlib import Path
 
 from src.constants import Columns, Groups
-from src.plot_manager import BubbleNewPlotSettings
+from src.dev.plot_manager import BubbleNewPlotSettings
 
 from .base import BaseScript
 

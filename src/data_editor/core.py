@@ -139,15 +139,23 @@ class DataEditor:
                 logger.error("No valid DataFrame provided for organizing")
                 return None
 
-            # 0. Clean messages
+            # === Clean messages ===
             df = self.cleaner.clean_messages(df)
             if df is None:
                 return None
 
-            # 1. Apply initials
+            # === Strip leading tilde ===
+            tilde_nbsp_pattern = re.compile(r"^~\u202f")
+            author_cols = [Columns.AUTHOR, Columns.PREVIOUS_AUTHOR, Columns.NEXT_AUTHOR]
+            for col in author_cols:
+                if col in df.columns:
+                    df[col] = df[col].astype(str).str.replace(tilde_nbsp_pattern, "", regex=True)
+            logger.info("Removed leading '~ ' from author columns")
+
+            # === Apply initials ===
             df = self.replace_author_by_initials(df)
 
-            # 2–6. Feature engineering
+            # === Feature engineering ===
             df = self.engineer.add_all_features(
                 df,
                 ignore_emojis=self.cleaner.ignore_emojis,
@@ -155,10 +163,7 @@ class DataEditor:
                 stopwords=self.cleaner.stopwords,
             )
 
-            # 7. Drop early leavers (done in engineer)
-            # Note: ``EARLY_LEAVER`` column is added and filtered
-
-            # 8. Create whatsapp_group_temp
+            # === Create whatsapp_group_temp ===
             df["whatsapp_group_temp"] = np.where(
                 df[Columns.AUTHOR] == Groups.AVT,
                 Groups.AVT,
@@ -166,7 +171,7 @@ class DataEditor:
             )
             logger.info("Created 'whatsapp_group_temp' (AvT isolated)")
 
-            # 9. Final column order
+            # === Final column order ===
             organized_columns = [
                 Columns.WHATSAPP_GROUP,
                 "whatsapp_group_temp",

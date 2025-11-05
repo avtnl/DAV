@@ -5,12 +5,12 @@ image = "img"
 input = "_chat.txt"
 
 # === Preprocessing & Caching ===
-preprocess = false
-reuse_whatsapp_all = false
+preprocess = true
+reuse_whatsapp_all = true
 
 # === Raw Files (TXT) ===
 raw_1 = "_chat_maap.txt"
-raw_2a = "_chat_vooranger_golfmaten.txt"
+raw_2a = "_chat_voorganger_golfmaten.txt"
 raw_2b = "_chat_golfmaten.txt"
 raw_3 = "_chat_dac.txt"
 raw_4 = "_chat_tillies.txt"

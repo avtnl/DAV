@@ -2,28 +2,17 @@ from pathlib import Path
 
 from src.constants import Columns, Groups
 from src.plot_manager import TimePlotSettings
-
+src.dev.plot_manager
 from .base import BaseScript
 
 
 class Script2(BaseScript):
     """Time-based visualization for the DAC group."""
 
-    def __init__(
-        self,
-        file_manager,
-        data_preparation,
-        plot_manager,
-        image_dir: Path,
-        df,
-        settings: TimePlotSettings | None = None,
-    ) -> None:
-        super().__init__(
-            file_manager,
-            data_preparation=data_preparation,
-            plot_manager=plot_manager,
-            settings=settings or TimePlotSettings(),
-        )
+    def __init__(self, file_manager, data_preparation, plot_manager,
+                 image_dir: Path, df, settings: TimePlotSettings | None = None) -> None:
+        super().__init__(file_manager, data_preparation=data_preparation,
+                         plot_manager=plot_manager, settings=settings or TimePlotSettings())
         self.image_dir = image_dir
         self.df = df
 

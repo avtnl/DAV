@@ -1,5 +1,5 @@
 # --------------------------------------------------------------
-# style_analyzer_gen4.py  (MINIMAL HUGGING FACE INTEGRATION)
+# style_analyzer_min_hf.py  (MINIMAL HUGGING FACE INTEGRATION)
 # --------------------------------------------------------------
 from pathlib import Path
 
