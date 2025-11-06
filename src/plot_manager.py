@@ -670,7 +670,7 @@ class PlotManager:
             plt.tight_layout()
             plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)  # ← MATCH
             plt.show()
-            
+
             logger.success(
                 f"Emoji distribution plot built – {len(df)} unique emojis"
             )
@@ -875,6 +875,8 @@ class PlotManager:
             ax.legend(handles=legend_handles, title="WhatsApp Group", bbox_to_anchor=(1.05, 1), loc="upper left")
             ax.grid(True, linestyle="--", alpha=0.7)
             plt.tight_layout()
+            plt.show()
+            
             logger.success("Bubble plot built successfully")
             return fig
 

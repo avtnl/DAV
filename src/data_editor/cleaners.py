@@ -2,7 +2,7 @@
 """
 Cleaners module within data_editor
 
-Focusses on message cleaning and media/system event detection.
+Focuses on message cleaning and media/system event detection.
 
 Handles:
 - Media placeholders (images, videos, etc.)
@@ -22,7 +22,7 @@ from typing import List, Tuple, Set
 import emoji
 import pandas as pd
 from loguru import logger
-from nltk.corpus import stopwords  # ← NEW: for self.stopwords
+from nltk.corpus import stopwords
 
 from src.constants import Columns
 from .utilities import has_link
@@ -54,25 +54,34 @@ class MessageCleaner:
         self.punctuation_pattern = punctuation_pattern
         self._build_patterns()
 
-        # === ADD: stopwords for feature engineering ===
-        self.stopwords = set(stopwords.words("dutch"))
+        # === COMBINED STOPWORDS (Dutch + English) ===
+        try:
+            dutch = set(stopwords.words("dutch"))
+            english = set(stopwords.words("english"))
+            self.stopwords = dutch.union(english)
+            logger.info(f"Loaded {len(self.stopwords)} combined Dutch+English stopwords")
+        except Exception as e:
+            logger.warning(f"NLTK stopwords failed: {e} — using Dutch only")
+            self.stopwords = set(stopwords.words("dutch"))
 
-        # === ADD: patterns dict for feature engineering ===
+        # === Patterns for feature engineering ===
         self.patterns = {
             "url": self.url_pattern,
             "punctuation": self.punctuation_pattern,
             "connected_emoji": re.compile(
                 r"[" + "".join(re.escape(c) for c in emoji.EMOJI_DATA) + r"]{2,}",
-                flags=re.UNICODE
+                flags=re.UNICODE,
             ),
             "connected_punct": re.compile(r"([!?.,;:]{2,})"),
             "fallback": rf"\s*[\u200e\u200f]*\[\d{{2}}-\d{{2}}-\d{{4}},\s*\d{{2}}:\d{{2}}:\d{{2}}\]\s*(?:{self._author_names_regex})[\s\u200e\u200f]*:.*",
         }
 
+        # Fixed media placeholder
+        self.media_placeholder = "[media]"
+
     # === Pattern Compilation ===
     def _build_patterns(self) -> None:
         """Compile all regex patterns used in cleaning."""
-        # Non-media system messages
         self.non_media_patterns: List[Tuple[str, str, int]] = [
             (r"Dit bericht is verwijderd\.", "message deleted", re.IGNORECASE),
             (
@@ -82,7 +91,6 @@ class MessageCleaner:
             ),
         ]
 
-        # Media placeholders
         self.media_patterns: List[Tuple[str, str, int]] = [
             (r"afbeelding\s*weggelaten", "picture deleted", re.IGNORECASE),
             (r"video\s*weggelaten", "video deleted", re.IGNORECASE),
@@ -93,20 +101,13 @@ class MessageCleaner:
             (r"videonotitie\s*weggelaten", "video note deleted", re.IGNORECASE),
         ]
 
-        # Link removal (with surrounding space)
         self.link_removal_pattern = r'(\s*https?://[^\s<>"{}|\\^`\[\]]+[\.,;:!?]?\s*)'
-
-        # Fallback: full timestamp + author + colon
         self.fallback_pattern = rf"\s*[\u200e\u200f]*\[\d{{2}}-\d{{2}}-\d{{4}},\s*\d{{2}}:\d{{2}}:\d{{2}}\]\s*(?:{self._author_names_regex})[\s\u200e\u200f]*:.*"
 
     # === Helper: Detect Events ===
     def _was_deleted(self, message: str) -> bool:
         """Check if message was deleted."""
         return bool(re.search(self.non_media_patterns[0][0], message, self.non_media_patterns[0][2]))
-
-    def _changes_to_grouppicture(self, message: str) -> int:
-        """Count group picture change events."""
-        return len(re.findall(self.non_media_patterns[1][0], message, self.non_media_patterns[1][2]))
 
     # === Main Cleaning Method ===
     def clean_messages(self, df: pd.DataFrame) -> pd.DataFrame | None:
@@ -126,14 +127,10 @@ class MessageCleaner:
                 Columns.VIDEONOTES_DELETED,
             ]
 
-            # Initialize media columns
             for col in media_cols:
                 df[col] = 0
 
-            # === FIX: Pass url_pattern to has_link ===
-            df[Columns.HAS_LINK] = df[Columns.MESSAGE].apply(
-                lambda msg: has_link(msg, self.url_pattern)
-            )
+            df[Columns.HAS_LINK] = df[Columns.MESSAGE].apply(lambda msg: has_link(msg, self.url_pattern))
             df[Columns.WAS_DELETED] = df[Columns.MESSAGE].apply(self._was_deleted)
             df[Columns.MESSAGE_CLEANED] = df[Columns.MESSAGE]
 
@@ -144,11 +141,10 @@ class MessageCleaner:
                 # Remove links
                 if row[Columns.HAS_LINK]:
                     cleaned = re.sub(self.link_removal_pattern, " ", cleaned, flags=re.IGNORECASE)
-                    cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-                # Remove non-media system messages
+                # Remove system messages
                 for pattern, _, flags in self.non_media_patterns:
-                    cleaned = re.sub(pattern, "", cleaned, flags=flags).strip()
+                    cleaned = re.sub(pattern, "", cleaned, flags=flags)
 
                 # Count and remove media placeholders
                 for pattern, media_type, flags in self.media_patterns:
@@ -169,26 +165,37 @@ class MessageCleaner:
                             row[Columns.DOCUMENTS_DELETED] += count
                         elif media_type == "video note deleted":
                             row[Columns.VIDEONOTES_DELETED] += count
-                        cleaned = re.sub(pattern, "", cleaned, flags=flags).strip()
+                        cleaned = re.sub(pattern, "", cleaned, flags=flags)
 
-                # Remove timestamp+author if media was present
+                # Remove timestamp+author for media
                 total_media = sum(row[col] for col in media_cols)
                 if total_media > 0:
                     ta_pattern = r"[\s\u200e\u200f]*\[\d{2}-\d{2}-\d{4},\s*\d{2}:\d{2}:\d{2}\]\s*[^:]*:[\s\u200e\u200f]*$"
-                    cleaned = re.sub(ta_pattern, "", cleaned).strip()
+                    cleaned = re.sub(ta_pattern, "", cleaned)
 
                 # Final fallback cleanup
-                if re.search(self.fallback_pattern, cleaned, flags=re.IGNORECASE):
-                    cleaned = re.sub(self.fallback_pattern, "", cleaned, flags=re.IGNORECASE).strip()
+                cleaned = re.sub(self.fallback_pattern, "", cleaned, flags=re.IGNORECASE)
 
-                # Final fallback text
-                if not cleaned or cleaned.strip() == "":
-                    cleaned = "completely removed"
+                # === KEEP SHORT REPLIES INTACT (e.g., "Yes." → "Yes") ===
+                # Strip trailing punctuation only if message has words
+                if re.search(r'\w', cleaned):  # if has letters/numbers
+                    cleaned = re.sub(r'[.!?]+$', '', cleaned)  # remove trailing . ! ?
+
+                # === BULLETPROOF CLEANUP: Kill all Unicode ghosts ===
+                cleaned = re.sub(r'[\u200B-\u200F\u2028-\u202F\u205F\u2060-\u206F\uFEFF\s]+', ' ', cleaned)
+                cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+                # Force placeholder if empty or too short
+                if not cleaned or len(cleaned) < 2:
+                    cleaned = self.media_placeholder
 
                 row[Columns.MESSAGE_CLEANED] = cleaned
                 return row
 
-            df = df.apply(clean_row, axis=1)
+            # Safe assignment — no reconstruction bugs
+            cleaned_series = df.apply(clean_row, axis=1)[Columns.MESSAGE_CLEANED]
+            df[Columns.MESSAGE_CLEANED] = cleaned_series.values
+
             logger.info(f"Cleaned {len(df)} messages")
             return df
 
@@ -209,12 +216,8 @@ class MessageCleaner:
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Created cleaners.py with MessageCleaner class (2025-11-03)
-# NEW: All author names via author_names_regex (2025-11-03)
-# NEW: Full cleaning logic with media counting (2025-11-03)
-# NEW: Strict 1-blank-line rule enforced (2025-11-03)
-# NEW: Google-style docstrings with examples (2025-11-03)
-# NEW: (2025-11-04) – Added self.patterns dict to __init__ for feature engineering
-# NEW: (2025-11-04) – Added self.stopwords from NLTK
-# NEW: (2025-11-04) – Fixed has_link() call with url_pattern
-# NEW: (2025-11-04) – Fixed emoji.EMOJI_DATA usage
+# NEW: Preserves short replies by stripping trailing punctuation (2025-11-06)
+# NEW: No more length=1 punctuation-only ghosts (2025-11-06)
+# NEW: Unicode cleanup now replaces with space for safety (2025-11-06)
+# NEW: Forces [media] if len < 2 (catches all empties) (2025-11-06)
+# NEW: Clean and mean — all anomalies fixed (2025-11-06)

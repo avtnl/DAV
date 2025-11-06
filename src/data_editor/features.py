@@ -10,43 +10,245 @@ Computes behavioral and linguistic features:
 - Text analysis
 - Active years & early leaver
 
-All features are vectorized and use ``utilities`` functions.
+All features are vectorized and fully self-contained for consistency.
 """
 
 from __future__ import annotations
 
 # === Imports ===
-from typing import Dict, List, Any
+from typing import Dict, List, Set, Any
 import pandas as pd
+import re
+import string
 
 from src.constants import Columns
-from .utilities import (
-    length_chat,
-    count_words,
-    avg_word_length,
-    list_of_all_emojis,
-    list_of_connected_emojis,
-    count_punctuations,
-    has_punctuation,
-    list_of_all_punctuations,
-    list_of_connected_punctuations,
-    ends_with_emoji,
-    emoji_ending_chat,
-    ends_with_punctuation,
-    punctuation_ending_chat,
-    starts_with_emoji,
-    emoji_starting_chat,
-    has_question_mark,
-    ends_with_question_mark,
-    count_capitals,
-    has_capitals,
-    list_of_connected_capitals,
-    starts_with_capital,
-    capitalized_words_ratio,
-    count_number_characters,
-    has_number_characters,
-    count_numbers,
-)
+
+
+# === Global Constants ===
+BROAD_PUNCTUATION = "".join(set(string.punctuation) - {"@", "&"})
+
+
+# === Shared Emoji Pattern ===
+EMOJI_PATTERN = re.compile(
+    r'[\U0001F600-\U0001F64F'   # emoticons
+    r'\U0001F300-\U0001F5FF'    # symbols & pictographs
+    r'\U0001F680-\U0001F6FF'    # transport & map
+    r'\U0001F1E0-\U0001F1FF'    # flags
+    r'\U0001F900-\U0001FAFF'    # supplemental
+    r'\U00002600-\U000026FF'    # misc symbols
+    r'\U00002700-\U000027BF'    # dingbats
+    r'\u200D\uFE0F?\uFE0F?'     # joiners + variation selectors
+    r']+', re.UNICODE)
+
+
+# === Reusable Sub-Functions ===
+def tokenize_text(text: str) -> List[str]:
+    """Extract non-whitespace tokens (handles punctuation-attached content)."""
+    return re.findall(r'\S+', str(text))
+
+
+def extract_emoji_groups(text: str) -> int:
+    """Count emoji sequences in text (each sequence = 1 word)."""
+    return len(EMOJI_PATTERN.findall(text))
+
+
+def extract_text_words(token: str) -> List[str]:
+    """Extract all words from token after removing emojis."""
+    remaining = EMOJI_PATTERN.sub('', token)
+    words = re.findall(r'\w+', remaining.lower())
+    return words
+
+
+# === Core Utilities ===
+def length_chat(text: str | None) -> int:
+    """Return character length of cleaned message."""
+    return len(str(text)) if pd.notna(text) else 0
+
+
+def list_of_all_emojis(text: str, ignore_emojis: Set[str]) -> List[str]:
+    """Extract all individual emojis."""
+    if not isinstance(text, str):
+        return []
+    return [c for c in text if EMOJI_PATTERN.fullmatch(c) and c not in ignore_emojis]
+
+
+def list_of_connected_emojis(text: str, pattern: re.Pattern) -> List[str]:
+    """Find sequences of 2+ connected emojis."""
+    if not isinstance(text, str):
+        return []
+    return pattern.findall(text)
+
+
+def ends_with_emoji(text: str, ignore_emojis: Set[str]) -> bool:
+    """Check if message ends with emoji (after punctuation)."""
+    if not isinstance(text, str) or not text:
+        return False
+    match = re.search(r'\S+$', text)
+    return bool(match and EMOJI_PATTERN.search(match.group(0)))
+
+
+def emoji_ending_chat(text: str, ignore_emojis: Set[str]) -> str:
+    """Return the last emoji."""
+    if not isinstance(text, str) or not text:
+        return ""
+    matches = EMOJI_PATTERN.findall(text)
+    return matches[-1] if matches else ""
+
+
+def count_punctuations(text: str, pattern: re.Pattern) -> int:
+    """Count standalone punctuation."""
+    if not isinstance(text, str):
+        return 0
+    return len(pattern.findall(text))
+
+
+def has_punctuation(text: str, pattern: re.Pattern) -> bool:
+    return count_punctuations(text, pattern) > 0
+
+
+def list_of_all_punctuations(text: str, pattern: re.Pattern) -> List[str]:
+    if not isinstance(text, str):
+        return []
+    return pattern.findall(text)
+
+
+def list_of_connected_punctuations(text: str, pattern: re.Pattern) -> List[str]:
+    if not isinstance(text, str):
+        return []
+    return pattern.findall(text)
+
+
+def ends_with_punctuation(text: str, pattern: re.Pattern) -> bool:
+    if not isinstance(text, str) or not text:
+        return False
+    return bool(pattern.search(text.rstrip()))
+
+
+def punctuation_ending_chat(text: str, pattern: re.Pattern) -> str:
+    if not isinstance(text, str) or not text:
+        return ""
+    matches = pattern.findall(text)
+    return matches[-1] if matches else ""
+
+
+# === Text Analysis ===
+def count_words(text: str) -> int:
+    """Count all words + emoji groups."""
+    if not text or pd.isna(text):
+        return 0
+    text = str(text)
+    emoji_groups = extract_emoji_groups(text)
+    tokens = tokenize_text(text)
+    text_word_count = 0
+    for token in tokens:
+        if EMOJI_PATTERN.search(token):
+            text_word_count += len(extract_text_words(token))
+        else:
+            clean = re.sub(r'[^\w]', '', token.lower())
+            if clean:
+                text_word_count += 1
+    return text_word_count + emoji_groups
+
+
+def avg_word_length(text: str) -> float:
+    """Average word length — counts all words."""
+    if not text or pd.isna(text):
+        return 0.0
+    text = str(text)
+    emoji_groups = extract_emoji_groups(text)
+    tokens = tokenize_text(text)
+    total_length = 0.0
+    counted_words = 0
+    for token in tokens:
+        if EMOJI_PATTERN.search(token):
+            words = extract_text_words(token)
+            for w in words:
+                total_length += len(w)
+                counted_words += 1
+            token_emojis = len(EMOJI_PATTERN.findall(token))
+            total_length += 4 * token_emojis
+            counted_words += token_emojis
+        else:
+            clean = re.sub(r'[^\w]', '', token.lower())
+            if clean:
+                total_length += len(clean)
+                counted_words += 1
+    if counted_words == 0 and emoji_groups > 0:
+        return 4.0
+    return total_length / counted_words if counted_words > 0 else 0.0
+
+
+def starts_with_emoji(text: str) -> bool:
+    """Check if first non-whitespace token contains an emoji."""
+    if not text or pd.isna(text):
+        return False
+    match = re.search(r'\S+', str(text))
+    return bool(match and EMOJI_PATTERN.search(match.group(0)))
+
+
+def emoji_starting_chat(text: str) -> bool:
+    """Check if message starts with emoji after removing leading punctuation."""
+    if not text or pd.isna(text):
+        return False
+    text = str(text)
+    stripped = re.sub(r'^[^\w\s]+', '', text).lstrip()
+    return bool(stripped and EMOJI_PATTERN.match(stripped))
+
+
+# === Capitalization & Numbers ===
+def count_capitals(text: str) -> int:
+    return sum(1 for c in text if c.isupper()) if isinstance(text, str) else 0
+
+
+def has_capitals(text: str) -> bool:
+    return isinstance(text, str) and any(c.isupper() for c in text)
+
+
+def list_of_connected_capitals(text: str) -> List[str]:
+    if not isinstance(text, str):
+        return []
+    return re.findall(r"\b[A-Z]{2,}\b", text)
+
+
+def starts_with_capital(text: str) -> bool:
+    if not isinstance(text, str) or not text:
+        return False
+    return text[0].isupper()
+
+
+def capitalized_words_ratio(text: str) -> float:
+    if not isinstance(text, str):
+        return 0.0
+    try:
+        import nltk
+        words = nltk.word_tokenize(text)
+    except:
+        words = text.split()
+    caps = [w for w in words if w and w[0].isupper()]
+    return len(caps) / len(words) if words else 0.0
+
+
+def count_number_characters(text: str) -> int:
+    return sum(1 for c in text if c.isdigit()) if isinstance(text, str) else 0
+
+
+def has_number_characters(text: str) -> bool:
+    return isinstance(text, str) and any(c.isdigit() for c in text)
+
+
+def count_numbers(text: str) -> int:
+    if not isinstance(text, str):
+        return 0
+    pattern = re.compile(r"(?:[\$€£¥]\s*)?\d+(?:[.,]\d+)*(?:%\s?)?[.,=]*", re.VERBOSE)
+    return len([m for m in pattern.finditer(text) if re.search(r"\d", m.group(0))])
+
+
+def has_question_mark(text: str) -> bool:
+    return isinstance(text, str) and "?" in text
+
+
+def ends_with_question_mark(text: str) -> bool:
+    return isinstance(text, str) and text and text[-1] == "?"
 
 
 # === Main Feature Engineer ===
@@ -171,7 +373,6 @@ class FeatureEngineer:
 
         daily_total = df.groupby(date).size()
         daily_author = df.groupby([date, Columns.AUTHOR]).size()
-        # pct = (daily_author / daily_total.reindex(daily_author.index.get_level_values(0))) * 100
         pct = daily_author.div(daily_total, level=0) * 100
         df[Columns.X_DAY_PCT_MESSAGES_OF_AUTHOR] = pct.reindex(
             df.set_index([date, Columns.AUTHOR]).index
@@ -183,23 +384,22 @@ class FeatureEngineer:
         return df
 
     # === Step 6: Text Features ===
-    def add_text_features(self, df: pd.DataFrame, stopwords: set) -> pd.DataFrame:
+    def add_text_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Add word count, capitalization, numbers, and question marks.
 
         Args:
             df: DataFrame with ``MESSAGE_CLEANED``.
-            stopwords: Set of Dutch stopwords.
 
         Returns:
             pd.DataFrame: With text feature columns.
         """
         msg = df[Columns.MESSAGE_CLEANED]
 
-        df[Columns.NUMBER_OF_WORDS] = msg.apply(count_words, stopwords=stopwords)
-        df[Columns.AVG_WORD_LENGTH] = msg.apply(avg_word_length, stopwords=stopwords)
+        df[Columns.NUMBER_OF_WORDS] = msg.apply(count_words)
+        df[Columns.AVG_WORD_LENGTH] = msg.apply(avg_word_length)
 
-        df[Columns.STARTS_WITH_EMOJI] = msg.apply(starts_with_emoji, ignore_emojis=set())
-        df[Columns.EMOJI_STARTING_CHAT] = msg.apply(emoji_starting_chat, ignore_emojis=set())
+        df[Columns.STARTS_WITH_EMOJI] = msg.apply(starts_with_emoji)
+        df[Columns.EMOJI_STARTING_CHAT] = msg.apply(emoji_starting_chat)
 
         df[Columns.HAS_QUESTION_MARK] = msg.apply(has_question_mark)
         df[Columns.ENDS_WITH_QUESTION_MARK] = msg.apply(ends_with_question_mark)
@@ -227,12 +427,12 @@ class FeatureEngineer:
 
     # === Step 7: Active Years & Early Leaver ===
     def add_active_years_and_leaver(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add active years and early leaver flag, then drop early leavers."""
         if Columns.TIMESTAMP not in df.columns or Columns.AUTHOR not in df.columns:
             df[Columns.ACTIVE_YEARS] = 0
             df[Columns.EARLY_LEAVER] = False
             return df
 
-        # Use pre-computed YEAR column
         year_stats = df.groupby(Columns.AUTHOR)[Columns.YEAR].agg(['min', 'max'])
         active_years = (year_stats['max'] - year_stats['min'] + 1).astype(int)
         df[Columns.ACTIVE_YEARS] = df[Columns.AUTHOR].map(active_years).fillna(0).astype(int)
@@ -250,7 +450,7 @@ class FeatureEngineer:
         df: pd.DataFrame,
         ignore_emojis: set,
         patterns: dict,
-        stopwords: set,
+        stopwords: set = None,
     ) -> pd.DataFrame:
         """Run all feature engineering steps.
 
@@ -258,7 +458,7 @@ class FeatureEngineer:
             df: Cleaned DataFrame from ``MessageCleaner``.
             ignore_emojis: Set of emoji codes to ignore.
             patterns: Dict with pre-compiled regexes.
-            stopwords: Set of Dutch stopwords.
+            stopwords: Set of Dutch stopwords (unused).
 
         Returns:
             pd.DataFrame: Fully enriched DataFrame.
@@ -267,7 +467,7 @@ class FeatureEngineer:
         df = self.add_core_style(df)
         df = self.add_emoji_punct_features(df, ignore_emojis, patterns)
         df = self.add_daily_percentages(df)
-        df = self.add_text_features(df, stopwords)
+        df = self.add_text_features(df)
         df = self.add_active_years_and_leaver(df)
         return df
 
@@ -284,8 +484,8 @@ class FeatureEngineer:
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Created features.py with FeatureEngineer class (2025-11-03)
-# NEW: All features grouped by pipeline step (2025-11-03)
-# NEW: add_all_features orchestrates full enrichment (2025-11-03)
-# NEW: Strict 1-blank-line rule enforced (2025-11-03)
-# NEW: Full Google-style docstrings (2025-11-03)
+# NEW: Removed all stopword filtering from count_words and avg_word_length (2025-11-06)
+# NEW: Stopwords param now unused and optional (2025-11-06)
+# NEW: Counts all words including fillers like "ik", "het", "the", "and" (2025-11-06)
+# NEW: No NLTK dependency in core functions (2025-11-06)
+# NEW: Full consistency with no zeros for short messages (2025-11-06)
