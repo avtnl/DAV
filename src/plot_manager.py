@@ -20,6 +20,7 @@ import warnings
 import itertools
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.lines
 import matplotlib.patches as patches
 import seaborn as sns
 import pandas as pd
@@ -135,22 +136,34 @@ class ArcPlotSettings(PlotSettings):
     title_template: str = "Author Interactions in {group}"
 
 
-# === 5. Bubble Plot Settings (Script5) ===
 class BubblePlotSettings(PlotSettings):
+    title: str = "Correlation between avg Words and avg Punctuations"
+    subtitle: str = "About 1 extra Punctuation per 10 words"
     bubble_alpha: float = 0.6
     min_bubble_size: int = 50
     max_bubble_size: int = 1000
-    trendline_color: str = "black"
+    trendline_color: str = "red"
+    trendline_style: str = "--"
+    trendline_width: float = 2.5
     trendline_alpha: float = 0.5
-    legend_scale_factor: float = 0.3
+    legend_scale_factor: float = 1.0
     group_colors: dict[str, str] = Field(
         default_factory=lambda: {
-            Groups.MAAP: "blue",
+            Groups.MAAP: "deepskyblue",
             Groups.GOLFMATEN: "orange",
             Groups.DAC: "green",
             Groups.TILLIES: "gray",
         }
     )
+    title_fontsize: int = 24
+    title_fontweight: str = "bold"
+    title_pad: float = 40
+    title_ha: str = "center"
+
+    subtitle_fontsize: int = 18
+    subtitle_fontweight: str = "bold"
+    subtitle_color: str = "dimgray"
+    subtitle_ha: str = "center"
 
 
 # === Plot Manager Class ===
@@ -349,7 +362,7 @@ class PlotManager:
             ax.set_xlabel("WhatsApp Groups and participating Authors", fontsize=12)
 
             ax.set_xticks(x_pos)
-            ax.set_xticklabels(author_labels, rotation=45, ha="right", fontsize=10)
+            ax.set_xticklabels(author_labels, rotation=45, ha="right", fontsize=12)
 
             # Build legend
             legend_patches = [
@@ -481,7 +494,7 @@ class PlotManager:
             # X-axis
             key_dates = {11: "March 15th", 18: "May 1st", 36: "September 1st"}
             ax.set_xticks(sorted(key_dates.keys()))
-            ax.set_xticklabels([key_dates[w] for w in sorted(key_dates)], fontsize=10, ha="center")
+            ax.set_xticklabels([key_dates[w] for w in sorted(key_dates)], fontsize=12, ha="center")
             ax.set_xlabel("Time over Year", fontsize=12, labelpad=10)
 
             # Title and subtitle
@@ -809,6 +822,7 @@ class PlotManager:
             logger.exception(f"Arc diagram failed: {e}")
             return None
 
+
     # === 5. Bubble (Script5) ===
     def build_visual_relationships_bubble(
         self,
@@ -826,6 +840,10 @@ class PlotManager:
             matplotlib Figure or None
         """
         try:
+            # Figure setup aligned with Categories
+            fig, ax = plt.subplots(figsize=(14, 6.5))  # Shorter canvas
+            plt.subplots_adjust(top=0.85)  # Axes end earlier → more room above
+
             df = data.feature_df
             required = {
                 Columns.WHATSAPP_GROUP.value,
@@ -838,7 +856,6 @@ class PlotManager:
                 logger.error("Bubble plot missing required columns")
                 return None
 
-            fig, ax = plt.subplots(figsize=settings.figsize)
             msg = df[Columns.MESSAGE_COUNT.value]
             size_scale = (msg - msg.min()) / (msg.max() - msg.min()) if msg.max() != msg.min() else 1.0
             bubble_sizes = (settings.min_bubble_size + (settings.max_bubble_size - settings.min_bubble_size) * size_scale) * 3
@@ -857,22 +874,73 @@ class PlotManager:
                     label=grp.value,
                 )
 
-            x = df[Columns.AVG_WORDS.value]
-            y = df[Columns.AVG_PUNCT.value]
+            x = df[Columns.AVG_WORDS.value].values  # Convert to numpy for sorting
+            y = df[Columns.AVG_PUNCT.value].values
             coef = np.polyfit(x, y, 1)
             trend = np.poly1d(coef)
-            ax.plot(x, trend(x), color=settings.trendline_color, alpha=settings.trendline_alpha)
 
-            ax.set_title(settings.title or f"{Columns.AVG_WORDS.human} vs {Columns.AVG_PUNCT.human}")
-            ax.set_xlabel(settings.xlabel or Columns.AVG_WORDS.human)
-            ax.set_ylabel(settings.ylabel or Columns.AVG_PUNCT.human)
+            # Sort x for smooth straight line plot
+            sort_idx = np.argsort(x)
+            x_sorted = x[sort_idx]
+            y_trend = trend(x_sorted)
+            ax.plot(
+                x_sorted, y_trend,
+                color=settings.trendline_color,
+                linestyle=settings.trendline_style,
+                linewidth=settings.trendline_width,
+                alpha=settings.trendline_alpha,
+                label="Linear Trend"  # Add label for legend
+            )
 
+            # Title
+            ax.set_title(
+                settings.title,
+                fontsize=settings.title_fontsize,
+                fontweight=settings.title_fontweight,
+                pad=settings.title_pad,
+                ha=settings.title_ha,
+            )
+
+            if settings.subtitle:
+                fig.text(
+                    x=0.5,
+                    y=0.92,
+                    s=settings.subtitle,
+                    fontsize=settings.subtitle_fontsize,
+                    fontweight=settings.subtitle_fontweight,
+                    color=settings.subtitle_color,
+                    ha=settings.subtitle_ha,
+                    va="top",
+                    transform=fig.transFigure
+                )
+
+            ax.set_xlabel(settings.xlabel or Columns.AVG_WORDS.human, fontsize=12)
+            ax.set_ylabel(settings.ylabel or Columns.AVG_PUNCT.human, fontsize=12)
+
+            # Legend handles for groups
             legend_handles = [
                 plt.scatter([], [], s=settings.min_bubble_size * settings.legend_scale_factor,
                             c=col, alpha=settings.bubble_alpha, label=grp.value)
                 for grp, col in settings.group_colors.items()
             ]
-            ax.legend(handles=legend_handles, title="WhatsApp Group", bbox_to_anchor=(1.05, 1), loc="upper left")
+
+            # Add trendline to legend (will be at bottom since appended last)
+            trend_patch = matplotlib.lines.Line2D(
+                [0], [0],
+                color=settings.trendline_color,
+                linestyle=settings.trendline_style,
+                linewidth=settings.trendline_width,
+                label="Linear Trend"
+            )
+            legend_handles.append(trend_patch)
+
+            ax.legend(
+                handles=legend_handles,
+                title="WhatsApp Group",
+                title_fontsize=12,
+                bbox_to_anchor=(1.05, 1),
+                loc="upper left"
+            )
             ax.grid(True, linestyle="--", alpha=0.7)
             plt.tight_layout()
             plt.show()
