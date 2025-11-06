@@ -167,7 +167,7 @@ class DataEditor:
             pd.DataFrame | None: Fully enriched DataFrame or None on failure.
         """
         try:
-            # === 0. Clean messages ===
+            # === Clean messages ===
             df = self.cleaner.clean_messages(df)
             if df is None:
                 return None
@@ -175,7 +175,15 @@ class DataEditor:
             # === 1. Replace author names with initials ===
             df = self.replace_author_by_initials(df)
 
-            # === 2–7. Add all features ===
+            # === Strip leading tilde ===
+            tilde_nbsp_pattern = re.compile(r"^~\u202f")
+            author_cols = [Columns.AUTHOR, Columns.PREVIOUS_AUTHOR, Columns.NEXT_AUTHOR]
+            for col in author_cols:
+                if col in df.columns:
+                    df[col] = df[col].astype(str).str.replace(tilde_nbsp_pattern, "", regex=True)
+            logger.info("Removed leading '~ ' from author columns")
+
+            # === Add all features ===
             df = self.engineer.add_all_features(
                 df=df,
                 ignore_emojis=self.ignore_emojis,

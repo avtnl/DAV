@@ -997,7 +997,35 @@ class PlotManager:
                 hex_color = hex_color.lstrip('#')
                 return f"rgba({int(hex_color[0:2],16)}, {int(hex_color[2:4],16)}, {int(hex_color[4:6],16)}, {alpha})"
 
+            # === AUTHOR-SPECIFIC COLORS (per_group == False) ===
+            author_colors = {
+                "RH": "#FFA500",   # Standard Orange
+                "MK": "#FF8C00",   # Dark Orange
+                "HB": "#FFFF00",   # Pastel Yellow
+                "AB": "#00008B",   # Dark Blue
+                "PB": "#00BFFF",   # Deep Sky Blue
+                "M": "#ADD8E6",    # Light Blue
+                "LL": "#ADFF2F",   # Green Yellow
+                "HH": "#228B22",   # Forest Green
+                "HvH": "#ADFF2F",  # Yellow Green
+                "ND": "#006400",   # Dark Green
+                "Bo": "#EE82EE",   # Violet
+                "Lars": "#800080", # Pure Purple
+                "Mats": "#9370DB", # Medium Purple
+                "JC": "#2F4F4F",   # Dark Slate Gray
+                "EH": "#A9A9A9",   # Dark Gray
+                "FJ": "#D3D3D3",   # Light Gray
+                "AvT": "#FF0000",  # Pure Red
+            }
+
             if not settings.by_group:
+                # Build color map: known authors → custom color, others → black
+                unique_authors = data.agg_df[Columns.AUTHOR.value].unique()
+                color_discrete_map = {
+                    author: author_colors.get(author, "black")
+                    for author in unique_authors
+                }
+
                 fig = px.scatter(
                     data.agg_df,
                     x="tsne_x", y="tsne_y",
@@ -1005,10 +1033,11 @@ class PlotManager:
                     color=Columns.AUTHOR.value,
                     hover_data={"msg_count": True},
                     title="Linguistic Style Clusters (t-SNE) – Per Author",
+                    color_discrete_map=color_discrete_map,
                 )
 
                 if settings.draw_ellipses:
-                    for author in data.agg_df[Columns.AUTHOR.value].unique():
+                    for author in unique_authors:
                         sub = data.agg_df[data.agg_df[Columns.AUTHOR.value] == author]
                         if len(sub) < 2:
                             continue
@@ -1021,9 +1050,7 @@ class PlotManager:
                         width, height = 2 * lambda_[0] * chi, 2 * lambda_[1] * chi
                         angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
 
-                        trace_names = [d.name for d in fig.data]
-                        color = fig.data[trace_names.index(author)].marker.color if author in trace_names else "#1f77b4"
-
+                        color = color_discrete_map.get(author, "black")
                         ell_x, ell_y = get_ellipse_points(mean_x, mean_y, width, height, angle)
                         fig.add_trace(go.Scatter(
                             x=ell_x, y=ell_y, mode="lines", fill="toself",
