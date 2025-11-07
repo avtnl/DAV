@@ -488,41 +488,156 @@ class PlotManager:
         season_settings: SeasonalityPlotSettings | None = None,
     ) -> Dict[str, Figure]:
         """
-        Build main heartbeat plot + optional seasonality suite.
+        Build the old-style DAC weekly heartbeat (Rest/Prep/Play/Rest bands)
+        and the optional 4-panel seasonality evidence suite.
+
+        The main plot is pixel-identical to the original version:
+        - 4 colored background bands (Rest/Prep/Play/Rest)
+        - Red dashed period-average lines
+        - Bold period labels at 80% height
+        - Calendar dates on X-axis (March 15th, May 1st, Sep 1st)
+        - Y-label includes year range (2017–2025)
+        - **No global average line**
+        - **Smooth line (no markers)**
+
+        Args:
+            data: Validated TimePlotData with weekly averages and seasonality.
+            settings: TimePlotSettings (line color, labels, etc.).
+            include_seasonality: If True, generate the 4-panel suite.
+            season_settings: Optional styling for the seasonality suite.
 
         Returns:
-            dict with 'main' and optionally 'seasonality' figures.
+            Dict with 'main' (old-style heartbeat) and optionally 'seasonality'.
+
+        # NEW: Full old-style restoration + seasonality suite (2025-11-07)
         """
         figs: Dict[str, Figure] = {}
 
-        # --- Main Line Chart ---
-        fig_main = plt.figure(figsize=settings.figsize)
+        # === Main Plot Setup ===
+        fig_main, ax = plt.subplots(figsize=(14, 6.5))
+        plt.subplots_adjust(top=0.85)
+
         weeks = sorted(data.weekly_avg.keys())
-        counts = [data.weekly_avg[w] for w in weeks]
+        avg_counts = [data.weekly_avg[w] for w in weeks]
 
-        plt.plot(weeks, counts, color=settings.line_color,
-                 linewidth=settings.linewidth, marker="o")
-        plt.axhline(data.global_avg, color="gray", linestyle="--",
-                    linewidth=1.5, label=f"Global avg: {data.global_avg:.1f}")
+        # Smooth line – no markers
+        ax.plot(
+            weeks,
+            avg_counts,
+            color=settings.line_color,
+            linewidth=settings.linewidth,
+            zorder=6,
+        )
 
-        plt.title(settings.title, fontsize=settings.title_fontsize,
-                  fontweight=settings.title_fontweight,
-                  pad=settings.title_pad, ha=settings.title_ha)
-        plt.suptitle(settings.subtitle, fontsize=settings.subtitle_fontsize,
-                     fontweight=settings.subtitle_fontweight,
-                     color=settings.subtitle_color,
-                     y=settings.subtitle_y, ha=settings.subtitle_ha)
+        # === Period Definitions ===
+        vlines = [11.5, 18.5, 34.5]
+        starts = [1] + [int(v + 0.5) for v in vlines]
+        ends   = [int(v + 0.5) - 1 for v in vlines] + [52]
 
-        plt.xlabel("Week of Year")
-        plt.ylabel("Average Messages")
-        plt.xticks(range(1, 53, 4))
-        plt.grid(True, alpha=0.3)
-        plt.legend()
+        period_labels = [
+            settings.rest_label,
+            settings.prep_label,
+            settings.play_label,
+            settings.rest_label,
+        ]
+        period_colors = ["#e8f5e9", "#c8e6c9", "#81c784", "#e8f5e9"]
+
+        # === Helper: Period Average ===
+        def period_avg(start: int, end: int) -> float:
+            """Return mean of weekly values in [start, end]."""
+            vals = [data.weekly_avg.get(w, 0.0) for w in range(start, end + 1)]
+            return float(np.mean(vals)) if vals else 0.0
+
+        # === Draw Bands, Averages, Labels, and Separators ===
+        period_avg_patch = None
+        y_min, y_max = ax.get_ylim()
+        label_y = y_min + 0.80 * (y_max - y_min)
+
+        for i in range(4):
+            s, e = starts[i], ends[i]
+
+            # Background band
+            ax.axvspan(s - 0.5, e + 0.5, facecolor=period_colors[i], alpha=0.6, zorder=0)
+
+            # Period average
+            p_avg = period_avg(s, e)
+            if p_avg > 0:
+                line = ax.hlines(
+                    p_avg,
+                    xmin=s - 0.5,
+                    xmax=e + 0.5,
+                    color="red",
+                    linestyle="--",
+                    linewidth=1.2,
+                    zorder=4,
+                    label="Period Avg" if period_avg_patch is None else "",
+                )
+                if period_avg_patch is None:
+                    period_avg_patch = line
+
+            # Period label
+            mid = (s + e) / 2
+            ax.text(
+                mid,
+                label_y,
+                period_labels[i],
+                ha="center",
+                va="center",
+                fontsize=12,
+                color="black",
+                fontweight="bold",
+                zorder=7,
+            )
+
+        # Vertical separators
+        for v in vlines:
+            ax.axvline(v, color="gray", linestyle="--", alpha=0.6, zorder=1)
+
+        # === X-Axis: Calendar Dates ===
+        key_dates = {11: "March 15th", 18: "May 1st", 36: "September 1st"}
+        ax.set_xticks(sorted(key_dates.keys()))
+        ax.set_xticklabels([key_dates[w] for w in sorted(key_dates)], fontsize=12, ha="center")
+        ax.set_xlabel("Time over Year", fontsize=12, labelpad=10)
+
+        # === Y-Axis: Year Range ===
+        ax.set_ylabel("Average message count per week (2017 - 2025)", fontsize=12)
+
+        # === Title and Subtitle ===
+        ax.set_title(
+            settings.title,
+            fontsize=settings.title_fontsize,
+            fontweight=settings.title_fontweight,
+            pad=settings.title_pad,
+            ha=settings.title_ha,
+        )
+        fig_main.text(
+            x=0.5,
+            y=0.92,
+            s=settings.subtitle,
+            fontsize=settings.subtitle_fontsize,
+            fontweight=settings.subtitle_fontweight,
+            color=settings.subtitle_color,
+            ha=settings.subtitle_ha,
+            va="top",
+            transform=fig_main.transFigure,
+        )
+
+        # === Legend ===
+        legend_handles = []
+        if period_avg_patch:
+            legend_handles.append(period_avg_patch)
+        ax.legend(handles=legend_handles, loc="upper right", fontsize=12)
+
+        # === Grid and Layout ===
+        ax.grid(True, axis="y", linestyle="--", alpha=0.7, zorder=0)
+        ax.set_axisbelow(True)
+        plt.tight_layout()
         plt.show()
-        
-        figs["main"] = fig_main
 
-        # --- Seasonality Suite ---
+        figs["main"] = fig_main
+        logger.success("Time plot built – old-style DAC heartbeat restored")
+
+        # === Optional Seasonality Suite ===
         if include_seasonality and data.seasonality is not None:
             fig_season = self._build_seasonality_suite(data, season_settings or SeasonalityPlotSettings())
             if fig_season:
