@@ -155,8 +155,8 @@ class ArcPlotSettings(PlotSettings):
 
 # === 5. Bubble Plot Settings (Script5) ===
 class BubblePlotSettings(PlotSettings):
-    title: str = "Correlation between avg Words and avg Punctuations"
-    subtitle: str = "About 1 extra Punctuation per 10 words"
+    title: str = "Correlation between averages of Words and Punctuations"
+    subtitle: str = "About 1 extra punctuation per 10 words"
     bubble_alpha: float = 0.6
     min_bubble_size: int = 50
     max_bubble_size: int = 1000

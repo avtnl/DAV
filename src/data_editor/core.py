@@ -170,9 +170,6 @@ class DataEditor:
             if df is None:
                 return None
 
-            # === 1. Replace author names with initials ===
-            df = self.replace_author_by_initials(df)
-
             # === Strip leading tilde ===
             tilde_nbsp_pattern = re.compile(r"^~\u202f")
             author_cols = [Columns.AUTHOR, Columns.PREVIOUS_AUTHOR, Columns.NEXT_AUTHOR]
@@ -180,6 +177,9 @@ class DataEditor:
                 if col in df.columns:
                     df[col] = df[col].astype(str).str.replace(tilde_nbsp_pattern, "", regex=True)
             logger.info("Removed leading '~ ' from author columns")
+
+            # === Replace author names with initials ===
+            df = self.replace_author_by_initials(df)
 
             # === Add all features ===
             df = self.engineer.add_all_features(
