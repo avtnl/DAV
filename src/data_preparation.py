@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Literal, Dict
+from typing import TYPE_CHECKING, Literal, Dict, Optional
 
 import ast
 import pandas as pd
@@ -92,6 +92,7 @@ class TimePlotData(BaseModel):
     weekly_avg: Dict[int, float]
     global_avg: float
     date_range: tuple[datetime, datetime]
+    seasonality: Optional["SeasonalityEvidence"] = None  # Forward ref
 
     @validator("weekly_avg")
     def validate_week_keys(cls, v):
@@ -102,6 +103,28 @@ class TimePlotData(BaseModel):
 
     class Config:
         arbitrary_types_allowed = False
+        extra = "forbid"
+
+
+class SeasonalityEvidence(BaseModel):
+    """All statistical proof that the weekly series is seasonal + low-noise."""
+    acf: list[float] = Field(..., description="ACF values (lags 0 to max)")
+    decomposition: Dict[str, list[float]] = Field(
+        ..., description="trend, seasonal, resid as lists (length = full series)"
+    )
+    fourier: Dict[str, list[float]] = Field(
+        ..., description="freqs, amps, phases as lists for the k strongest components"
+    )
+    filtered: Dict[str, list[float]] = Field(
+        ..., description="savitzky_golay, butterworth_lowpass as lists (length = full series)"
+    )
+    residual_std: float = Field(..., description="Std-dev of decomposition residuals (nanstd)")
+    dominant_period_weeks: int = Field(
+        ..., description="Period of the strongest non-zero Fourier component (rounded)"
+    )
+    raw_series: list[float] = Field(..., description="Full chronological weekly counts")
+
+    class Config:
         extra = "forbid"
 
 
@@ -393,65 +416,118 @@ class DataPreparation(BaseHandler):
             return None
 
 
-    # === 2. Time (Script2) ===
-    def build_visual_time(self, df: pd.DataFrame) -> TimePlotData | None:
-        """
-        Build weekly message average for DAC group.
+    # === Build Functions (Script2) ===
+    def build_visual_time(
+        self,
+        df: pd.DataFrame,
+        compute_seasonality: bool = False,
+    ) -> TimePlotData:
+        """Build TimePlotData for DAC weekly averages, optionally with seasonality evidence."""
+        df_dac = df[df[Columns.WHATSAPP_GROUP.value] == Groups.DAC.value]
+        if df_dac.empty:
+            raise ValueError("No DAC data")
 
-        Args:
-            df: Input DataFrame.
+        df_dac = df_dac.copy()
+        df_dac["week"] = df_dac[Columns.TIMESTAMP.value].dt.isocalendar().week
+        weekly_counts = df_dac.groupby("week").size()
+        weekly_avg = {week: weekly_counts.get(week, 0.0) for week in WEEKS_IN_YEAR}
+        global_avg = sum(weekly_avg.values()) / len(weekly_avg)
 
-        Returns:
-            TimePlotData with weekly averages or None.
+        date_range = (
+            df_dac[Columns.TIMESTAMP.value].min(),
+            df_dac[Columns.TIMESTAMP.value].max(),
+        )
 
-        Raises:
-            Exception: If processing fails (logged).
-        """
-        df = self._handle_empty_df(df, "build_visual_time")
-        if df.empty:
-            return None
+        data = TimePlotData(
+            weekly_avg=weekly_avg,
+            global_avg=global_avg,
+            date_range=date_range,
+        )
 
-        try:
-            df_dac = df[df[Columns.WHATSAPP_GROUP] == Groups.DAC].copy()
-            if df_dac.empty:
-                logger.warning(f"No messages for group '{Groups.DAC.value}'. Skipping.")
-                return None
+        if compute_seasonality:
+            data.seasonality = self._compute_seasonality_evidence(df_dac)
 
-            week_col = Columns.WEEK.value
-            if week_col not in df_dac.columns:
-                logger.error(f"Missing required column '{week_col}' in DAC DataFrame.")
-                return None
+        return data
 
-            # Weekly message count per author
-            weekly_counts = df_dac.groupby(week_col).size()
+    def _weekly_series(self, df_dac: pd.DataFrame) -> pd.Series:
+        """Return a complete weekly count series (weeks 1–52 for every year)."""
+        df = df_dac.copy()
+        df["year"] = df[Columns.TIMESTAMP.value].dt.year
+        df["week"] = df[Columns.TIMESTAMP.value].dt.isocalendar().week
 
-            # Number of unique authors per week
-            authors_per_week = df_dac.groupby(week_col)[Columns.AUTHOR.value].nunique()
+        years = df["year"].unique()
+        idx = pd.MultiIndex.from_product([years, range(1, 53)], names=["year", "week"])
+        full = pd.DataFrame(index=idx).reset_index()
 
-            # Average messages per author per week (rounded to 1 decimal)
-            weekly_avg = (weekly_counts / authors_per_week).round(1)
+        cnt = df.groupby(["year", "week"]).size().reset_index(name="count")
+        cnt = full.merge(cnt, on=["year", "week"], how="left").fillna({"count": 0})
+        return pd.Series(cnt["count"].values, name="weekly_count")
 
-            # Fill missing weeks (1–52) with 0.0
-            weekly_avg = weekly_avg.reindex(WEEKS_IN_YEAR, fill_value=0.0)
+    def _compute_seasonality_evidence(
+        self,
+        df_dac: pd.DataFrame,
+        k_fourier: int = 3,
+        savgol_window: int = 7,
+        butter_order: int = 3,
+        butter_cutoff_year: float = 1.0,
+    ) -> SeasonalityEvidence:
+        from statsmodels.tsa.stattools import acf
+        from statsmodels.tsa.seasonal import seasonal_decompose
+        from numpy.fft import fft, fftfreq
+        from scipy.signal import butter, filtfilt, savgol_filter
 
-            data = TimePlotData(
-                weekly_avg=weekly_avg.to_dict(),
-                global_avg=float(weekly_avg.mean()),
-                date_range=(
-                    df_dac[Columns.TIMESTAMP].min(),
-                    df_dac[Columns.TIMESTAMP].max(),
-                ),
-            )
+        series = self._weekly_series(df_dac)
+        y = series.values.astype(float)
+        n = len(y)
 
-            logger.success(
-                f"TimePlotData built - {len(weekly_avg)} weeks, "
-                f"global avg {data.global_avg:.1f}"
-            )
-            return data
+        acf_vals = acf(y, nlags=min(52, n // 2), fft=True)
+        acf_list = acf_vals.tolist()
 
-        except Exception as e:
-            logger.exception(f"build_visual_time failed: {e}")
-            return None
+        start = pd.to_datetime(f"{df_dac[Columns.TIMESTAMP.value].dt.year.min()}-01-01")
+        idx = pd.date_range(start, periods=n, freq="W-MON")
+        ts = pd.Series(y +0.1, index=idx)
+        decomp = seasonal_decompose(ts, model="multiplicative", period=52)
+        decomp_dict = {
+            "trend": decomp.trend.values.tolist(),
+            "seasonal": decomp.seasonal.values.tolist(),
+            "resid": decomp.resid.values.tolist(),
+        }
+
+        yf = fft(y)
+        freqs = fftfreq(n, d=1.0)[: n // 2]
+        amps = 2.0 / n * np.abs(yf[: n // 2])
+        phases = np.angle(yf[: n // 2]) + np.pi / 2
+
+        top_idx = np.argsort(amps)[-k_fourier:]
+        fourier_dict = {
+            "freqs": freqs[top_idx].tolist(),
+            "amps": amps[top_idx].tolist(),
+            "phases": phases[top_idx].tolist(),
+        }
+        non_zero_idx = top_idx[freqs[top_idx] > 0]
+        dominant_period = int(round(1.0 / freqs[non_zero_idx[-1]])) if non_zero_idx.size else 0
+
+        win = savgol_window if savgol_window % 2 == 1 else savgol_window + 1
+        win = min(win, n)
+        sg = savgol_filter(y, window_length=win, polyorder=3)
+
+        nyq = 0.5
+        cutoff = butter_cutoff_year / 52.0
+        b, a = butter(butter_order, cutoff / nyq, btype="low")
+        bw = filtfilt(b, a, y)
+
+        filtered_dict = {"savitzky_golay": sg.tolist(), "butterworth": bw.tolist()}
+        resid_std = float(np.nanstd(decomp.resid))
+
+        return SeasonalityEvidence(
+            acf=acf_list,
+            decomposition=decomp_dict,
+            fourier=fourier_dict,
+            filtered=filtered_dict,
+            residual_std=resid_std,
+            dominant_period_weeks=dominant_period,
+            raw_series=y.tolist(),
+        )
 
     # === 3. Distribution (Script3) ===
 
@@ -917,9 +993,13 @@ __all__ = [
     "BubblePlotData",
     "MultiDimPlotData",
     "MultiDimPlotSettings",
-    "DataPreparation",
+    "SeasonalityEvidence",
+    "ComputeSeasonalityEvidence",
+    "build_visual_time",
     "RunMode",
 ]
+
+# TimePlotData.model_rebuild()
 
 
 # === CODING STANDARD ===

@@ -22,16 +22,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines
 import matplotlib.patches as patches
+from matplotlib.figure import Figure
 import seaborn as sns
 import pandas as pd
 from loguru import logger
 from pydantic import BaseModel, Field, model_validator, ConfigDict
-from typing import Literal
+from typing import Literal, Dict
 
 from .constants import Columns, Groups, InteractionType, Script6ConfigKeys
 from .data_preparation import (
     CategoryPlotData,
     TimePlotData,
+    SeasonalityEvidence,
     DistributionPlotData,
     ArcPlotData,
     BubblePlotData,
@@ -76,6 +78,7 @@ class CategoriesPlotSettings(PlotSettings):
 
 # === 2. Time Plot Settings (Script2) ===
 class TimePlotSettings(PlotSettings):
+    """Settings for the DAC weekly heartbeat plot."""
     title: str = "Golf season, decoded by WhatsApp heartbeat"
     subtitle: str = "Whatsapp_group is 'dac' (Dinsdag Avond Competitie)"
     rest_label: str = "---------Rest---------"
@@ -92,8 +95,20 @@ class TimePlotSettings(PlotSettings):
     subtitle_fontsize: int = 18
     subtitle_fontweight: str = "bold"
     subtitle_color: str = "dimgray"
-    #subtitle_y: float = 0.80
+    subtitle_y: float = 0.85
     subtitle_ha: str = "center"
+
+
+class SeasonalityPlotSettings(PlotSettings):
+    """Settings for the 4-panel seasonality evidence suite."""
+    fig_width: int = 16
+    fig_height: int = 10
+    subplot_titles_fontsize: int = 14
+    acf_color: str = "#1f77b4"
+    decomp_linewidth: float = 1.8
+    fourier_marker: str = "o"
+    fourier_markersize: int = 6
+    filtered_alpha: float = 0.7
 
 
 # === 3. Distribution Plot Settings (Script3) ===
@@ -468,150 +483,118 @@ class PlotManager:
     def build_visual_time(
         self,
         data: TimePlotData,
-        settings: TimePlotSettings = TimePlotSettings(),
-    ) -> plt.Figure | None:
+        settings: TimePlotSettings,
+        include_seasonality: bool = False,
+        season_settings: SeasonalityPlotSettings | None = None,
+    ) -> Dict[str, Figure]:
         """
-        Plot the weekly average heartbeat for the DAC group.
-
-        Args:
-            data: Validated TimePlotData
-            settings: Plot settings
+        Build main heartbeat plot + optional seasonality suite.
 
         Returns:
-            matplotlib Figure or None
+            dict with 'main' and optionally 'seasonality' figures.
         """
-        try:
-            # Figure setup aligned with Categories
-            fig, ax = plt.subplots(figsize=(14, 6.5))  # Shorter canvas
-            plt.subplots_adjust(top=0.85)              # Axes end earlier → more room above
+        figs: Dict[str, Figure] = {}
 
-            # Sorted weeks and values
-            weeks = sorted(data.weekly_avg.keys())
-            avg_counts = [data.weekly_avg[w] for w in weeks]
+        # --- Main Line Chart ---
+        fig_main = plt.figure(figsize=settings.figsize)
+        weeks = sorted(data.weekly_avg.keys())
+        counts = [data.weekly_avg[w] for w in weeks]
 
-            # Main line: weekly average
-            ax.plot(
-                weeks,
-                avg_counts,
-                color=settings.line_color,
-                linewidth=settings.linewidth,
-                zorder=6,
-            )
+        plt.plot(weeks, counts, color=settings.line_color,
+                 linewidth=settings.linewidth, marker="o")
+        plt.axhline(data.global_avg, color="gray", linestyle="--",
+                    linewidth=1.5, label=f"Global avg: {data.global_avg:.1f}")
 
-            # Period boundaries (hardcoded)
-            vlines = [11.5, 18.5, 34.5]
-            starts = [1] + [int(v + 0.5) for v in vlines]
-            ends   = [int(v + 0.5) - 1 for v in vlines] + [52]
+        plt.title(settings.title, fontsize=settings.title_fontsize,
+                  fontweight=settings.title_fontweight,
+                  pad=settings.title_pad, ha=settings.title_ha)
+        plt.suptitle(settings.subtitle, fontsize=settings.subtitle_fontsize,
+                     fontweight=settings.subtitle_fontweight,
+                     color=settings.subtitle_color,
+                     y=settings.subtitle_y, ha=settings.subtitle_ha)
 
-            # Period labels and colors
-            period_labels = [
-                settings.rest_label,
-                settings.prep_label,
-                settings.play_label,
-                settings.rest_label,
-            ]
-            period_colors = ["#e8f5e9", "#c8e6c9", "#81c784", "#e8f5e9"]
+        plt.xlabel("Week of Year")
+        plt.ylabel("Average Messages")
+        plt.xticks(range(1, 53, 4))
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.show()
+        
+        figs["main"] = fig_main
 
-            # Helper
-            def period_avg(start: int, end: int) -> float:
-                vals = [data.weekly_avg.get(w, 0.0) for w in range(start, end + 1)]
-                return float(np.mean(vals)) if vals else 0.0
+        # --- Seasonality Suite ---
+        if include_seasonality and data.seasonality is not None:
+            fig_season = self._build_seasonality_suite(data, season_settings or SeasonalityPlotSettings())
+            if fig_season:
+                figs["seasonality"] = fig_season
 
-            # Draw periods
-            period_avg_patch = None
-            y_min, y_max = ax.get_ylim()
-            label_y = y_min + 0.80 * (y_max - y_min)
+        return figs
 
-            for i in range(4):
-                s, e = starts[i], ends[i]
-                ax.axvspan(s - 0.5, e + 0.5, facecolor=period_colors[i], alpha=0.6, zorder=0)
+    def _build_seasonality_suite(
+        self,
+        time_data: TimePlotData,
+        settings: SeasonalityPlotSettings,
+    ) -> Figure | None:
+        """Render 4-panel seasonality evidence."""
+        ev = time_data.seasonality
 
-                p_avg = period_avg(s, e)
-                if p_avg > 0:
-                    line = ax.hlines(
-                        p_avg,
-                        xmin=s - 0.5,
-                        xmax=e + 0.5,
-                        color="red",
-                        linestyle="--",
-                        linewidth=1.2,
-                        zorder=4,
-                        label="Period Avg" if period_avg_patch is None else "",
-                    )
-                    if period_avg_patch is None:
-                        period_avg_patch = line
+        fig = plt.figure(figsize=(settings.fig_width, settings.fig_height))
+        gs = fig.add_gridspec(2, 2, hspace=0.35, wspace=0.30)
 
-                mid = (s + e) / 2
-                ax.text(
-                    mid,
-                    label_y,
-                    period_labels[i],
-                    ha="center",
-                    va="center",
-                    fontsize=12,
-                    color="black",
-                    fontweight="bold",
-                    zorder=7,
-                )
+        # 1. ACF
+        ax0 = fig.add_subplot(gs[0, 0])
+        lags = range(len(ev.acf))
+        ax0.stem(lags, ev.acf, basefmt=" ", linefmt=settings.acf_color)
+        ax0.set_title("Autocorrelation (weekly lags)", fontsize=settings.subplot_titles_fontsize)
+        ax0.set_xlabel("Lag (weeks)")
+        ax0.set_ylabel("ACF")
+        ax0.axhline(0, color="k", linewidth=0.8)
+        ax0.grid(True, alpha=0.3)
 
-            # Vertical separators
-            for v in vlines:
-                ax.axvline(v, color="gray", linestyle="--", alpha=0.6, zorder=1)
+        # 2. Decomposition
+        ax1 = fig.add_subplot(gs[0, 1])
+        idx = range(len(ev.decomposition["trend"]))
+        ax1.plot(idx, ev.decomposition["trend"], label="Trend", linewidth=settings.decomp_linewidth)
+        ax1.plot(idx, ev.decomposition["seasonal"], label="Seasonal", linewidth=settings.decomp_linewidth)
+        ax1.plot(idx, ev.decomposition["resid"], label="Residual", linewidth=settings.decomp_linewidth, alpha=0.6)
+        ax1.set_title("Additive Decomposition", fontsize=settings.subplot_titles_fontsize)
+        ax1.legend(fontsize=10)
+        ax1.grid(True, alpha=0.3)
 
-            # X-axis
-            key_dates = {11: "March 15th", 18: "May 1st", 36: "September 1st"}
-            ax.set_xticks(sorted(key_dates.keys()))
-            ax.set_xticklabels([key_dates[w] for w in sorted(key_dates)], fontsize=12, ha="center")
-            ax.set_xlabel("Time over Year", fontsize=12, labelpad=10)
+        # 3. Fourier
+        ax2 = fig.add_subplot(gs[1, 0])
+        freqs = ev.fourier["freqs"]
+        amps = ev.fourier["amps"]
+        ax2.stem(freqs, amps, linefmt="C3-", markerfmt=f"C3{settings.fourier_marker}", basefmt=" ")
+        ax2.set_title("Fourier amplitudes (top k)", fontsize=settings.subplot_titles_fontsize)
+        ax2.set_xlabel("Frequency (cycles/week)")
+        ax2.set_ylabel("Amplitude")
+        ax2.grid(True, alpha=0.3)
 
-            # Title and subtitle
-            # fig.suptitle(
-            #     settings.title,
-            #     fontsize=settings.title_fontsize,
-            #     fontweight=settings.title_fontweight,
-            #     y=0.98,
-            #     ha=settings.title_ha,
-            # )
+        # 4. Filters
+        ax3 = fig.add_subplot(gs[1, 1])
+        weeks = range(len(ev.raw_series))
+        ax3.plot(weeks, ev.raw_series, label="Raw", color="lightgray")
+        ax3.plot(weeks, ev.filtered["savitzky_golay"], label="Savitzky-Golay", alpha=settings.filtered_alpha)
+        ax3.plot(weeks, ev.filtered["butterworth"], label="Butterworth low-pass", alpha=settings.filtered_alpha)
+        ax3.set_title("Smoothing filters", fontsize=settings.subplot_titles_fontsize)
+        ax3.set_xlabel("Week index")
+        ax3.set_ylabel("Message count")
+        ax3.legend(fontsize=10)
+        ax3.grid(True, alpha=0.3)
 
-            ax.set_title(
-                settings.title,
-                fontsize=settings.title_fontsize,
-                fontweight=settings.title_fontweight,
-                pad=settings.title_pad,
-                ha=settings.title_ha,
-            )
+        # Caption
+        fig.suptitle(
+            "Statistical Evidence of Weekly Seasonality (low noise)",
+            fontsize=20, fontweight="bold", y=0.98
+        )
+        caption = (
+            f"Dominant period approximately {ev.dominant_period_weeks} weeks | "
+            f"Residual sigma = {ev.residual_std:.2f}"
+        )
+        fig.text(0.5, 0.02, caption, ha="center", fontsize=12, style="italic")
 
-            fig.text(
-                x=0.5,                       # ← X position (required)
-                y=0.92,
-                s=settings.subtitle,         # ← TEXT to display (required)
-                fontsize=settings.subtitle_fontsize,
-                fontweight=settings.subtitle_fontweight,
-                color=settings.subtitle_color,
-                ha=settings.subtitle_ha,
-                va="top",                    # ← Recommended
-                transform=fig.transFigure    # ← Critical for figure-level
-            )
-
-            # Y-label
-            ax.set_ylabel("Average message count per week (2017 - 2025)", fontsize=12)
-
-            # Legend
-            if period_avg_patch:
-                ax.legend(handles=[period_avg_patch], loc="upper right", fontsize=12)
-
-            # Grid
-            ax.grid(True, axis="y", linestyle="--", alpha=0.7, zorder=0)
-            ax.set_axisbelow(True)
-            plt.tight_layout()
-            plt.show()
-
-            logger.success("Time plot built – aligned with Categories")
-            return fig
-
-        except Exception as e:
-            logger.exception(f"Time plot failed: {e}")
-            return None
+        return fig
 
 
     # === 3. Distribution (Script3) ===
@@ -692,8 +675,8 @@ class PlotManager:
             left_mid = idx_75 / 2
             right_mid = (idx_75 + 0.5) + (y_75 - idx_75 - 1) / 2
             y_text = ylim_bottom - 1.5
-            ax.text(left_mid, y_text, f"<-- {x_75} emojies -->", ha="center", fontsize=12)
-            ax.text(right_mid, y_text, f"<-- {y_75} emojies -->", ha="center", fontsize=12)
+            ax.text(left_mid, y_text, f"<-- {x_75} emojis -->", ha="center", fontsize=12)
+            ax.text(right_mid, y_text, f"<-- {y_75-x_75} emojis -->", ha="center", fontsize=12)
             ax.set_xticks([])
 
             # === Cumulative line ===

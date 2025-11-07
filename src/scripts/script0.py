@@ -1,3 +1,4 @@
+# === script0.py ===
 # === Module Docstring ===
 """
 Preprocess raw WhatsApp chat exports (Script0).
@@ -8,9 +9,9 @@ Runs automatically if no cache exists.
 Examples
 --------
 >>> script = Script0(file_manager, data_editor, data_preparation, processed_dir, config, image_dir)
->>> result = script.run()
->>> result["df"].shape
-(12345, 20)
+>>> df = script.run()
+>>> df.shape
+(11302, 62)
 """
 
 # === Imports ===
@@ -23,6 +24,7 @@ import pandas as pd
 from loguru import logger
 
 from .base import BaseScript
+
 
 # === Script 0 ===
 class Script0(BaseScript):
@@ -59,12 +61,12 @@ class Script0(BaseScript):
         self.tables_dir = Path("tables")
         self.tables_dir.mkdir(exist_ok=True)
 
-    def run(self) -> Dict[str, Any] | None:
+    def run(self) -> pd.DataFrame | None:
         """
         Execute preprocessing and return enriched DataFrame.
 
         Returns:
-            dict: Contains 'df' (DataFrame) and 'tables_dir' (Path).
+            pd.DataFrame: The enriched dataset.
             None: If preprocessing fails.
 
         Raises:
@@ -84,8 +86,9 @@ class Script0(BaseScript):
                 self.log_error("Script0: FileManager returned None or no 'df'.")
                 return None
 
+            df = result["df"]
             logger.success("Script0: Preprocessing completed successfully.")
-            return {"df": result["df"], "tables_dir": self.tables_dir}
+            return df  # ← Return DataFrame (fixed)
 
         except Exception as e:
             logger.exception(f"Script0: Preprocessing failed: {e}")
@@ -107,3 +110,4 @@ class Script0(BaseScript):
 # NEW: Fixed typo: processed_processed_dir → processed_dir (2025-11-03)
 # NEW: Removed *args, **kwargs; df not passed (not needed) (2025-11-03)
 # NEW: (2025-11-04) – Simplified run to wrapper around get_preprocessed_data; Removed duplicate saving
+# NEW: Changed run() to return DataFrame (2025-11-07)

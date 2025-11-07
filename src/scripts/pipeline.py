@@ -21,7 +21,10 @@ from typing import Any, Dict, List
 import pandas as pd
 import pytz
 from loguru import logger
+import numpy as np  # NEW: For diagnostic calculations
+from statsmodels.tsa.seasonal import seasonal_decompose
 
+from src.constants import Columns, Groups  # NEW: For diagnostic access
 from src.data_editor import DataEditor
 from src.data_preparation import DataPreparation
 from src.file_manager import FileManager
@@ -124,12 +127,10 @@ class Pipeline:
                     config=config,
                     image_dir=image_dir,
                 )
-                result = instance.run()
-                if result is None or "df" not in result:
-                    logger.error("Script0 failed or didn't return 'df'. Aborting.")
-                    return
-                df = result["df"]
-                tables_dir = result.get("tables_dir", tables_dir)
+                df = instance.run()
+                if not isinstance(df, pd.DataFrame):
+                    logger.error("Script0 did not return a DataFrame")
+                    sys.exit(1)
                 logger.info(f"Script0 completed. DF shape: {df.shape}")
 
             # === Script Registry (df now available) ===
@@ -219,7 +220,45 @@ class Pipeline:
 
                 logger.info(f"Running Script {script_id}...")
                 try:
-                    instance.run()
+                    result = instance.run()
+
+                    # === FULL DIAGNOSTIC: Compare decomposition models ===
+                    if script_id == 2:
+                        main_path, season_path = result  # Unpack tuple
+                        if season_path:
+                            try:
+                                df_dac = df[df[Columns.WHATSAPP_GROUP.value] == Groups.DAC.value]
+                                evidence = data_preparation._compute_seasonality_evidence(df_dac)
+
+                                # === RECOMPUTE BOTH MODELS FOR COMPARISON ===
+                                y = evidence.raw_series
+                                idx = pd.date_range(start="2015-01-01", periods=len(y), freq="W-MON")
+
+                                # 1. Raw + additive
+                                ts_raw = pd.Series(y, index=idx)
+                                decomp_raw = seasonal_decompose(ts_raw, model="additive", period=52)
+                                sigma_raw = np.nanstd(decomp_raw.resid)
+
+                                # 2. Log + additive
+                                y_log = np.log1p(y)
+                                ts_log = pd.Series(y_log, index=idx)
+                                decomp_log = seasonal_decompose(ts_log, model="additive", period=52)
+                                sigma_log = np.nanstd(decomp_log.resid)
+                                sigma_back = np.expm1(sigma_log)
+
+                                # === PRINT FULL TABLE ===
+                                print(f"\n{'Model':<25} {'Residual σ':<15} {'Back to messages'}")
+                                print(f"{'-'*55}")
+                                print(f"{'Raw + additive':<25} {sigma_raw:<15.2f} {'—'}")
+                                print(f"{'Log + additive':<25} {sigma_log:<15.3f} {sigma_back:>12.1f}")
+                                print(f"{'Used in plot':<25} {np.nanstd(evidence.decomposition['resid']):<15.2f} {'← FINAL'}")
+                                print(f"{'-'*55}\n")
+
+                                logger.info(f"Residual comparison: Raw={sigma_raw:.2f}, Log={sigma_log:.3f}, Back={sigma_back:.1f}")
+
+                            except Exception as e:
+                                logger.warning(f"Could not compute full diagnostic: {e}")
+                    # === END DIAGNOSTIC ===
                 except Exception as e:
                     logger.exception(f"Script {script_id} failed: {e}")
 
@@ -246,3 +285,4 @@ class Pipeline:
 # NEW: (2025-11-04) – Adjusted Script0 forcing logic for new cache/reuse handling
 # NEW: (2025-11-04) – Added "df": df to Script2 to fix 'No DataFrame provided' error
 # NEW: (2025-11-04) – Run Script0 before registry to ensure df is available
+# NEW: Added full diagnostic table for Script 2 residual comparison (2025-11-07)
