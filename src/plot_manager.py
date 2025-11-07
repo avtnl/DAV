@@ -230,15 +230,15 @@ class MultiDimPlotSettings(PlotSettings):
     hybrid_features: bool = True
     embedding_model: int = 3
 
-    title_fontsize: int = 24
+    title_fontsize: int = 32
     title_fontweight: str = "bold"
     title_pad: float = 40
     title_ha: str = "center"
 
-    subtitle_fontsize: int = 18
+    subtitle_fontsize: int = 24
     subtitle_fontweight: str = "bold"
     subtitle_color: str = "dimgray"
-    subtitle_y: float = 0.85
+    subtitle_y: float = 0.95
     subtitle_ha: str = "center"
 
     @model_validator(mode="after")
@@ -1243,7 +1243,16 @@ class PlotManager:
     ) -> dict[str, "go.Figure"] | None:
         """
         Create interactive t-SNE plots with optional group isolation and confidence ellipses.
-        Title 24pt bold centered, subtitle 18pt dimgray, extra top margin like Script1/2/5.
+        Title 24pt bold centered, subtitle 18pt dimgray high above plot, extra top margin like Script1/2/5.
+
+        Args:
+            data: Validated MultiDimPlotData with t-SNE coordinates and aggregated features
+            settings: Plot settings including group mode, ellipse mode, confidence level
+
+        Returns:
+            Dict of Plotly figures: {"individual": ..., "group": ...} or None
+
+        # NEW: Restored per-author color nuance + subtitle high above + (Group) in legend (2025-11-07)
         """
         if data.agg_df.empty:
             logger.error("Empty agg_df in MultiDimPlotData")
@@ -1274,25 +1283,30 @@ class PlotManager:
                 hex_color = hex_color.lstrip('#')
                 return f"rgba({int(hex_color[0:2],16)}, {int(hex_color[2:4],16)}, {int(hex_color[4:6],16)}, {alpha})"
 
-            # === GROUP COLORS FROM SCRIPT 1 (Categories) + AvT RED ===
-            group_color_map = {
-                Groups.MAAP: "deepskyblue",
-                Groups.GOLFMATEN: "orange",
-                Groups.DAC: "green",
-                Groups.TILLIES: "gray",
-                Groups.AVT: "#FF0000",
+            # === AUTHOR-SPECIFIC COLOR SCHEME (restored from old version) ===
+            author_colors = {
+                "RH": "#FF7F0E", "MK": "#FF8C00", "HB": "#FFD580", "AB": "#00008B",
+                "PB": "#00BFFF", "M": "#ADD8E6", "LL": "#228B22", "HH": "#32CD32",
+                "HvH": "#66CDAA", "ND": "#9ACD32", "Bo": "#EE82EE", "Lars": "#9467BD",
+                "Mats": "#DDA0DD", "JC": "#A9A9A9", "EH": "#024A07", "FJ": "#D3D3D3",
+                "AvT": "#FF0000",
             }
 
             chi_val = np.sqrt(chi2.ppf(settings.confidence_level / 100, df=2))
 
             # === INDIVIDUAL MODE (Author + Group in legend) ===
             if not settings.by_group:
+                # Create combined label: "Author (Group)" except for AvT
                 data.agg_df["author_group"] = data.agg_df.apply(
-                    lambda row: f"{row[Columns.AUTHOR.value]} ({row[Columns.WHATSAPP_GROUP_TEMP.value]})"
-                                if row[Columns.WHATSAPP_GROUP_TEMP.value] != Groups.AVT else row[Columns.AUTHOR.value],
+                    lambda row: (
+                        f"{row[Columns.AUTHOR.value]} ({row[Columns.WHATSAPP_GROUP_TEMP.value]})"
+                        if row[Columns.WHATSAPP_GROUP_TEMP.value] != Groups.AVT
+                        else row[Columns.AUTHOR.value]
+                    ),
                     axis=1
                 )
 
+                # Sort legend: Group first, then Author
                 sorted_labels = (
                     data.agg_df
                     .sort_values([Columns.WHATSAPP_GROUP_TEMP.value, Columns.AUTHOR.value])
@@ -1301,12 +1315,11 @@ class PlotManager:
                     .tolist()
                 )
 
+                # Map colors using author name only (preserves nuance)
                 color_map = {}
                 for label in sorted_labels:
                     author = label.split(" (")[0] if " (" in label else label
-                    group_row = data.agg_df[data.agg_df[Columns.AUTHOR.value] == author].iloc[0]
-                    group = group_row[Columns.WHATSAPP_GROUP_TEMP.value]
-                    color_map[label] = group_color_map.get(group, "#333333")
+                    color_map[label] = author_colors.get(author, "#333333")
 
                 fig = px.scatter(
                     data.agg_df,
@@ -1323,20 +1336,34 @@ class PlotManager:
                     category_orders={"author_group": sorted_labels},
                 )
 
-                # === PERFECT TITLE + SUBTITLE + TOP MARGIN (like Script1/2/5) ===
+                # Title and subtitle (combined)
+                title_text = settings.title
+                if settings.subtitle:
+                    title_text += f"<br><span style='font-size:{settings.subtitle_fontsize}px; color:{settings.subtitle_color};'>{settings.subtitle}</span>"
+
                 fig.update_layout(
                     title={
-                        'text': settings.title,
-                        'y': 0.95,
+                        'text': title_text,
+                        'y': 0.96,                    # High, centered in top area
                         'x': 0.5,
                         'xanchor': 'center',
                         'yanchor': 'top',
-                        'font': dict(size=24, family="Arial Black, Arial, sans-serif", color="black")
+                        'font': dict(size=settings.title_fontsize, family="Arial Black, Arial, sans-serif", color="black"),
+                        'pad': dict(t=20)             # Extra padding above title
                     },
-                    margin=dict(t=180, b=80, l=80, r=180),  # Extra top space
+                    margin=dict(t=120, b=80, l=80, r=180),
+                    xaxis=dict(
+                    title=dict(text="t-SNE X", font=dict(size=16)),  # Optional: set label text
+                    tickfont=dict(size=12)
+                    ),
+                    yaxis=dict(
+                        title=dict(text="t-SNE Y", font=dict(size=16)),
+                        tickfont=dict(size=12)
+                    ),
+ 
                     legend=dict(
                         title="Author (Group)",
-                        font=dict(size=12),
+                        font=dict(size=16),
                         bgcolor="white",
                         bordercolor="gray",
                         borderwidth=1
@@ -1345,24 +1372,14 @@ class PlotManager:
                     height=750,
                 )
 
-                # Subtitle as separate centered text
-                fig.add_annotation(
-                    text=settings.subtitle,
-                    xref="paper", yref="paper",
-                    x=0.5, y=0.80,
-                    showarrow=False,
-                    font=dict(size=18, color="dimgray", family="Arial, sans-serif"),
-                    align="center"
-                )
-
-                # === ELLIPSES ===
+                # === ELLIPSES (using author-specific color) ===
                 if settings.ellipse_mode > 0:
                     for author in data.agg_df[Columns.AUTHOR.value].unique():
-                        sub = data.agg_df[data.agg_df[Columns.AUTHOR.value] == author]
+                        sub = data.agg_df[data.agg_df[Columns.AUTHOR.value] == author].copy()
                         if len(sub) < 3:
                             continue
                         X = sub[["tsne_x", "tsne_y"]].values
-                        color = group_color_map.get(sub[Columns.WHATSAPP_GROUP_TEMP.value].iloc[0], "#333333")
+                        color = author_colors.get(author, "#333333")
 
                         if settings.ellipse_mode == 1:
                             cov = np.cov(X.T)
@@ -1408,7 +1425,7 @@ class PlotManager:
 
                 figs["individual"] = fig
 
-            # === GROUP MODE (also upgraded title) ===
+            # === GROUP MODE (unchanged from current version) ===
             if settings.by_group:
                 data.agg_df["plot_group"] = data.agg_df.apply(
                     lambda row: Groups.AVT if row[Columns.AUTHOR.value] == Groups.AVT else row[Columns.WHATSAPP_GROUP_TEMP],
@@ -1424,19 +1441,33 @@ class PlotManager:
                     hover_data={"msg_count": True, Columns.AUTHOR.value: True},
                 )
 
+                # Title and subtitle (combined)
+                title_text = settings.title
+                if settings.subtitle:
+                    title_text += f"<br><span style='font-size:{settings.subtitle_fontsize}px; color:{settings.subtitle_color};'>{settings.subtitle}</span>"
+
                 fig.update_layout(
                     title={
-                        'text': settings.title,
-                        'y': 0.95,
+                        'text': title_text,
+                        'y': 0.96,                    # High, centered in top area
                         'x': 0.5,
                         'xanchor': 'center',
                         'yanchor': 'top',
-                        'font': dict(size=24, family="Arial Black, Arial, sans-serif", color="black")
+                        'font': dict(size=settings.title_fontsize, family="Arial Black, Arial, sans-serif", color="black"),
+                        'pad': dict(t=20)             # Extra padding above title
                     },
-                    margin=dict(t=180, b=80, l=80, r=180),
+                    margin=dict(t=120, b=80, l=80, r=180),
+                    xaxis=dict(
+                    title=dict(text="t-SNE X", font=dict(size=16)),  # Optional: set label text
+                    tickfont=dict(size=12)
+                    ),
+                    yaxis=dict(
+                        title=dict(text="t-SNE Y", font=dict(size=16)),
+                        tickfont=dict(size=12)
+                    ),
                     legend=dict(
-                        title="WhatsApp Group",
-                        font=dict(size=12),
+                        title="Author (Group)",
+                        font=dict(size=16),
                         bgcolor="white",
                         bordercolor="gray",
                         borderwidth=1
@@ -1445,18 +1476,9 @@ class PlotManager:
                     height=750,
                 )
 
-                fig.add_annotation(
-                    text=settings.subtitle,
-                    xref="paper", yref="paper",
-                    x=0.5, y=0.92,
-                    showarrow=False,
-                    font=dict(size=18, color="dimgray", family="Arial, sans-serif"),
-                    align="center"
-                )
-
                 if settings.ellipse_mode > 0:
                     for grp in data.agg_df["plot_group"].unique():
-                        sub = data.agg_df[data.agg_df["plot_group"] == grp]
+                        sub = data.agg_df[data.agg_df["plot_group"] == grp].copy()
                         if len(sub) < 3:
                             continue
                         X = sub[["tsne_x", "tsne_y"]].values
@@ -1506,7 +1528,7 @@ class PlotManager:
 
                 figs["group"] = fig
 
-            logger.success(f"Multi-dimensional plot built: {len(figs)} figures (title 24pt, extra top space)")
+            logger.success(f"Multi-dimensional plot built: {len(figs)} figures (title 24pt, subtitle high, author nuance restored)")
             return figs
 
         except Exception as e:
@@ -1529,3 +1551,4 @@ class PlotManager:
 # NEW: Full 1–6 plot support with strict settings (2025-11-03)
 # NEW: All hardcodes removed, uses constants.py
 # NEW: Complete docstrings, consistent spacing, InteractionType
+# NEW: Restored per-author color nuance + high subtitle + (Group) in legend (2025-11-07)
