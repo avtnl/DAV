@@ -316,7 +316,8 @@ class Script6ConfigKeys(StrEnum):
 
     PLOT_TYPE = "plot_type"
     BY_GROUP = "by_group"
-    DRAW_ELLIPSES = "draw_ellipses"
+    ELLIPSE_MODE = "ellipse_mode"
+    CONFIDENCE_LEVEL = "confidence_level"
     USE_EMBEDDINGS = "use_embeddings"
     HYBRID_FEATURES = "hybrid_features"
     EMBEDDING_MODEL = "embedding_model"

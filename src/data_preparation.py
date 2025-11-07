@@ -114,7 +114,7 @@ class DistributionPlotData(BaseModel):
 
     @model_validator(mode="after")
     def validate_columns(self):
-        required = {"emoji", "count_once", "percent_once", "unicode_code", "unicode_name"}
+        required = {"emoji", "count_once", "percent_once", "unicode_name", "unicode_code"}
         missing = required - set(self.emoji_counts_df.columns)
         if missing:
             raise ValueError(f"Missing required columns: {missing}")
@@ -411,46 +411,50 @@ class DataPreparation(BaseHandler):
 
     # === 3. Distribution (Script3) ===
     def build_visual_distribution(self, df: pd.DataFrame) -> DistributionPlotData | None:
-        """
-        Build emoji frequency table with count_once, percent_once, and Unicode info.
-        """
-        df_emoji = df[df[Columns.HAS_EMOJI.value]].copy()
+        df_emoji = self._handle_empty_df(df, "build_visual_distribution")
         if df_emoji.empty:
-            logger.warning("No messages with emojis found in group.")
             return None
 
-        # Parse emoji lists (handles CSV string → list)
-        emojis_list = self.data_editor.parse_emojis(df_emoji)
-        if emojis_list.empty:
-            logger.warning("No valid emoji lists after parsing.")
+        try:
+            # Parse from enriched column
+            emojis_list = self.data_editor.parse_emojis(df_emoji)
+            if not emojis_list.any():
+                return None
+
+            # Flatten: each emoji is already a single base character
+            all_emojis = [e for msg in emojis_list for e in msg if e]
+
+            if not all_emojis:
+                return None
+
+            # Count
+            counts = Counter(all_emojis)
+            total_with_emoji = sum(1 for msg in emojis_list if msg)
+
+            df_counts = pd.DataFrame(
+                counts.items(), columns=["emoji", "count_once"]
+            ).sort_values("count_once", ascending=False)
+
+            df_counts["percent_once"] = (df_counts["count_once"] / total_with_emoji) * 100
+
+            # Safe metadata
+            df_counts["unicode_code"] = df_counts["emoji"].apply(
+                lambda x: " ".join(f"U+{ord(c):04X}" for c in x)
+            )
+            df_counts["unicode_name"] = df_counts["emoji"].apply(
+                lambda x: demojize(x, language="en")
+            )
+
+            df_counts = df_counts[
+                ["emoji", "count_once", "percent_once", "unicode_name", "unicode_code"]
+            ].reset_index(drop=True)
+
+            logger.success(f"Emoji distribution: {len(df_counts)} unique from {total_with_emoji} messages")
+            return DistributionPlotData(emoji_counts_df=df_counts)
+
+        except Exception as e:
+            logger.exception(f"build_visual_distribution failed: {e}")
             return None
-
-        # Count unique per message
-        emoji_counts = Counter()
-        for emojis in emojis_list:
-            for emoji in set(emojis):
-                emoji_counts[emoji] += 1
-
-        if not emoji_counts:
-            return None
-
-        # Build full DF
-        emoji_counts_df = pd.DataFrame([
-            {"emoji": e, "count_once": c} for e, c in emoji_counts.most_common()
-        ])
-        total = emoji_counts_df["count_once"].sum()
-        emoji_counts_df["percent_once"] = emoji_counts_df["count_once"] / total * 100
-
-        # === ADD UNICODE ===
-        emoji_counts_df["unicode_code"] = emoji_counts_df["emoji"].apply(
-            lambda x: f"U+{ord(x):04X}"
-        )
-        emoji_counts_df["unicode_name"] = emoji_counts_df["emoji"].apply(
-            lambda x: demojize(x).strip(":").replace("_", " ").title()
-        )
-
-        logger.success(f"Built emoji distribution: {len(emoji_counts_df)} unique emojis")
-        return DistributionPlotData(emoji_counts_df=emoji_counts_df)
 
 
     # === 4. Arc (Script4) ===

@@ -188,15 +188,9 @@ class Pipeline:
                     "plot_manager": plot_manager,
                     "image_dir": image_dir,
                     "df": df,
-                    "settings": MultiDimPlotSettings(
-                        by_group=script_6_details[1] if script_6_details else True,
-                        draw_ellipses=script_6_details[2] if script_6_details else False,
-                        use_embeddings=script_6_details[3] if script_6_details else True,
-                        hybrid_features=script_6_details[4] if script_6_details else True,
-                        embedding_model=script_6_details[5] if script_6_details else 3,
-                    ),
-                    "script_details": script_6_details or ["tsne", True, False, True, True, 3],
-                }),
+                    "settings": MultiDimPlotSettings(),
+                    "script_details": script_6_details or ["tsne", True, 0, 75, True, True, 3],
+                }),                
                 7: (Script7, {
                     "file_manager": file_manager,
                     "image_dir": image_dir,

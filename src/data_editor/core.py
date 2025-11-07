@@ -1,4 +1,3 @@
-# === core.py ===
 # === Module Docstring ===
 """
 Core orchestration within data_editor.
@@ -40,20 +39,19 @@ class DataEditor:
     def __init__(self) -> None:
         """Initialize shared state and sub-components."""
         # Shared regex patterns
-        self.emoji_pattern = re.compile(
-            r"["
-            r"\U0001f600-\U0001f64f"  # emoticons
-            r"\U0001f300-\U0001f5ff"  # symbols & pictographs
-            r"\U0001f680-\U0001f6ff"  # transport & map symbols
-            r"\U0001f1e0-\U0001f1ff"  # flags (iOS)
-            r"\U00002702-\U000027b0"  # Dingbats
-            r"\U000024c2-\U0001f251"
-            r"\U0001f900-\U0001f9ff"  # supplemental symbols & pictographs
-            r"]+",
-            flags=re.UNICODE,
+        EMOJI_PATTERN = re.compile(
+            r'[\U0001F600-\U0001F64F'   # emoticons
+            r'\U0001F300-\U0001F5FF'    # symbols & pictographs
+            r'\U0001F680-\U0001F6FF'    # transport & map
+            r'\U0001F1E0-\U0001F1FF'    # flags
+            r'\U0001F900-\U0001FAFF'    # supplemental
+            r'\U00002600-\U000026FF'    # misc symbols
+            r'\U00002700-\U000027BF'    # dingbats
+            r'\u200D\uFE0F]',            # ZWJ + VS16
+            re.UNICODE
         )
         self.ignore_emojis = {
-            chr(int(code, 16)) for code in ["1F3FB", "1F3FC", "1F3FD", "1F3FE", "1F3FF"]
+            chr(int(code, 16)) for code in ["1F3FB", "1F3FC", "1F3FD", "1F3FE", "1F3FF", "FE0F"]
         }
         self.url_pattern = re.compile(r"(?i)\b((?:https?://|ftp://|www\.)\S+)", flags=re.UNICODE)
         self.punctuation_pattern = re.compile(r"(?<![\d])[!?.,;:](?![\d])")

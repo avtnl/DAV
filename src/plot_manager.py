@@ -25,7 +25,7 @@ import matplotlib.patches as patches
 import seaborn as sns
 import pandas as pd
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import Literal
 
 from .constants import Columns, Groups, InteractionType, Script6ConfigKeys
@@ -106,6 +106,22 @@ class DistributionPlotSettings(PlotSettings):
     cum_threshold: float = 75.0
     top_table: int = 25  # For table, not bars
 
+class DistributionPlotData(BaseModel):
+    """Validated container for the emoji-frequency DataFrame."""
+    emoji_counts_df: pd.DataFrame = Field(
+        ..., description="Columns: ['emoji', 'count_once', 'percent_once', 'unicode_code', 'unicode_name']"
+    )
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @model_validator(mode="after")
+    def validate_columns(self):
+        required = {"emoji", "count_once", "percent_once", "unicode_code", "unicode_name"}
+        missing = required - set(self.emoji_counts_df.columns)
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+        return self
+
 
 # === 4. Arc Plot Settings (Script4) ===
 class ArcPlotSettings(PlotSettings):
@@ -135,7 +151,9 @@ class ArcPlotSettings(PlotSettings):
     )
     title_template: str = "Author Interactions in {group}"
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
+# === 5. Bubble Plot Settings (Script5) ===
 class BubblePlotSettings(PlotSettings):
     title: str = "Correlation between avg Words and avg Punctuations"
     subtitle: str = "About 1 extra Punctuation per 10 words"
@@ -165,6 +183,38 @@ class BubblePlotSettings(PlotSettings):
     subtitle_color: str = "dimgray"
     subtitle_ha: str = "center"
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+# === 6. Milti Dimensions Plot Settings (Script6) ===
+class MultiDimPlotSettings(PlotSettings):
+    """Configuration for multi-dimensional t-SNE visualization (Script6)."""
+    title: str = "t-SNE Reveals Authors by How They Write, Not What They Say"
+    subtitle: str = "Combining 25 style features and style oriented Hugging Faces"
+    by_group: bool = True
+    ellipse_mode: int = Field(0, ge=0, le=2)        # 0=none, 1=single, 2=GMM pockets
+    confidence_level: int = Field(75, ge=20, le=100) # 20–100%
+    draw_ellipses: bool = False   # kept for backward compat
+    use_embeddings: bool = True
+    hybrid_features: bool = True
+    embedding_model: int = 3
+
+    title_fontsize: int = 24
+    title_fontweight: str = "bold"
+    title_pad: float = 40
+    title_ha: str = "center"
+
+    subtitle_fontsize: int = 18
+    subtitle_fontweight: str = "bold"
+    subtitle_color: str = "dimgray"
+    subtitle_y: float = 0.85
+    subtitle_ha: str = "center"
+
+    @model_validator(mode="after")
+    def sync_draw_ellipses(self):
+        self.draw_ellipses = self.ellipse_mode > 0
+        return self
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 # === Plot Manager Class ===
 class PlotManager:
@@ -892,7 +942,7 @@ class PlotManager:
                 label="Linear Trend"  # Add label for legend
             )
 
-            # Title
+            # Title and subtitle
             ax.set_title(
                 settings.title,
                 fontsize=settings.title_fontsize,
@@ -953,7 +1003,7 @@ class PlotManager:
             return None
 
 
-    # === 6. Multi-Dimensional Style (Script6) ===
+    # === 6. Multi-Dimensional (Script6) ===
     def build_visual_multi_dimensions(
         self,
         data: MultiDimPlotData,
@@ -961,13 +1011,7 @@ class PlotManager:
     ) -> dict[str, "go.Figure"] | None:
         """
         Create interactive t-SNE plots with optional group isolation and confidence ellipses.
-
-        Args:
-            data: Validated MultiDimPlotData with t-SNE coordinates
-            settings: Plot settings including group mode and ellipse drawing
-
-        Returns:
-            Dict of Plotly figures: {"individual": ..., "group": ...} or None
+        Title 24pt bold centered, subtitle 18pt dimgray, extra top margin like Script1/2/5.
         """
         if data.agg_df.empty:
             logger.error("Empty agg_df in MultiDimPlotData")
@@ -977,6 +1021,7 @@ class PlotManager:
             import plotly.express as px
             import plotly.graph_objects as go
             from scipy.stats import chi2
+            from sklearn.mixture import GaussianMixture
 
             figs = {}
 
@@ -997,118 +1042,239 @@ class PlotManager:
                 hex_color = hex_color.lstrip('#')
                 return f"rgba({int(hex_color[0:2],16)}, {int(hex_color[2:4],16)}, {int(hex_color[4:6],16)}, {alpha})"
 
-            # === AUTHOR-SPECIFIC COLORS (per_group == False) ===
-            author_colors = {
-                "RH": "#FFA500",   # Standard Orange
-                "MK": "#FF8C00",   # Dark Orange
-                "HB": "#FFFF00",   # Pastel Yellow
-                "AB": "#00008B",   # Dark Blue
-                "PB": "#00BFFF",   # Deep Sky Blue
-                "M": "#ADD8E6",    # Light Blue
-                "LL": "#ADFF2F",   # Green Yellow
-                "HH": "#228B22",   # Forest Green
-                "HvH": "#ADFF2F",  # Yellow Green
-                "ND": "#006400",   # Dark Green
-                "Bo": "#EE82EE",   # Violet
-                "Lars": "#800080", # Pure Purple
-                "Mats": "#9370DB", # Medium Purple
-                "JC": "#2F4F4F",   # Dark Slate Gray
-                "EH": "#A9A9A9",   # Dark Gray
-                "FJ": "#D3D3D3",   # Light Gray
-                "AvT": "#FF0000",  # Pure Red
+            # === GROUP COLORS FROM SCRIPT 1 (Categories) + AvT RED ===
+            group_color_map = {
+                Groups.MAAP: "deepskyblue",
+                Groups.GOLFMATEN: "orange",
+                Groups.DAC: "green",
+                Groups.TILLIES: "gray",
+                Groups.AVT: "#FF0000",
             }
 
+            chi_val = np.sqrt(chi2.ppf(settings.confidence_level / 100, df=2))
+
+            # === INDIVIDUAL MODE (Author + Group in legend) ===
             if not settings.by_group:
-                # Build color map: known authors → custom color, others → black
-                unique_authors = data.agg_df[Columns.AUTHOR.value].unique()
-                color_discrete_map = {
-                    author: author_colors.get(author, "black")
-                    for author in unique_authors
-                }
+                data.agg_df["author_group"] = data.agg_df.apply(
+                    lambda row: f"{row[Columns.AUTHOR.value]} ({row[Columns.WHATSAPP_GROUP_TEMP.value]})"
+                                if row[Columns.WHATSAPP_GROUP_TEMP.value] != Groups.AVT else row[Columns.AUTHOR.value],
+                    axis=1
+                )
+
+                sorted_labels = (
+                    data.agg_df
+                    .sort_values([Columns.WHATSAPP_GROUP_TEMP.value, Columns.AUTHOR.value])
+                    ["author_group"]
+                    .unique()
+                    .tolist()
+                )
+
+                color_map = {}
+                for label in sorted_labels:
+                    author = label.split(" (")[0] if " (" in label else label
+                    group_row = data.agg_df[data.agg_df[Columns.AUTHOR.value] == author].iloc[0]
+                    group = group_row[Columns.WHATSAPP_GROUP_TEMP.value]
+                    color_map[label] = group_color_map.get(group, "#333333")
 
                 fig = px.scatter(
                     data.agg_df,
                     x="tsne_x", y="tsne_y",
                     size="msg_count",
-                    color=Columns.AUTHOR.value,
-                    hover_data={"msg_count": True},
-                    title="Linguistic Style Clusters (t-SNE) – Per Author",
-                    color_discrete_map=color_discrete_map,
+                    color="author_group",
+                    color_discrete_map=color_map,
+                    hover_data={
+                        "msg_count": True,
+                        Columns.AUTHOR.value: True,
+                        Columns.WHATSAPP_GROUP_TEMP.value: True,
+                        "author_group": False
+                    },
+                    category_orders={"author_group": sorted_labels},
                 )
 
-                if settings.draw_ellipses:
-                    for author in unique_authors:
-                        sub = data.agg_df[data.agg_df[Columns.AUTHOR.value] == author]
-                        if len(sub) < 2:
-                            continue
-                        x, y = sub["tsne_x"], sub["tsne_y"]
-                        cov = np.cov(x, y)
-                        mean_x, mean_y = x.mean(), y.mean()
-                        lambda_, v = np.linalg.eig(cov)
-                        lambda_ = np.sqrt(lambda_)
-                        chi = np.sqrt(chi2.ppf(0.75, 2))
-                        width, height = 2 * lambda_[0] * chi, 2 * lambda_[1] * chi
-                        angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
+                # === PERFECT TITLE + SUBTITLE + TOP MARGIN (like Script1/2/5) ===
+                fig.update_layout(
+                    title={
+                        'text': settings.title,
+                        'y': 0.95,
+                        'x': 0.5,
+                        'xanchor': 'center',
+                        'yanchor': 'top',
+                        'font': dict(size=24, family="Arial Black, Arial, sans-serif", color="black")
+                    },
+                    margin=dict(t=180, b=80, l=80, r=180),  # Extra top space
+                    legend=dict(
+                        title="Author (Group)",
+                        font=dict(size=12),
+                        bgcolor="white",
+                        bordercolor="gray",
+                        borderwidth=1
+                    ),
+                    width=1400,
+                    height=750,
+                )
 
-                        color = color_discrete_map.get(author, "black")
-                        ell_x, ell_y = get_ellipse_points(mean_x, mean_y, width, height, angle)
-                        fig.add_trace(go.Scatter(
-                            x=ell_x, y=ell_y, mode="lines", fill="toself",
-                            fillcolor=hex_to_rgba(color, 0.2),
-                            line=dict(color=color, width=2),
-                            name=f"{author} 75%", showlegend=False
-                        ))
+                # Subtitle as separate centered text
+                fig.add_annotation(
+                    text=settings.subtitle,
+                    xref="paper", yref="paper",
+                    x=0.5, y=0.80,
+                    showarrow=False,
+                    font=dict(size=18, color="dimgray", family="Arial, sans-serif"),
+                    align="center"
+                )
+
+                # === ELLIPSES ===
+                if settings.ellipse_mode > 0:
+                    for author in data.agg_df[Columns.AUTHOR.value].unique():
+                        sub = data.agg_df[data.agg_df[Columns.AUTHOR.value] == author]
+                        if len(sub) < 3:
+                            continue
+                        X = sub[["tsne_x", "tsne_y"]].values
+                        color = group_color_map.get(sub[Columns.WHATSAPP_GROUP_TEMP.value].iloc[0], "#333333")
+
+                        if settings.ellipse_mode == 1:
+                            cov = np.cov(X.T)
+                            mean = X.mean(axis=0)
+                            lambda_, v = np.linalg.eig(cov)
+                            lambda_ = np.sqrt(lambda_)
+                            width, height = 2 * lambda_ * chi_val
+                            angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
+                            ell_x, ell_y = get_ellipse_points(mean[0], mean[1], width[0], height[1], angle)
+                            fig.add_trace(go.Scatter(x=ell_x, y=ell_y, mode="lines", fill="toself",
+                                fillcolor=hex_to_rgba(color, 0.2), line=dict(color=color, width=2),
+                                name=f"{author} confidence", showlegend=False))
+
+                        else:
+                            best_gmm = None
+                            best_bic = np.inf
+                            best_n = 1
+                            for n in range(1, min(4, len(sub))):
+                                gmm = GaussianMixture(n_components=n, covariance_type="full", random_state=42)
+                                gmm.fit(X)
+                                bic = gmm.bic(X)
+                                if bic < best_bic:
+                                    best_bic = bic
+                                    best_gmm = gmm
+                                    best_n = n
+
+                            for i in range(best_n):
+                                weight = best_gmm.weights_[i]
+                                if weight < 0.1:
+                                    continue
+                                mean = best_gmm.means_[i]
+                                cov = best_gmm.covariances_[i]
+                                lambda_, v = np.linalg.eig(cov)
+                                lambda_ = np.sqrt(lambda_)
+                                width = 2 * lambda_[0] * chi_val
+                                height = 2 * lambda_[1] * chi_val
+                                angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
+                                ell_x, ell_y = get_ellipse_points(mean[0], mean[1], width, height, angle)
+                                opacity = 0.2 + 0.3 * weight
+                                fig.add_trace(go.Scatter(x=ell_x, y=ell_y, mode="lines", fill="toself",
+                                    fillcolor=hex_to_rgba(color, opacity), line=dict(color=color, width=2),
+                                    name=f"{author} pocket {i+1}", showlegend=False))
 
                 figs["individual"] = fig
 
+            # === GROUP MODE (also upgraded title) ===
             if settings.by_group:
                 data.agg_df["plot_group"] = data.agg_df.apply(
                     lambda row: Groups.AVT if row[Columns.AUTHOR.value] == Groups.AVT else row[Columns.WHATSAPP_GROUP_TEMP],
                     axis=1
                 )
                 group_colors = {
-                    Groups.MAAP: "#1f77b4",
-                    Groups.DAC: "#ff7f0e",
-                    Groups.GOLFMATEN: "#2ca02c",
-                    Groups.TILLIES: "#808080",
-                    Groups.AVT: "#d62728"
+                    Groups.MAAP: "#1f77b4", Groups.DAC: "#ff7f0e", Groups.GOLFMATEN: "#2ca02c",
+                    Groups.TILLIES: "#808080", Groups.AVT: "#d62728"
                 }
                 fig = px.scatter(
-                    data.agg_df,
-                    x="tsne_x", y="tsne_y",
-                    color="plot_group",
-                    size="msg_count",
+                    data.agg_df, x="tsne_x", y="tsne_y", color="plot_group", size="msg_count",
                     color_discrete_map=group_colors,
                     hover_data={"msg_count": True, Columns.AUTHOR.value: True},
-                    title="Linguistic Style Clusters (t-SNE) – 5 Groups (AvT Isolated)",
                 )
 
-                if settings.draw_ellipses:
+                fig.update_layout(
+                    title={
+                        'text': settings.title,
+                        'y': 0.95,
+                        'x': 0.5,
+                        'xanchor': 'center',
+                        'yanchor': 'top',
+                        'font': dict(size=24, family="Arial Black, Arial, sans-serif", color="black")
+                    },
+                    margin=dict(t=180, b=80, l=80, r=180),
+                    legend=dict(
+                        title="WhatsApp Group",
+                        font=dict(size=12),
+                        bgcolor="white",
+                        bordercolor="gray",
+                        borderwidth=1
+                    ),
+                    width=1400,
+                    height=750,
+                )
+
+                fig.add_annotation(
+                    text=settings.subtitle,
+                    xref="paper", yref="paper",
+                    x=0.5, y=0.92,
+                    showarrow=False,
+                    font=dict(size=18, color="dimgray", family="Arial, sans-serif"),
+                    align="center"
+                )
+
+                if settings.ellipse_mode > 0:
                     for grp in data.agg_df["plot_group"].unique():
                         sub = data.agg_df[data.agg_df["plot_group"] == grp]
-                        if len(sub) < 2:
+                        if len(sub) < 3:
                             continue
-                        x, y = sub["tsne_x"], sub["tsne_y"]
-                        cov = np.cov(x, y)
-                        mean_x, mean_y = x.mean(), y.mean()
-                        lambda_, v = np.linalg.eig(cov)
-                        lambda_ = np.sqrt(lambda_)
-                        chi = np.sqrt(chi2.ppf(0.50, 2))
-                        width, height = 2 * lambda_[0] * chi, 2 * lambda_[1] * chi
-                        angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
-
+                        X = sub[["tsne_x", "tsne_y"]].values
                         color = group_colors.get(grp, "#333333")
-                        ell_x, ell_y = get_ellipse_points(mean_x, mean_y, width, height, angle)
-                        fig.add_trace(go.Scatter(
-                            x=ell_x, y=ell_y, mode="lines", fill="toself",
-                            fillcolor=hex_to_rgba(color, 0.25),
-                            line=dict(color=color, width=2),
-                            name=f"{grp} 50%", showlegend=False
-                        ))
+
+                        if settings.ellipse_mode == 1:
+                            cov = np.cov(X.T)
+                            mean = X.mean(axis=0)
+                            lambda_, v = np.linalg.eig(cov)
+                            lambda_ = np.sqrt(lambda_)
+                            width, height = 2 * lambda_ * chi_val
+                            angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
+                            ell_x, ell_y = get_ellipse_points(mean[0], mean[1], width[0], height[1], angle)
+                            fig.add_trace(go.Scatter(x=ell_x, y=ell_y, mode="lines", fill="toself",
+                                fillcolor=hex_to_rgba(color, 0.25), line=dict(color=color, width=2),
+                                showlegend=False))
+
+                        else:
+                            best_gmm = None
+                            best_bic = np.inf
+                            best_n = 1
+                            for n in range(1, min(4, len(sub))):
+                                gmm = GaussianMixture(n_components=n, covariance_type="full", random_state=42)
+                                gmm.fit(X)
+                                bic = gmm.bic(X)
+                                if bic < best_bic:
+                                    best_bic = bic
+                                    best_gmm = gmm
+                                    best_n = n
+
+                            for i in range(best_n):
+                                weight = best_gmm.weights_[i]
+                                if weight < 0.1:
+                                    continue
+                                mean = best_gmm.means_[i]
+                                cov = best_gmm.covariances_[i]
+                                lambda_, v = np.linalg.eig(cov)
+                                lambda_ = np.sqrt(lambda_)
+                                width = 2 * lambda_[0] * chi_val
+                                height = 2 * lambda_[1] * chi_val
+                                angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
+                                ell_x, ell_y = get_ellipse_points(mean[0], mean[1], width, height, angle)
+                                opacity = 0.2 + 0.3 * weight
+                                fig.add_trace(go.Scatter(x=ell_x, y=ell_y, mode="lines", fill="toself",
+                                    fillcolor=hex_to_rgba(color, opacity), line=dict(color=color, width=2),
+                                    showlegend=False))
 
                 figs["group"] = fig
 
-            logger.success(f"Multi-dimensional plot built: {len(figs)} figures")
+            logger.success(f"Multi-dimensional plot built: {len(figs)} figures (title 24pt, extra top space)")
             return figs
 
         except Exception as e:

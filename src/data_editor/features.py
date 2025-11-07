@@ -18,6 +18,7 @@ from __future__ import annotations
 # === Imports ===
 from typing import Dict, List, Set, Any
 import pandas as pd
+import emoji
 import re
 import string
 
@@ -30,15 +31,16 @@ BROAD_PUNCTUATION = "".join(set(string.punctuation) - {"@", "&"})
 
 # === Shared Emoji Pattern ===
 EMOJI_PATTERN = re.compile(
-    r'[\U0001F600-\U0001F64F'   # emoticons
-    r'\U0001F300-\U0001F5FF'    # symbols & pictographs
-    r'\U0001F680-\U0001F6FF'    # transport & map
-    r'\U0001F1E0-\U0001F1FF'    # flags
-    r'\U0001F900-\U0001FAFF'    # supplemental
-    r'\U00002600-\U000026FF'    # misc symbols
-    r'\U00002700-\U000027BF'    # dingbats
-    r'\u200D\uFE0F?\uFE0F?'     # joiners + variation selectors
-    r']+', re.UNICODE)
+    r'[\U0001F600-\U0001F64F'
+    r'\U0001F300-\U0001F5FF'
+    r'\U0001F680-\U0001F6FF'
+    r'\U0001F1E0-\U0001F1FF'
+    r'\U0001F900-\U0001FAFF'
+    r'\U00002600-\U000026FF'
+    r'\U00002700-\U000027BF'
+    r'\u200D\uFE0F'
+    r']+', re.UNICODE
+)
 
 
 # === Reusable Sub-Functions ===
@@ -66,10 +68,34 @@ def length_chat(text: str | None) -> int:
 
 
 def list_of_all_emojis(text: str, ignore_emojis: Set[str]) -> List[str]:
-    """Extract all individual emojis."""
+    """
+    Extract individual base emojis using `emoji.emoji_list()`.
+
+    - Returns list of dicts: [{'match_start': 0, 'match_end': 3, 'emoji': '❤️'}]
+    - Filters out sequences with ignored chars (skin tones, U+FE0F)
+    - Strips U+FE0F
+    - Returns list of clean base emojis
+    """
     if not isinstance(text, str):
         return []
-    return [c for c in text if EMOJI_PATTERN.fullmatch(c) and c not in ignore_emojis]
+
+    try:
+        matches = emoji.emoji_list(text)
+    except:
+        return []
+
+    cleaned = []
+    for item in matches:
+        seq = item["emoji"]
+        # Skip if contains any ignored char
+        if any(c in ignore_emojis for c in seq):
+            continue
+        # Remove U+FE0F and other ignored
+        cleaned_seq = ''.join(c for c in seq if c not in ignore_emojis)
+        if cleaned_seq:
+            cleaned.append(cleaned_seq)
+
+    return cleaned
 
 
 def list_of_connected_emojis(text: str, pattern: re.Pattern) -> List[str]:
@@ -317,7 +343,10 @@ class FeatureEngineer:
         msg = df[Columns.MESSAGE_CLEANED]
 
         df[Columns.LIST_OF_ALL_EMOJIS] = msg.apply(list_of_all_emojis, ignore_emojis=ignore_emojis)
-        df[Columns.NUMBER_OF_EMOJIS] = df[Columns.LIST_OF_ALL_EMOJIS].str.len()
+        # df[Columns.NUMBER_OF_EMOJIS] = df[Columns.LIST_OF_ALL_EMOJIS].str.len()
+        df[Columns.NUMBER_OF_EMOJIS] = msg.apply(
+        lambda x: len(list_of_all_emojis(x, ignore_emojis)) if isinstance(x, str) else 0
+        )
         df[Columns.HAS_EMOJI] = df[Columns.NUMBER_OF_EMOJIS] > 0
 
         df[Columns.LIST_OF_CONNECTED_EMOJIS] = msg.apply(
