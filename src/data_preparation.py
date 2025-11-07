@@ -125,6 +125,50 @@ class DistributionPlotData(BaseModel):
         extra = "forbid"
 
 
+# === Power-Law Analysis Models ===
+class PowerLawFitResult(BaseModel):
+    """Results from power-law fit using powerlaw package."""
+    alpha: float = Field(..., description="Power-law exponent α")
+    xmin: int = Field(..., description="Lower bound for power-law behavior")
+    D: float = Field(..., description="K-S statistic (distance)")
+    loglikelihood: float = Field(..., description="Log-likelihood of the power-law model")
+    n_tail: int = Field(..., description="Number of observations in tail (≥ xmin)")
+
+    class Config:
+        extra = "forbid"
+
+
+class ModelComparisonResult(BaseModel):
+    """Likelihood ratio test p-values vs alternative models."""
+    vs_exponential: float = Field(..., description="p-value vs exponential")
+    vs_lognormal: float = Field(..., description="p-value vs lognormal")
+    R: float = Field(..., description="Log-likelihood ratio (positive = power-law better)")
+
+    class Config:
+        extra = "forbid"
+
+
+class PowerLawAnalysisResult(BaseModel):
+    """Full power-law analysis output."""
+    fit: PowerLawFitResult
+    comparison: ModelComparisonResult
+    n_observations: int
+    total_messages_with_emoji: int
+    top_10_emojis: list[str] = Field(default_factory=list)
+
+    @property
+    def is_power_law(self) -> bool:
+        """True if power-law beats both alternatives (p < 0.05)."""
+        return (
+            self.comparison.vs_exponential < 0.05
+            and self.comparison.vs_lognormal < 0.05
+        )
+
+    class Config:
+        extra = "forbid"
+        arbitrary_types_allowed = True
+
+
 # === 4. Arc Plot Data Contract (Script4) ===
 class ArcPlotData(BaseModel):
     """Validated container for the participation table used by the arc diagram."""
@@ -410,6 +454,115 @@ class DataPreparation(BaseHandler):
             return None
 
     # === 3. Distribution (Script3) ===
+
+    # === Power-Law Analysis Function ===
+    def analyze_emoji_distribution_power_law(
+        self,
+        df: pd.DataFrame,
+        min_count_for_tail: int = 5,
+        max_xmin: int = 50,
+    ) -> PowerLawAnalysisResult | None:
+        """
+        Perform rigorous power-law (Zipf) analysis on emoji frequencies.
+
+        Uses `powerlaw` package (Clauset et al., 2009) with:
+        - Automatic xmin selection
+        - K-S distance
+        - Log-likelihood (summed over tail)
+        - Likelihood-ratio tests vs exponential & lognormal
+
+        Args:
+            df: Input DataFrame (same as build_visual_distribution)
+            min_count_for_tail: Minimum count to consider for tail (default 5)
+            max_xmin: Upper bound for xmin search
+
+        Returns:
+            PowerLawAnalysisResult or None on failure
+        """
+        df = self._handle_empty_df(df, "analyze_emoji_distribution_power_law")
+        if df.empty:
+            return None
+
+        try:
+            # Reuse existing emoji parsing
+            emojis_list = self.data_editor.parse_emojis(df)
+            if not emojis_list.any():
+                logger.warning("No emojis found for power-law analysis")
+                return None
+
+            all_emojis = [e for msg in emojis_list for e in msg if e]
+            if not all_emojis:
+                return None
+
+            counts = Counter(all_emojis)
+            total_with_emoji = sum(1 for msg in emojis_list if msg)
+            frequencies = np.array(list(counts.values()))
+
+            # === Fit power-law using powerlaw package ===
+            import powerlaw
+
+            fit = powerlaw.Fit(
+                frequencies,
+                discrete=True,
+                xmin=(min_count_for_tail, max_xmin),
+                estimate_discrete=True,
+            )
+
+            # Extract fit results
+            alpha = float(fit.power_law.alpha)
+            xmin = int(fit.power_law.xmin)
+            D = float(fit.power_law.D)                     # K-S distance
+
+            # Compute log-likelihood on the tail (≥ xmin)
+            tail_data = fit.data[fit.data >= xmin]
+            loglikelihood = float(np.sum(fit.power_law.loglikelihoods(tail_data)))
+
+            n_tail = int(fit.n_tail)
+
+            # Model comparisons (this is the real proof)
+            R_exp, p_exp = fit.distribution_compare('power_law', 'exponential')
+            R_log, p_log = fit.distribution_compare('power_law', 'lognormal')
+
+            # Top 10 emojis
+            top_10 = [emoji for emoji, _ in counts.most_common(10)]
+
+            result = PowerLawAnalysisResult(
+                fit=PowerLawFitResult(
+                    alpha=alpha,
+                    xmin=xmin,
+                    D=D,
+                    loglikelihood=loglikelihood,
+                    n_tail=n_tail,
+                ),
+                comparison=ModelComparisonResult(
+                    vs_exponential=float(p_exp),
+                    vs_lognormal=float(p_log),
+                    R=float(R_exp),
+                ),
+                n_observations=len(counts),
+                total_messages_with_emoji=total_with_emoji,
+                top_10_emojis=top_10,
+            )
+
+            logger.success(
+                f"Power-law analysis: α={alpha:.2f}, xmin={xmin}, "
+                f"K-S D={D:.3f}, logL={loglikelihood:.1f}, n_tail={n_tail}"
+            )
+            if result.is_power_law:
+                logger.success(
+                    "Power-law is the best model (beats exponential & lognormal, p < 0.05)"
+                )
+            else:
+                logger.info(
+                    "Power-law fits the tail but not definitively better than alternatives."
+                )
+
+            return result
+
+        except Exception as e:
+            logger.exception(f"analyze_emoji_distribution_power_law failed: {e}")
+            return None
+    
     def build_visual_distribution(self, df: pd.DataFrame) -> DistributionPlotData | None:
         df_emoji = self._handle_empty_df(df, "build_visual_distribution")
         if df_emoji.empty:

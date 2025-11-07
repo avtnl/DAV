@@ -364,6 +364,7 @@ dependencies = [
     { name = "networkx" },
     { name = "nltk" },
     { name = "plotly" },
+    { name = "powerlaw" },
     { name = "scipy" },
     { name = "sentence-transformers" },
     { name = "statsmodels" },
@@ -398,6 +399,7 @@ requires-dist = [
     { name = "pandas-stubs", marker = "extra == 'dev'", specifier = ">=2.3.2.250926" },
     { name = "plotly", specifier = ">=6.3.1" },
     { name = "poethepoet", marker = "extra == 'dev'", specifier = ">=0.27.0" },
+    { name = "powerlaw", specifier = ">=1.5" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6.9" },
     { name = "scipy", specifier = ">=1.16.2" },
@@ -1685,6 +1687,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/7a/26/4c5da9f42fa067b2302fe62bcbf91faac5506c6513d910fae9548fc78d65/polars-1.33.1-cp39-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:094a37d06789286649f654f229ec4efb9376630645ba8963b70cb9c0b008b3e1", size = 36684940, upload-time = "2025-09-09T08:36:50.561Z" },
     { url = "https://files.pythonhosted.org/packages/06/a6/dc535da476c93b2efac619e04ab81081e004e4b4553352cd10e0d33a015d/polars-1.33.1-cp39-abi3-win_amd64.whl", hash = "sha256:c9781c704432a2276a185ee25898aa427f39a904fbe8fde4ae779596cdbd7a9e", size = 39456676, upload-time = "2025-09-09T08:36:54.612Z" },
     { url = "https://files.pythonhosted.org/packages/cb/4e/a4300d52dd81b58130ccadf3873f11b3c6de54836ad4a8f32bac2bd2ba17/polars-1.33.1-cp39-abi3-win_arm64.whl", hash = "sha256:c3cfddb3b78eae01a218222bdba8048529fef7e14889a71e33a5198644427642", size = 35445171, upload-time = "2025-09-09T08:36:58.043Z" },
+]
+
+[[package]]
+name = "powerlaw"
+version = "1.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "mpmath" },
+    { name = "numpy" },
+    { name = "scipy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e8/26/e0daa306f83d705bc1ed4d6759b7fc945cc787530c230ee1fe299cc28093/powerlaw-1.5-py3-none-any.whl", hash = "sha256:633a669573d9fd663d2f452f121117f2d6b2f2c502eca532f9355f733abfec96", size = 24982, upload-time = "2021-08-18T01:21:04.803Z" },
 ]
 
 [[package]]

@@ -20,6 +20,7 @@ dependencies = [
     "networkx>=3.5",
     "nltk>=3.9.2",
     "plotly>=6.3.1",
+    "powerlaw>=1.5",
     "scipy>=1.16.2",
     "sentence-transformers>=5.1.2",
     "statsmodels>=0.14.5",
