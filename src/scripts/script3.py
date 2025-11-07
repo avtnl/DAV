@@ -12,6 +12,7 @@ and generates the bar + cumulative line chart via
 - Saves **full emoji table** (all emojis + counts + Unicode) to `data/tables/`
 - Passes **top 20** to `plot_manager` for consistent visualization
 - **Optional power-law (Zipf) analysis** – runs K-S test, saves log-log plot and model-comparison table
+- **Flexible run modes**: individual groups, combined, or both
 - Robust error handling and logging
 
 Examples
@@ -19,6 +20,9 @@ Examples
 >>> script = Script3(file_manager, data_editor, data_preparation, plot_manager, image_dir, df)
 >>> script.run()
 PosixPath('images/emoji_counts_once.png')
+
+>>> script = Script3(..., run_mode=RunMode.COMBINED)
+>>> script.run()  # Only combined analysis
 """
 
 # === Imports ===
@@ -26,7 +30,7 @@ from pathlib import Path
 import pandas as pd
 
 from loguru import logger
-from src.constants import Columns, Groups
+from src.constants import Columns, Groups, RunMode  # NEW: RunMode
 from src.plot_manager import DistributionPlotSettings
 from src.data_preparation import DistributionPlotData
 
@@ -35,7 +39,7 @@ from .base import BaseScript
 
 # === Script 3 ===
 class Script3(BaseScript):
-    """Generate emoji distribution plot for MAAP group (with optional power-law proof)."""
+    """Generate emoji distribution plots for WhatsApp groups with flexible run modes."""
 
     def __init__(
         self,
@@ -46,7 +50,8 @@ class Script3(BaseScript):
         image_dir: Path,
         df: pd.DataFrame,
         settings: DistributionPlotSettings | None = None,
-        run_powerlaw: bool = True,                     # NEW: toggle power-law proof
+        run_powerlaw: bool = True,
+        run_mode: RunMode = RunMode.COMBINED,  # <-- RunMode (INDIVIDUAL, COMBINED, BOTH)
     ) -> None:
         """
         Initialize Script3 with required components.
@@ -59,7 +64,8 @@ class Script3(BaseScript):
             image_dir: Directory to save plot.
             df: Enriched DataFrame (required).
             settings: Plot settings (optional).
-            run_powerlaw: If True, also run power-law analysis after the bar chart.
+            run_powerlaw: If True, run power-law analysis.
+            run_mode: Execution mode: individual groups, combined, or both.
         """
         super().__init__(
             file_manager=file_manager,
@@ -71,139 +77,146 @@ class Script3(BaseScript):
         )
         self.image_dir = image_dir
         self.run_powerlaw = run_powerlaw
+        self.run_mode = run_mode
 
-    def run(self) -> Path | None:
+    def run(self) -> dict | None:
         """
-        Generate and save the emoji distribution plot (and optional power-law proof).
+        Generate emoji distribution plots based on run_mode.
 
-        Steps:
-            1. Filter for MAAP group
-            2. Build full emoji distribution (with Unicode)
-            3. Save **full table** to `data/tables/`
-            4. Pass **top 20** to `plot_manager`
-            5. Save bar + cumulative plot to `images/`
-            6. (Optional) Run power-law analysis → log-log plot + model-comparison table
+        - RunMode.INDIVIDUAL: One plot per group
+        - RunMode.COMBINED: One plot for all groups combined
+        - RunMode.BOTH: Both of the above
 
         Returns:
-            Path: Path to saved PNG file (the original bar chart).
-            None: If data missing or plot fails.
+            Dict[group_name, Path] for individual bar charts (or None)
         """
-        # === 1. Filter for MAAP group ===
-        df_maap = self.df[self.df[Columns.WHATSAPP_GROUP.value] == Groups.MAAP.value].copy()
-        if df_maap.empty:
-            self.log_error(f"No data for group '{Groups.MAAP.value}'. Skipping.")
-            return None
-
-        # === 2. Build full emoji distribution ===
-        distribution_data = self.data_preparation.build_visual_distribution(df_maap)
-        if distribution_data is None:
-            self.log_error("build_visual_distribution returned None.")
-            return None
-
-        full_df = distribution_data.emoji_counts_df
-        logger.info(f"Unique emojis: {len(full_df)}")
-
-        # === 3. Save full emoji table ===
+        results = {}
         tables_dir = self.image_dir.parent / "tables"
         tables_dir.mkdir(exist_ok=True)
-        full_table_path = self.file_manager.save_table(
-            full_df,
-            tables_dir,
-            "emoji_counts_full"
-        )
-        logger.success(f"Saved full emoji table: {full_table_path}")
 
-        # === 4. Pass top 20 to plot manager ===
-        top_20_df = full_df.head(20)
-        top_20_data = DistributionPlotData(emoji_counts_df=top_20_df)
+        # === INDIVIDUAL GROUPS ===
+        if self.run_mode in (RunMode.INDIVIDUAL, RunMode.BOTH):
+            all_groups = [Groups.MAAP.value, Groups.DAC.value, Groups.GOLFMATEN.value, Groups.TILLIES.value]
+            for group_name in all_groups:
+                df_group = self.df[self.df[Columns.WHATSAPP_GROUP.value] == group_name].copy()
+                if df_group.empty:
+                    logger.warning(f"No data for group '{group_name}'. Skipping.")
+                    continue
 
-        fig = self.plot_manager.build_visual_distribution(
-            distribution_data,  # Full data (for cumulative line)
-            self.settings      # With cum_threshold=75.0
-        )
-        if fig is None:
-            self.log_error("Failed to create emoji bar chart.")
-            return None
+                logger.info(f"Processing group: {group_name} ({len(df_group)} messages)")
 
-        # === 5. Save original plot ===
-        bar_chart_path = self.save_figure(fig, self.image_dir, "emoji_counts_once")
-        logger.success(f"Bar + cumulative plot saved: {bar_chart_path}")
+                # Build distribution
+                distribution_data = self.data_preparation.build_visual_distribution(df_group)
+                if not distribution_data:
+                    logger.error(f"Failed to build distribution for {group_name}")
+                    continue
 
-        # === 6. Optional power-law (Zipf) proof ===
-        if self.run_powerlaw:
-            self._run_powerlaw_analysis(df_maap, tables_dir)
+                full_df = distribution_data.emoji_counts_df
+                logger.info(f"Unique emojis in {group_name}: {len(full_df)}")
 
-        return bar_chart_path
+                # Save full table
+                table_path = self.file_manager.save_table(
+                    full_df, tables_dir, f"emoji_counts_full_{group_name}"
+                )
+                logger.success(f"Saved: {table_path}")
 
+                # Bar + cumulative
+                top_20_data = DistributionPlotData(emoji_counts_df=full_df.head(20))
+                fig = self.plot_manager.build_visual_distribution(distribution_data, self.settings)
+                if fig:
+                    bar_path = self.save_figure(fig, self.image_dir, f"emoji_counts_once_{group_name}")
+                    results[group_name] = bar_path
+                    logger.success(f"Bar plot saved: {bar_path}")
+
+                # Power-law per group
+                if self.run_powerlaw:
+                    self._run_powerlaw_analysis(df_group, tables_dir, suffix=f"_{group_name}")
+
+            logger.success("Individual group analysis complete.")
+
+        # === COMBINED ANALYSIS ===
+        if self.run_mode in (RunMode.COMBINED, RunMode.BOTH):
+            logger.info("Running COMBINED analysis on ALL groups...")
+            self.run_combined_analysis(tables_dir)
+            logger.success("Combined analysis complete.")
+
+        return results or None
 
     # === Power-law analysis helper ===
-    def _run_powerlaw_analysis(self, df_maap: pd.DataFrame, tables_dir: Path) -> None:
-        """
-        Run power-law analysis on the MAAP emoji frequencies.
-
-        - Calls ``DataPreparation.analyze_emoji_distribution_power_law`` **only if the
-        `powerlaw` package is installed**.
-        - Saves log-log plot (PNG) and model-comparison table (HTML) if successful.
-        - Gracefully skips the whole block if the package is missing.
-
-        Args:
-            df_maap: DataFrame filtered to MAAP group.
-            tables_dir: Directory where the full table lives (used for naming consistency).
-        """
+    def _run_powerlaw_analysis(self, df_group: pd.DataFrame, tables_dir: Path, suffix: str = "") -> None:
+        """Run power-law analysis and save plots."""
         try:
-            # Guard – the method may not exist in older codebases
-            analysis_method = getattr(
-                self.data_preparation, "analyze_emoji_distribution_power_law", None
-            )
-            if analysis_method is None:
+            analysis_method = getattr(self.data_preparation, "analyze_emoji_distribution_power_law", None)
+            if not analysis_method:
                 logger.info("Power-law analysis method not available – skipping.")
                 return
 
-            # Guard – `powerlaw` package must be importable
             try:
                 import powerlaw  # noqa: F401
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Package `powerlaw` is not installed – power-law proof skipped. "
-                    "Install with: pip install powerlaw"
-                )
+            except Exception:
+                logger.warning("Package `powerlaw` not installed – skipping proof.")
                 return
 
-            logger.info("Starting power-law (Zipf) analysis on emoji frequencies...")
-            analysis = analysis_method(df_maap)
-
-            if analysis is None:
+            logger.info(f"Starting power-law analysis{suffix}...")
+            analysis = analysis_method(df_group)
+            if not analysis:
                 logger.warning("Power-law analysis returned None.")
                 return
 
-            # Log key results
             fit = analysis.fit
             logger.success(
-                f"Power-law fit: α={fit.alpha:.3f}, xₘᵢₙ={fit.xmin}, "
+                f"Power-law fit{suffix}: α={fit.alpha:.3f}, xₘᵢₙ={fit.xmin}, "
                 f"K-S D={fit.D:.3f}, n_tail={fit.n_tail}"
             )
             if analysis.is_power_law:
-                logger.success("Power-law is the best model (p > 0.05 and beats alternatives).")
+                logger.success("Power-law is the best model (p < 0.05 vs alternatives).")
             else:
                 logger.info("Power-law fit is acceptable but not definitively superior.")
 
-            # === Log-log plot ===
+            # Log-log plot
             loglog_fig = self.plot_manager.build_visual_distribution_powerlaw(analysis)
             if loglog_fig:
-                loglog_path = self.save_figure(
-                    loglog_fig, self.image_dir, "emoji_powerlaw_loglog"
-                )
-                logger.success(f"Log-log power-law plot saved: {loglog_path}")
+                loglog_path = self.save_figure(loglog_fig, self.image_dir, f"emoji_powerlaw_loglog{suffix}")
+                logger.success(f"Log-log plot saved: {loglog_path}")
 
-            # === Model-comparison table (interactive HTML) ===
+            # Model comparison
             comp_fig = self.plot_manager.build_visual_distribution_comparison(analysis)
             if comp_fig:
-                html_path = self.image_dir / "emoji_model_comparison.html"
+                html_path = self.image_dir / f"emoji_model_comparison{suffix}.html"
                 comp_fig.write_html(str(html_path))
-                logger.success(f"Model-comparison table saved: {html_path}")
+                logger.success(f"Comparison table saved: {html_path}")
 
         except Exception as e:
-            logger.exception(f"Power-law analysis failed: {e}")
+            logger.exception(f"Power-law analysis failed{suffix}: {e}")
+
+    # === Combined analysis for ALL groups ===
+    def run_combined_analysis(self, tables_dir: Path) -> None:
+        """Run power-law analysis on ALL messages from all groups."""
+        logger.info("Running power-law analysis on ALL groups combined...")
+
+        df_all = self.df.copy()
+        total_messages = len(df_all)
+        logger.info(f"Combined dataset: {total_messages} messages")
+
+        distribution_data = self.data_preparation.build_visual_distribution(df_all)
+        if not distribution_data:
+            logger.error("Failed to build combined distribution")
+            return
+
+        full_df = distribution_data.emoji_counts_df
+        logger.info(f"Unique emojis (ALL): {len(full_df)}")
+
+        table_path = self.file_manager.save_table(full_df, tables_dir, "emoji_counts_full_ALL")
+        logger.success(f"Saved: {table_path}")
+
+        top_20_data = DistributionPlotData(emoji_counts_df=full_df.head(20))
+        fig = self.plot_manager.build_visual_distribution(distribution_data, self.settings)
+        if fig:
+            bar_path = self.save_figure(fig, self.image_dir, "emoji_counts_once_ALL")
+            logger.success(f"Bar plot (ALL): {bar_path}")
+
+        if self.run_powerlaw:
+            self._run_powerlaw_analysis(df_all, tables_dir, suffix="_ALL")
 
 
 # === CODING STANDARD ===
@@ -218,9 +231,9 @@ class Script3(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Added optional power-law proof (log-log plot + model-comparison) (2025-11-07)
-# NEW: ``run_powerlaw`` flag in __init__ (default True) (2025-11-07)
-# NEW: ``_run_powerlaw_analysis`` private helper with full error handling (2025-11-07)
+# NEW: Added RunMode support (individual/combined/both) (2025-11-07)
+# NEW: Full per-group + combined analysis with suffix handling (2025-11-07)
+# NEW: Clean run_mode logic with StrEnum (2025-11-07)
 # NEW: Full table export to data/tables/ (2025-11-05)
 # NEW: Pass top 20 to plot_manager for consistent visualization (2025-11-05)
 # NEW: Robust directory creation and logging (2025-11-05)

@@ -306,6 +306,13 @@ class EmbeddingModel(int, Enum):
     MINILM = 2
     MPNET = 3
 
+# === Script Run Mode Options ===
+class RunMode(StrEnum):
+    """Run modes for scripts like Script3 (individual groups, combined, or both)."""
+    INDIVIDUAL = "individual"
+    COMBINED = "combined"
+    BOTH = "both"
+
 # === Script6 Configuration Keys ===
 class Script6ConfigKeys(StrEnum):
     """

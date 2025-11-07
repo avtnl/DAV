@@ -918,6 +918,7 @@ __all__ = [
     "MultiDimPlotData",
     "MultiDimPlotSettings",
     "DataPreparation",
+    "RunMode",
 ]
 
 
