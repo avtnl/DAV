@@ -23,12 +23,8 @@ import pandas as pd
 from loguru import logger
 
 from .cleaners import MessageCleaner
-from .features import FeatureEngineer
-from .utilities import list_of_all_emojis
+from .features import list_of_all_emojis, FeatureEngineer
 from src.constants import Columns, Groups
-
-if TYPE_CHECKING:
-    from .utilities import Utilities  # Type hint only
 
 
 # === Main Orchestrator ===
