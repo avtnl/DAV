@@ -55,7 +55,7 @@ class PlotSettings(BaseModel):
 
 # === 1. Categories Plot Settings (Script1) ===
 class CategoriesPlotSettings(PlotSettings):
-    title: str = "Anthony's participation is significantly lower for the 3rd group"
+    title: str = "AvT's participation is much lower for the 3rd group"
     subtitle: str = "Too much to handle or too much crap?"
     ylabel: str = Columns.MESSAGE_COUNT.human
     group_spacing: float = Field(2.5, ge=0.5, le=5.0)
@@ -80,7 +80,7 @@ class CategoriesPlotSettings(PlotSettings):
 class TimePlotSettings(PlotSettings):
     """Settings for the DAC weekly heartbeat plot."""
     title: str = "Golf season, decoded by WhatsApp heartbeat"
-    subtitle: str = "Whatsapp_group is 'dac' (Dinsdag Avond Competitie)"
+    subtitle: str = "Number of messages/week within whatsapp group 'dac'"
     rest_label: str = "---------Rest---------"
     prep_label: str = "---Prep---"
     play_label: str = "---------Play---------"
@@ -188,7 +188,7 @@ class ArcPlotSettings(PlotSettings):
 # === 5. Bubble Plot Settings (Script5) ===
 class BubblePlotSettings(PlotSettings):
     title: str = "Correlation between averages of Words and Punctuations"
-    subtitle: str = "About 1 extra punctuation per 10 words"
+    subtitle: str = "About 1 extra Punctuation per 10 Words"
     bubble_alpha: float = 0.6
     min_bubble_size: int = 50
     max_bubble_size: int = 1000
@@ -220,8 +220,8 @@ class BubblePlotSettings(PlotSettings):
 # === 6. Milti Dimensions Plot Settings (Script6) ===
 class MultiDimPlotSettings(PlotSettings):
     """Configuration for multi-dimensional t-SNE visualization (Script6)."""
-    title: str = "t-SNE Reveals Authors by How They Write, Not What They Say"
-    subtitle: str = "Combining 25 style features and style oriented Hugging Faces"
+    title: str = "Revealing authors fingerprint by 'How they write', not 'What they say'"
+    subtitle: str = "TSNE plot combining 25 style features and style oriented Hugging Faces"
     by_group: bool = True
     ellipse_mode: int = Field(0, ge=0, le=2)        # 0=none, 1=single, 2=GMM pockets
     confidence_level: int = Field(75, ge=20, le=100) # 20–100%
@@ -280,7 +280,7 @@ class PlotManager:
             return None
 
         try:
-            fig, ax = plt.subplots(figsize=(14, 6.5))  # Shorter canvas
+            fig, ax = plt.subplots(figsize=(10.5, 7))  # Shorter canvas
             plt.subplots_adjust(top=0.65)              # Axes end earlier → more room above
 
             # Define group colors
