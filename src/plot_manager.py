@@ -26,9 +26,9 @@ import seaborn as sns
 import pandas as pd
 from loguru import logger
 from pydantic import BaseModel, Field, model_validator, ConfigDict
-from typing import Literal, Dict
+from typing import Tuple, Dict
 
-from .constants import Columns, Groups, InteractionType, Script5ConfigKeys
+from .constants import Columns, Groups
 from .data_preparation import (
     CategoryPlotData,
     TimePlotData,
@@ -36,47 +36,65 @@ from .data_preparation import (
     DistributionPlotData,
     RelationshipsPlotData,
     MultiDimPlotData,
-    MultiDimPlotSettings
+    MultiDimPlotSettings,
+    PowerLawAnalysisResult,
+    PowerLawFitResult
 )
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
+# === STANDARD CANVAS SIZES ===
+WIDE_TALL = (14, 8)        # Distribution, PowerLaw, Seasonality
+WIDE_COMPACT = (14, 6.5)    # Categories, Time, Relationships
 
-# === Shared Base Settings ===
+# === Base Settings ===
 class PlotSettings(BaseModel):
-    """Base settings for all plots."""
-    title: str = ""
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    figsize: Tuple[float, float] = Field((11.0, 7.8), description="A4 landscape with margins")
+    dpi: int = Field(300, ge=100, le=600)
+    font_family: str = "Arial"
+    tight_layout: bool = True
+    style: str = "whitegrid"
+
     xlabel: str = ""
     ylabel: str = ""
-    figsize: tuple[int, int] = (14, 8)
+    grid_alpha: float = 0.3
+    grid_linestyle: str = "--"
 
-
-# === 1. Categories Plot Settings (Script1) ===
-class CategoriesPlotSettings(PlotSettings):
-    title: str = "AvT's participation is much lower for the 3rd group"
-    subtitle: str = "Too much to handle or too much crap?"
-    ylabel: str = Columns.MESSAGE_COUNT.human
-    group_spacing: float = Field(2.5, ge=0.5, le=5.0)
-    bar_width: float = Field(0.8, ge=0.1, le=1.0)
-    trendline_color: str = "red"
-    trendline_style: str = "--"
-    trendline_width: float = 2.5
-
+    title: str = ""
     title_fontsize: int = 24
     title_fontweight: str = "bold"
-    title_pad: float = 40
+    title_pad: float = 40.0
     title_ha: str = "center"
 
+    subtitle: str = ""
     subtitle_fontsize: int = 18
     subtitle_fontweight: str = "bold"
     subtitle_color: str = "dimgray"
     subtitle_y: float = 0.85
     subtitle_ha: str = "center"
 
+    legend: bool = True
+    legend_loc: str = "upper right"
+    legend_bbox_to_anchor: Tuple[float, float] | None = None
+    legend_borderaxespad: float = 0.0
+    legend_frameon: bool = True
+    legend_fontsize: int = 12
 
-# === 2. Time Plot Settings (Script2) ===
+# === 1. Categories ===
+class CategoriesPlotSettings(PlotSettings):
+    ylabel: str = Columns.MESSAGE_COUNT.human
+    group_spacing: float = Field(2.5, ge=0.5, le=5.0)
+    bar_width: float = Field(0.8, ge=0.1, le=1.0)
+    trendline_color: str = "red"
+    trendline_style: str = "--"
+    trendline_width: float = 2.5
+    figsize: Tuple[float, float] = WIDE_COMPACT
+    subtitle_y: float = 0.92
+
+# === 2. Time ===
 class TimePlotSettings(PlotSettings):
-    """Settings for the DAC weekly heartbeat plot."""
     title: str = "Golf season, decoded by WhatsApp heartbeat"
     subtitle: str = "Number of messages/week within whatsapp group 'dac'"
     rest_label: str = "---------Rest---------"
@@ -84,23 +102,11 @@ class TimePlotSettings(PlotSettings):
     play_label: str = "---------Play---------"
     line_color: str = "green"
     linewidth: float = 2.5
-
-    title_fontsize: int = 24
-    title_fontweight: str = "bold"
-    title_pad: float = 40
-    title_ha: str = "center"
-
-    subtitle_fontsize: int = 18
-    subtitle_fontweight: str = "bold"
-    subtitle_color: str = "dimgray"
-    subtitle_y: float = 0.85
-    subtitle_ha: str = "center"
-
+    figsize: Tuple[float, float] = WIDE_COMPACT
+    subtitle_y: float = 0.96
 
 class SeasonalityPlotSettings(PlotSettings):
-    """Settings for the 4-panel seasonality evidence suite."""
-    fig_width: int = 16
-    fig_height: int = 10
+    figsize: Tuple[float, float] = (16, 10)
     subplot_titles_fontsize: int = 14
     acf_color: str = "#1f77b4"
     decomp_linewidth: float = 1.8
@@ -108,9 +114,9 @@ class SeasonalityPlotSettings(PlotSettings):
     fourier_markersize: int = 6
     filtered_alpha: float = 0.7
 
-
-# === 3. Distribution Plot Settings (Script3) ===
+# === 3. Distribution ===
 class DistributionPlotSettings(PlotSettings):
+    figsize: Tuple[float, float] = WIDE_TALL
     bar_color: str = "purple"
     cumulative_color: str = "orange"
     bar_alpha: float = 0.9
@@ -118,28 +124,13 @@ class DistributionPlotSettings(PlotSettings):
     cum_label: str = "Cumulative %"
     cum_threshold: float = 75.0
     top_table: int = 25  # For table, not bars
-
-class DistributionPlotData(BaseModel):
-    """Validated container for the emoji-frequency DataFrame."""
-    emoji_counts_df: pd.DataFrame = Field(
-        ..., description="Columns: ['emoji', 'count_once', 'percent_once', 'unicode_code', 'unicode_name']"
-    )
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    @model_validator(mode="after")
-    def validate_columns(self):
-        required = {"emoji", "count_once", "percent_once", "unicode_code", "unicode_name"}
-        missing = required - set(self.emoji_counts_df.columns)
-        if missing:
-            raise ValueError(f"Missing required columns: {missing}")
-        return self
+    subtitle_y: float = 0.96
 
 # Power-Law Plot Settings
 class PowerLawPlotSettings(PlotSettings):
-    """Settings for log-log power-law plot."""
+    figsize: Tuple[float, float] = WIDE_TALL
     title: str = "Emoji Frequency Follows Power-Law (Zipf) Distribution"
-    subtitle: str = "Log-log plot shows linear relationship → proof of log model"
+    subtitle: str = "Log-log plot shows linear relationship to proof of log model"
     line_color: str = "red"
     line_width: float = 2.5
     marker_color: str = "blue"
@@ -149,12 +140,16 @@ class PowerLawPlotSettings(PlotSettings):
     annotate_alpha: bool = True
     font_size_title: int = 24
     font_size_subtitle: int = 18
+    subtitle_y: float = 0.96
+    font_size_title: int = 24
+    font_size_subtitle: int = 18
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-# === 4. Relationships Plot Settings (Script4) ===
+# === 4. Relationships ===
 class RelationshipsPlotSettings(PlotSettings):
+    figsize: Tuple[float, float] = WIDE_COMPACT
     title: str = "Correlation between averages of Words and Punctuations"
     subtitle: str = "About 1 extra Punctuation per 10 Words"
     bubble_alpha: float = 0.6
@@ -165,7 +160,7 @@ class RelationshipsPlotSettings(PlotSettings):
     trendline_width: float = 2.5
     trendline_alpha: float = 0.5
     legend_scale_factor: float = 1.0
-    group_colors: dict[str, str] = Field(
+    group_colors: Dict[str, str] = Field(
         default_factory=lambda: {
             Groups.MAAP: "deepskyblue",
             Groups.GOLFMATEN: "orange",
@@ -173,21 +168,10 @@ class RelationshipsPlotSettings(PlotSettings):
             Groups.TILLIES: "gray",
         }
     )
-    title_fontsize: int = 24
-    title_fontweight: str = "bold"
-    title_pad: float = 40
-    title_ha: str = "center"
+    subtitle_y: float = 0.92
 
-    subtitle_fontsize: int = 18
-    subtitle_fontweight: str = "bold"
-    subtitle_color: str = "dimgray"
-    subtitle_ha: str = "center"
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-# === 5. Multi Dimensions Plot Settings (Script5) ===
+# === 5. Multi Dimensions ===
 class MultiDimPlotSettings(PlotSettings):
-    """Configuration for multi-dimensional t-SNE visualization (Script5)."""
     title: str = "Revealing authors Fingerprints by 'style', not by 'content'"
     subtitle: str = "TSNE plot combining 25 style features and style oriented Hugging Faces"
     by_group: bool = True
@@ -229,28 +213,14 @@ class PlotManager:
         data: CategoryPlotData,
         settings: CategoriesPlotSettings = CategoriesPlotSettings(),
     ) -> plt.Figure | None:
-        """
-        Plot total messages per author per group with fair AvT comparison.
-
-        Args:
-            data: Validated CategoryPlotData
-            settings: Plot settings
-
-        Returns:
-            matplotlib Figure or None
-
-        Raises:
-            Exception: If plotting fails (logged).
-        """
         if not data or not data.groups:
             logger.error("Invalid or empty CategoryPlotData")
             return None
 
         try:
-            fig, ax = plt.subplots(figsize=(10.5, 7))  # Shorter canvas
-            plt.subplots_adjust(top=0.65)              # Axes end earlier → more room above
+            fig, ax = plt.subplots(figsize=settings.figsize)
+            plt.subplots_adjust(top=0.65)  # ← PRESERVED
 
-            # Define group colors
             group_colors = {
                 Groups.DAC: "green",
                 Groups.GOLFMATEN: "orange",
@@ -258,7 +228,6 @@ class PlotManager:
                 Groups.TILLIES: "gray",
             }
 
-            # Prepare bar positions and metadata
             x_pos: list[float] = []
             heights: list[int] = []
             bar_colors: list[str] = []
@@ -266,10 +235,7 @@ class PlotManager:
             group_midpoints: list[float] = []
             cur_x = 0.0
 
-            # Capture MAAP AvT position
-            maap_avt_x = None
-            maap_avt_h = None
-            maap_group_avg = None
+            maap_avt_x = maap_avt_h = maap_group_avg = None
 
             for group_data in data.groups:
                 n_auth = len(group_data.authors)
@@ -279,26 +245,14 @@ class PlotManager:
                     x_pos.append(cur_x)
                     heights.append(auth.message_count)
 
-                    # # AvT always black
-                    # col = "#000000" if auth.is_avt else group_colors.get(group_data.whatsapp_group, "gray")
-                    # bar_colors.append(col)
-                    # author_labels.append(auth.author)
-
-                    # AvT uses group color with thick gray border
                     group_color = group_colors.get(group_data.whatsapp_group, "gray")
-                    if auth.is_avt:
-                        bar_colors.append(group_color)      # Same fill as group
-                        # Border handled in ax.bar() below
-                    else:
-                        bar_colors.append(group_color)
-                    author_labels.append(auth.author)    
+                    bar_colors.append(group_color)
+                    author_labels.append(auth.author)
 
-                    # Capture AvT in MAAP
                     if group_data.whatsapp_group == Groups.MAAP and auth.is_avt:
-                        maap_avt_x = cur_x + 1.5  # Right of AvT bar
+                        maap_avt_x = cur_x + 1.5
                         maap_avt_h = auth.message_count
                         maap_group_avg = group_data.group_avg
-                        logger.info(f"AvT in MAAP at x={cur_x}, height={maap_avt_h}")
 
                     cur_x += 1.0
 
@@ -306,136 +260,75 @@ class PlotManager:
                 group_midpoints.append(mid)
                 cur_x += settings.group_spacing
 
-            # Draw bars with special edge for AvT
-            edgecolors = []
-            linewidths = []
-            hatches = []
-            for auth in [a for g in data.groups for a in g.authors]:
-                hatches.append("//" if auth.is_avt else "")
-                if auth.is_avt:
-                    edgecolors.append("black")
-                    linewidths.append(2.0)   # Thicker border
-                else:
-                    edgecolors.append("black")
-                    linewidths.append(1.3)
+            # AvT: black border + hatch
+            edgecolors = ["black"] * len(x_pos)
+            linewidths = [2.0 if auth.is_avt else 1.3 for g in data.groups for auth in g.authors]
+            hatches = ["//" if auth.is_avt else "" for g in data.groups for auth in g.authors]
 
             ax.bar(
-                x_pos,
-                heights,
+                x_pos, heights,
                 width=settings.bar_width,
                 color=bar_colors,
-                edgecolor=edgecolors,    # NEW: Per-bar edge color
-                linewidth=linewidths,    # NEW: Per-bar line width
-                hatch=hatches, 
+                edgecolor=edgecolors,
+                linewidth=linewidths,
+                hatch=hatches,
                 align="center",
             )
 
-            # Draw group average line ine red
+            # Group average lines
             avg_line_patch = None
             for mid_x, gdata in zip(group_midpoints, data.groups):
                 if gdata.group_avg > 0:
                     line_length = 0.5 * len(gdata.authors)
                     line = ax.hlines(
-                        y=gdata.group_avg,
-                        xmin=mid_x - line_length,
-                        xmax=mid_x + line_length,
-                        color="red",
-                        linestyle="--",
-                        linewidth=settings.trendline_width,
+                        gdata.group_avg,
+                        mid_x - line_length, mid_x + line_length,
+                        color="red", linestyle="--", linewidth=2.5,
                         zorder=5,
-                        label="Group Avg (non-AvT)" if mid_x == group_midpoints[0] else "",
+                        label="Group Avg (non-AvT)" if avg_line_patch is None else ""
                     )
-                    if avg_line_patch is None:       # lengend
-                        avg_line_patch = line
+                    avg_line_patch = avg_line_patch or line
 
-                    # Log MAAP mid and avg
-                    if gdata.whatsapp_group == Groups.MAAP:
-                        logger.info(f"maap_mid: {mid_x}")
-                        logger.info(f"maap_group_avg: {gdata.group_avg}")
-
-            # Draw vertical red block arrow in MAAP
-            if maap_group_avg is not None and maap_avt_x is not None and maap_avt_h is not None:
+            # MAAP AvT arrow
+            if maap_group_avg and maap_avt_x and maap_avt_h:
                 ax.annotate(
-                    "",
-                    xy=(maap_avt_x, maap_avt_h),                   # tip at top of AvT bar
-                    xytext=(maap_avt_x, maap_group_avg),           # tip at group‑avg line
+                    "", xy=(maap_avt_x, maap_avt_h), xytext=(maap_avt_x, maap_group_avg),
                     arrowprops=dict(
-                        arrowstyle="<->,head_length=2.0,head_width=2.0",  # double‑headed
-                        color="red",
-                        lw=3.0,
-                        connectionstyle="arc3,rad=0",
-                    ),
-                    zorder=6,
+                        arrowstyle="<->,head_length=2.0,head_width=2.0",
+                        color="red", lw=3.0
+                    ), zorder=6
                 )
 
-            #Title and subtitle
-            ax.set_title(
-                settings.title,
-                fontsize=settings.title_fontsize,
-                fontweight=settings.title_fontweight,
-                pad=settings.title_pad,
-                ha=settings.title_ha,
-            )
+            # Title and subtitle
+            ax.set_title(settings.title, fontsize=settings.title_fontsize, fontweight=settings.title_fontweight,
+                         pad=settings.title_pad, ha=settings.title_ha)
+            if settings.subtitle:
+                fig.text(0.5, settings.subtitle_y, settings.subtitle,
+                         fontsize=settings.subtitle_fontsize, fontweight=settings.subtitle_fontweight,
+                         color=settings.subtitle_color, ha=settings.subtitle_ha, va="top",
+                         transform=fig.transFigure)
 
-            # fig.suptitle(
-            #     settings.title,
-            #     fontsize=settings.title_fontsize,
-            #     fontweight=settings.title_fontweight,
-            #     y=0.98,
-            #     ha=settings.title_ha,
-            # )
-
-            # fig.suptitle(
-            #     settings.subtitle,
-            #     fontsize=settings.subtitle_fontsize,
-            #     fontweight=settings.subtitle_fontweight,
-            #     color=settings.subtitle_color,
-            #     y=settings.subtitle_y,
-            #     ha=settings.subtitle_ha,
-            # )
-
-            fig.text(
-                x=0.5,                       # ← X position (required)
-                y=0.92,
-                s=settings.subtitle,         # ← TEXT to display (required)
-                fontsize=settings.subtitle_fontsize,
-                fontweight=settings.subtitle_fontweight,
-                color=settings.subtitle_color,
-                ha=settings.subtitle_ha,
-                va="top",                    # ← Recommended
-                transform=fig.transFigure    # ← Critical for figure-level
-            )
-
-            # Axis labels
             ax.set_ylabel(settings.ylabel, fontsize=12)
             ax.set_xlabel("WhatsApp Groups and participating Authors", fontsize=12)
-
             ax.set_xticks(x_pos)
             ax.set_xticklabels(author_labels, rotation=45, ha="right", fontsize=12)
 
-            # Build legend
+            # Legend
             legend_patches = [
                 patches.Patch(facecolor=c, edgecolor="black", label=g.value.title())
                 for g, c in group_colors.items()
             ]
             legend_patches.append(patches.Patch(facecolor="black", edgecolor="black", label=Groups.AVT))
-            if avg_line_patch is not None:
-                legend_patches.append(avg_line_patch)  # NEW: Add red dashed line
+            if avg_line_patch:
+                legend_patches.append(avg_line_patch)
 
-            ax.legend(
-                handles=legend_patches,
-                title="Group",
-                loc="upper right",
-                bbox_to_anchor=(1.15, 0.9),
-                frameon=True,
-                fancybox=True,
-                shadow=True,
-            )
+            ax.legend(handles=legend_patches, title="Group", loc=settings.legend_loc,
+                      bbox_to_anchor=settings.legend_bbox_to_anchor or (1.15, 0.9),
+                      frameon=settings.legend_frameon, fontsize=settings.legend_fontsize)
 
-            # Apply grid and layout
-            ax.grid(True, axis="y", linestyle="--", alpha=0.7, zorder=0)
+            ax.grid(True, axis="y", linestyle=settings.grid_linestyle, alpha=settings.grid_alpha, zorder=0)
             ax.set_axisbelow(True)
-            plt.tight_layout()
+            plt.tight_layout() if settings.tight_layout else None
             plt.show()
 
             logger.success("Category bar chart built successfully")
@@ -444,7 +337,6 @@ class PlotManager:
         except Exception as e:
             logger.exception(f"build_visual_categories failed: {e}")
             return None
-
 
     # === 2. Time (Script2) ===
     def build_visual_time(
@@ -456,131 +348,67 @@ class PlotManager:
     ) -> Dict[str, Figure]:
         figs: Dict[str, Figure] = {}
 
-        # === Main Plot Setup ===
-        fig_category, ax = plt.subplots(figsize=(14, 6.5))
+        fig_category, ax = plt.subplots(figsize=settings.figsize)
         plt.subplots_adjust(top=0.85)
 
         weeks = sorted(data.weekly_avg.keys())
         avg_counts = [data.weekly_avg[w] for w in weeks]
 
-        # Smooth line – no markers
-        ax.plot(
-            weeks,
-            avg_counts,
-            color=settings.line_color,
-            linewidth=settings.linewidth,
-            zorder=6,
-        )
+        ax.plot(weeks, avg_counts, color=settings.line_color, linewidth=settings.linewidth, zorder=6)
 
-        # === Period Definitions ===
         vlines = [11.5, 18.5, 34.5]
         starts = [1] + [int(v + 0.5) for v in vlines]
-        ends   = [int(v + 0.5) - 1 for v in vlines] + [52]
-
-        period_labels = [
-            settings.rest_label,
-            settings.prep_label,
-            settings.play_label,
-            settings.rest_label,
-        ]
+        ends = [int(v + 0.5) - 1 for v in vlines] + [52]
+        period_labels = [settings.rest_label, settings.prep_label, settings.play_label, settings.rest_label]
         period_colors = ["#e8f5e9", "#c8e6c9", "#81c784", "#e8f5e9"]
 
-        # === Helper: Period Average ===
         def period_avg(start: int, end: int) -> float:
-            """Return mean of weekly values in [start, end]."""
             vals = [data.weekly_avg.get(w, 0.0) for w in range(start, end + 1)]
             return float(np.mean(vals)) if vals else 0.0
 
-        # === Draw Bands, Averages, Labels, and Separators ===
         period_avg_patch = None
         y_min, y_max = ax.get_ylim()
         label_y = y_min + 0.80 * (y_max - y_min)
 
         for i in range(4):
             s, e = starts[i], ends[i]
-
-            # Background band
             ax.axvspan(s - 0.5, e + 0.5, facecolor=period_colors[i], alpha=0.6, zorder=0)
-
-            # Period average
             p_avg = period_avg(s, e)
             if p_avg > 0:
-                line = ax.hlines(
-                    p_avg,
-                    xmin=s - 0.5,
-                    xmax=e + 0.5,
-                    color="red",
-                    linestyle="--",
-                    linewidth=1.2,
-                    zorder=4,
-                    label="Period Avg" if period_avg_patch is None else "",
-                )
-                if period_avg_patch is None:
-                    period_avg_patch = line
-
-            # Period label
+                line = ax.hlines(p_avg, s - 0.5, e + 0.5, color="red", linestyle="--", linewidth=1.2, zorder=4,
+                                label="Period Avg" if period_avg_patch is None else "")
+                period_avg_patch = period_avg_patch or line
             mid = (s + e) / 2
-            ax.text(
-                mid,
-                label_y,
-                period_labels[i],
-                ha="center",
-                va="center",
-                fontsize=12,
-                color="black",
-                fontweight="bold",
-                zorder=7,
-            )
+            ax.text(mid, label_y, period_labels[i], ha="center", va="center", fontsize=12, fontweight="bold", zorder=7)
 
-        # Vertical separators
         for v in vlines:
             ax.axvline(v, color="gray", linestyle="--", alpha=0.6, zorder=1)
 
-        # === X-Axis: Calendar Dates ===
         key_dates = {11: "March 15th", 18: "May 1st", 36: "September 1st"}
         ax.set_xticks(sorted(key_dates.keys()))
         ax.set_xticklabels([key_dates[w] for w in sorted(key_dates)], fontsize=12, ha="center")
         ax.set_xlabel("Time over Year", fontsize=12, labelpad=10)
-
-        # === Y-Axis: Year Range ===
         ax.set_ylabel("Average message count per week (2017 - 2025)", fontsize=12)
 
-        # === Title and Subtitle ===
-        ax.set_title(
-            settings.title,
-            fontsize=settings.title_fontsize,
-            fontweight=settings.title_fontweight,
-            pad=settings.title_pad,
-            ha=settings.title_ha,
-        )
-        fig_category.text(
-            x=0.5,
-            y=0.92,
-            s=settings.subtitle,
-            fontsize=settings.subtitle_fontsize,
-            fontweight=settings.subtitle_fontweight,
-            color=settings.subtitle_color,
-            ha=settings.subtitle_ha,
-            va="top",
-            transform=fig_category.transFigure,
-        )
+        ax.set_title(settings.title, fontsize=settings.title_fontsize, fontweight=settings.title_fontweight,
+                     pad=settings.title_pad, ha=settings.title_ha)
+        if settings.subtitle:
+            fig_category.text(0.5, settings.subtitle_y, settings.subtitle,
+                              fontsize=settings.subtitle_fontsize, fontweight=settings.subtitle_fontweight,
+                              color=settings.subtitle_color, ha=settings.subtitle_ha, va="top",
+                              transform=fig_category.transFigure)
 
-        # === Legend ===
-        legend_handles = []
-        if period_avg_patch:
-            legend_handles.append(period_avg_patch)
+        legend_handles = [period_avg_patch] if period_avg_patch else []
         ax.legend(handles=legend_handles, loc="upper right", fontsize=12)
 
-        # === Grid and Layout ===
-        ax.grid(True, axis="y", linestyle="--", alpha=0.7, zorder=0)
+        ax.grid(True, axis="y", linestyle=settings.grid_linestyle, alpha=settings.grid_alpha, zorder=0)
         ax.set_axisbelow(True)
-        plt.tight_layout()
+        plt.tight_layout() if settings.tight_layout else None
         plt.show()
 
         figs["category"] = fig_category
         logger.success("Time plot built")
 
-        # === Optional Seasonality Suite ===
         if include_seasonality and data.seasonality is not None:
             fig_season = self._build_seasonality_suite(data, season_settings or SeasonalityPlotSettings())
             if fig_season:
@@ -593,78 +421,86 @@ class PlotManager:
         time_data: TimePlotData,
         settings: SeasonalityPlotSettings,
     ) -> Figure | None:
-        """Render 4-panel seasonality evidence."""
+        """
+        Generate 4-panel seasonality evidence suite:
+        1. ACF
+        2. Decomposition
+        3. Fourier amplitudes
+        4. Smoothing filters
+
+        Args:
+            time_data: TimePlotData with seasonality evidence
+            settings: SeasonalityPlotSettings for figure size and styling
+
+        Returns:
+            matplotlib Figure or None
+        """
         if time_data.seasonality is None:
             logger.warning("No seasonality evidence available.")
             return None
-    
-        ev = time_data.seasonality
-        fig = plt.figure(figsize=(settings.fig_width, settings.fig_height))
-        gs = GridSpec(2, 2, figure=fig, hspace=0.4, wspace=0.3)
-        
-         # 1. ACF
-        ax0 = fig.add_subplot(gs[0, 0])
-        lags = range(len(ev.acf))
-        ax0.stem(lags, ev.acf, basefmt=" ", linefmt=settings.acf_color)
-        ax0.set_title("Autocorrelation (weekly lags)", fontsize=settings.subplot_titles_fontsize)
-        ax0.set_xlabel("Lag (weeks)")
-        ax0.set_ylabel("ACF")
-        ax0.axhline(0, color="k", linewidth=0.8)
-        ax0.grid(True, alpha=0.3)
 
-        # 2. Decomposition
-        ax1 = fig.add_subplot(gs[0, 1])
-        idx = range(len(ev.decomposition["trend"]))
-        ax1.plot(idx, ev.decomposition["trend"], label="Trend", linewidth=settings.decomp_linewidth)
-        ax1.plot(idx, ev.decomposition["seasonal"], label="Seasonal", linewidth=settings.decomp_linewidth)
-        ax1.plot(idx, ev.decomposition["resid"], label="Residual", linewidth=settings.decomp_linewidth, alpha=0.6)
-        ax1.set_title("Additive Decomposition", fontsize=settings.subplot_titles_fontsize)
-        ax1.legend(fontsize=10)
-        ax1.grid(True, alpha=0.3)
+        try:
+            ev = time_data.seasonality
+            fig = plt.figure(figsize=settings.figsize)
+            gs = GridSpec(2, 2, figure=fig, hspace=0.4, wspace=0.3)
 
-        # 3. Fourier
-        ax2 = fig.add_subplot(gs[1, 0])
-        freqs = ev.fourier["freqs"]
-        amps = ev.fourier["amps"]
-        ax2.stem(freqs, amps, linefmt="C3-", markerfmt=f"C3{settings.fourier_marker}", basefmt=" ")
-        ax2.set_title("Fourier amplitudes (top k)", fontsize=settings.subplot_titles_fontsize)
-        ax2.set_xlabel("Frequency (cycles/week)")
-        ax2.set_ylabel("Amplitude")
-        ax2.grid(True, alpha=0.3)
+            # === 1. ACF ===
+            ax0 = fig.add_subplot(gs[0, 0])
+            lags = range(len(ev.acf))
+            ax0.stem(lags, ev.acf, basefmt=" ", linefmt=settings.acf_color)
+            ax0.set_title("Autocorrelation (weekly lags)", fontsize=settings.subplot_titles_fontsize)
+            ax0.set_xlabel("Lag (weeks)")
+            ax0.set_ylabel("ACF")
+            ax0.axhline(0, color="k", linewidth=0.8)
+            ax0.grid(True, alpha=0.3)
 
-        # 4. Filters
-        ax3 = fig.add_subplot(gs[1, 1])
-        weeks = range(len(ev.raw_series))
-        ax3.plot(weeks, ev.raw_series, label="Raw", color="lightgray")
-        ax3.plot(weeks, ev.filtered["savitzky_golay"], label="Savitzky-Golay", alpha=settings.filtered_alpha)
-        ax3.plot(weeks, ev.filtered["butterworth"], label="Butterworth low-pass", alpha=settings.filtered_alpha)
-        ax3.set_title("Smoothing filters", fontsize=settings.subplot_titles_fontsize)
-        ax3.set_xlabel("Week index")
-        ax3.set_ylabel("Message count")
-        ax3.legend(fontsize=10)
-        ax3.grid(True, alpha=0.3)
+            # === 2. Decomposition ===
+            ax1 = fig.add_subplot(gs[0, 1])
+            idx = range(len(ev.decomposition["trend"]))
+            ax1.plot(idx, ev.decomposition["trend"], label="Trend", linewidth=settings.decomp_linewidth)
+            ax1.plot(idx, ev.decomposition["seasonal"], label="Seasonal", linewidth=settings.decomp_linewidth)
+            ax1.plot(idx, ev.decomposition["resid"], label="Residual", linewidth=settings.decomp_linewidth, alpha=0.6)
+            ax1.set_title("Additive Decomposition", fontsize=settings.subplot_titles_fontsize)
+            ax1.legend(fontsize=10)
+            ax1.grid(True, alpha=0.3)
 
-        # Caption
-        # fig.suptitle(
-        #     "Statistical Evidence of Weekly Seasonality (low noise)",
-        #     fontsize=20, fontweight="bold", y=0.98
-        # )
-        # caption = (
-        #     f"Dominant period approximately {ev.dominant_period_weeks} weeks | "
-        #     f"Residual sigma = {ev.residual_std:.2f}"
-        # )
-        # fig.text(0.5, 0.02, caption, ha="center", fontsize=12, style="italic")
+            # === 3. Fourier ===
+            ax2 = fig.add_subplot(gs[1, 0])
+            freqs, amps = ev.fourier["freqs"], ev.fourier["amps"]
+            ax2.stem(freqs, amps, linefmt="C3-", markerfmt=f"C3{settings.fourier_marker}", basefmt=" ")
+            ax2.set_title("Fourier amplitudes (top k)", fontsize=settings.subplot_titles_fontsize)
+            ax2.set_xlabel("Frequency (cycles/week)")
+            ax2.set_ylabel("Amplitude")
+            ax2.grid(True, alpha=0.3)
 
-        # return fig
+            # === 4. Filters ===
+            ax3 = fig.add_subplot(gs[1, 1])
+            weeks = range(len(ev.raw_series))
+            ax3.plot(weeks, ev.raw_series, label="Raw", color="lightgray")
+            ax3.plot(weeks, ev.filtered["savitzky_golay"], label="Savitzky-Golay", alpha=settings.filtered_alpha)
+            ax3.plot(weeks, ev.filtered["butterworth"], label="Butterworth low-pass", alpha=settings.filtered_alpha)
+            ax3.set_title("Smoothing filters", fontsize=settings.subplot_titles_fontsize)
+            ax3.set_xlabel("Week index")
+            ax3.set_ylabel("Message count")
+            ax3.legend(fontsize=10)
+            ax3.grid(True, alpha=0.3)
 
-        caption = (
+            # === Caption ===
+            caption = (
                 f"Dominant period ~{ev.dominant_period_weeks} weeks | "
-                f"Residual σ = {ev.residual_std:.2f} | "
-                f"n = {len(ev.raw_series)} weeks"
-        )
-        fig.suptitle(caption, fontsize=12, y=0.02, va='bottom', ha='center')
+                f"Residual σ = {ev.residual_std:.2f} | n = {len(ev.raw_series)} weeks"
+            )
+            fig.suptitle(caption, fontsize=12, y=0.02, va='bottom', ha='center')
 
-        return fig
+            plt.tight_layout()
+            plt.show()
+
+            logger.success("Seasonality evidence suite built")
+            return fig
+
+        except Exception as e:
+            logger.exception(f"_build_seasonality_suite failed: {e}")
+            return None
 
 
     # === 3. Distribution (Script3) ===
@@ -674,14 +510,8 @@ class PlotManager:
         settings: DistributionPlotSettings = DistributionPlotSettings(),
     ) -> plt.Figure | None:
         """
-        Bar + cumulative line chart of emoji frequencies for the MAAP group.
-
-        Args:
-            data: Validated DistributionPlotData (emoji_counts_df)
-            settings: Plot settings (top_n, colours, etc.)
-
-        Returns:
-            matplotlib Figure or None
+        Generate emoji frequency bar chart with cumulative percentage line.
+        Handles 0, 1, or many emojis with dynamic width and robust plotting.
         """
         df = data.emoji_counts_df
         if df.empty:
@@ -689,43 +519,32 @@ class PlotManager:
             return None
 
         try:
-            # === Set emoji font ===
-            plt.rcParams["font.family"] = "Segoe UI Emoji"  # ← FIX SQUARES
+            # === DYNAMIC WIDTH: Original behavior restored ===
+            n_emojis = len(df)
+            figsize = (max(8, n_emojis * 0.35), 8)
+            fig, ax = plt.subplots(figsize=figsize)
+            ax2 = ax.twinx()
 
-            # === Prepare data ===
+            plt.rcParams["font.family"] = "Segoe UI Emoji"
+
+            # === Sort and compute percentages ===
             df = df.sort_values("count_once", ascending=False).copy()
             total_once = df["count_once"].sum()
             df["percent_once"] = df["count_once"] / total_once * 100
             df["cum_percent"] = df["percent_once"].cumsum()
 
-            # === Create figure ===
-            fig, ax = plt.subplots(
-                figsize=(max(8, len(df) * 0.35), 8)
-            )
-            ax2 = ax.twinx()
-
             x_pos = np.arange(len(df))
 
-            # === Draw bars ===
+            # === BARS: Always visible ===
             ax.bar(
-                x_pos,
-                df["percent_once"],
-                width=0.5,
-                align="center",
-                color="purple",
-                alpha=0.9,
+                x_pos, df["percent_once"],
+                width=0.5, align="center",
+                color=settings.bar_color,
+                alpha=settings.bar_alpha
             )
-            ax.set_ylabel(
-                "Likelihood (%) of finding an Emoji in a random message",
-                fontsize=12,
-                labelpad=20,
-            )
-            ax.set_title(
-                "The Long Tail of Emotion: Few Speak for Many",
-                fontsize=20,
-                pad=20,
-            )
-            ax.set_xlim(-0.5, len(df))
+            ax.set_ylabel("Likelihood (%) of finding an Emoji in a random message", fontsize=12, labelpad=20)
+            ax.set_title("The Long Tail of Emotion: Few Speak for Many", fontsize=20, pad=20)
+            ax.set_xlim(-0.5, len(df) - 0.5)
             ylim_bottom, ylim_top = ax.get_ylim()
             ax.set_ylim(ylim_bottom - 3, ylim_top)
             ax.spines["top"].set_visible(False)
@@ -733,51 +552,43 @@ class PlotManager:
             ax.spines["left"].set_position(("outward", 20))
             ax.tick_params(axis="y", labelsize=10)
 
-            # === 75% highlight ===
+            # === 75% THRESHOLD MARKERS ===
             cum_np = np.array(df["cum_percent"])
-            idx_75 = np.where(cum_np >= 75)[0][0]
-            x_75 = idx_75 + 1
-            y_75 = len(df)
-            ax.axvspan(-0.5, idx_75 + 0.5, facecolor="lightgreen", alpha=0.2)
-            ax.axvline(x=idx_75 + 0.5, color="orange", linestyle="--", linewidth=1)
+            idx_75 = np.where(cum_np >= 75)[0]
+            if len(idx_75) > 0:
+                idx_75 = idx_75[0]
+                x_75 = idx_75 + 1
+                ax.axvspan(-0.5, idx_75 + 0.5, facecolor="lightgreen", alpha=0.2)
+                ax.axvline(x=idx_75 + 0.5, color="orange", linestyle="--", linewidth=1)
 
-            # Annotations
-            left_mid = idx_75 / 2
-            right_mid = (idx_75 + 0.5) + (y_75 - idx_75 - 1) / 2
-            y_text = ylim_bottom - 1.5
-            ax.text(left_mid, y_text, f"<-- {x_75} emojis -->", ha="center", fontsize=12)
-            ax.text(right_mid, y_text, f"<-- {y_75-x_75} emojis -->", ha="center", fontsize=12)
-            ax.set_xticks([])
+                left_mid = idx_75 / 2
+                right_mid = (idx_75 + 0.5) + (len(df) - idx_75 - 1) / 2
+                y_text = ylim_bottom - 1.5
+                ax.text(left_mid, y_text, f"<-- {x_75} emojis -->", ha="center", fontsize=12)
+                ax.text(right_mid, y_text, f"--> {len(df) - x_75} emojis -->", ha="center", fontsize=12)
 
-            # === Cumulative line ===
-            ax2.plot(
-                x_pos + 0.25,
-                df["cum_percent"],
-                color="orange",
-                linewidth=2,
-                label="Cumulative %",
-            )
-            ax2.axhline(
-                y=75,
-                color="orange",
-                linestyle="--",
-                linewidth=1,
-                xmin=-0.5,
-                xmax=len(df) + 0.5,
-            )
-            ax2.set_ylabel(
-                "Cumulative Percentage (%)",
-                fontsize=12,
-                labelpad=20,
-            )
+            # === CUMULATIVE LINE: 1 vs 2+ points ===
+            if len(df) == 1:
+                # Single emoji → show bold dot + "100%" label
+                ax2.scatter(x_pos, df["cum_percent"], color=settings.cumulative_color,
+                            s=120, zorder=5, label=settings.cum_label)
+                ax2.text(x_pos[0], df["cum_percent"].iloc[0], "100%", 
+                         ha='center', va='bottom', fontsize=11, color=settings.cumulative_color,
+                         fontweight='bold')
+            else:
+                # 2+ emojis → full line
+                ax2.plot(x_pos, df["cum_percent"], color=settings.cumulative_color,
+                         linewidth=settings.line_width, label=settings.cum_label, zorder=4)
+
+            # === Right axis (cumulative %) ===
             ax2.set_ylim(0, 100)
-            ax2.set_yticks(np.arange(0, 101, 10))
+            ax2.set_yticks(np.arange(0, 101, 20))
             ax2.spines["right"].set_position(("outward", 20))
             ax2.tick_params(axis="y", labelsize=10, colors="orange")
             ax2.spines["right"].set_color("orange")
 
-            # === Top-25 table ===
-            top_25 = df.head(25).copy()
+            # === TOP 25 TABLE ===
+            top_25 = df.head(settings.top_table).copy()
             top_25["cum_percent"] = top_25["percent_once"].cumsum()
             table_data = [
                 [str(i + 1) for i in range(25)],
@@ -790,23 +601,20 @@ class PlotManager:
                 rowLabels=["Rank", "Emoji", "Count", "Cum"],
                 colWidths=[0.05] * 25,
                 loc="bottom",
-                bbox=[0.1, -0.45, 0.8, 0.3],  # ← MATCH ATTACHMENT
+                bbox=[0.1, -0.45, 0.8, 0.3],
             )
             table.auto_set_font_size(False)
             table.set_fontsize(10)
             table.scale(1, 1.5)
 
-            fig.text(0.5, 0.27, "Top 25:", ha="center", fontsize=12)  # ← MATCH
-
-            # === Layout ===
-            ax2.legend(loc="upper left", fontsize=8)  # ← MATCH
+            # === Final layout ===
+            fig.text(0.5, 0.27, "Top 25:", ha="center", fontsize=12)
+            ax2.legend(loc="upper left", fontsize=8)
             plt.tight_layout()
-            plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)  # ← MATCH
+            plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)
             plt.show()
 
-            logger.success(
-                f"Emoji distribution plot built – {len(df)} unique emojis"
-            )
+            logger.success(f"Emoji distribution plot built – {len(df)} unique emojis")
             return fig
 
         except Exception as e:
@@ -814,22 +622,13 @@ class PlotManager:
             return None
 
 
-    # === Log-Log Power-Law Plot ===
+    # === Power-Law (Script3) ===
     def build_visual_distribution_powerlaw(
         self,
         analysis: PowerLawAnalysisResult,
         settings: PowerLawPlotSettings = PowerLawPlotSettings(),
     ) -> plt.Figure | None:
-        """
-        Generate log-log plot of emoji frequency vs rank with fitted power-law line.
-
-        Args:
-            analysis: Result from analyze_emoji_distribution_power_law
-            settings: Plot settings
-
-        Returns:
-            matplotlib Figure or None
-        """
+        """Log-log power-law fit visualisation."""
         if not analysis or analysis.fit.n_tail < 3:
             logger.error("Insufficient tail data for power-law plot")
             return None
@@ -838,20 +637,7 @@ class PlotManager:
             fig, ax = plt.subplots(figsize=(12, 8))
             plt.subplots_adjust(top=0.82)
 
-            # Get full frequency data
-            from collections import Counter
-            # Re-parse to get full sorted list
-            # We'll simulate from analysis (in real use, pass full data or re-parse)
-            # For now, use stored top + assume tail
-
-            # In practice: pass full Counter or re-run parsing
-            # Here: placeholder — in real code, you'd pass it
-            logger.warning("build_visual_distribution_powerlaw needs full Counter — using placeholder")
-
-            # === Placeholder: Use analysis to simulate ===
-            # In real integration, modify analyze_ to return sorted frequencies
             ranks = np.arange(1, analysis.n_observations + 1)
-            # Approximate frequencies using inverse power-law
             alpha = analysis.fit.alpha
             xmin = analysis.fit.xmin
             C = (analysis.fit.n_tail) * (xmin ** (alpha - 1)) / (alpha - 1)
@@ -885,6 +671,7 @@ class PlotManager:
                             fontsize=12)
 
             plt.tight_layout()
+            plt.show()
             logger.success("Power-law log-log plot built")
             return fig
 
@@ -900,23 +687,40 @@ class PlotManager:
     ) -> "go.Figure" | None:
         """
         Interactive Plotly table comparing power-law to alternatives.
+
+        Args:
+            analysis: PowerLawAnalysisResult with comparison p-values
+
+        Returns:
+            Plotly Figure or None
         """
         try:
             import plotly.graph_objects as go
 
+            # === Build comparison data ===
             data = [
                 ["Power-Law", f"{analysis.fit.alpha:.3f}", analysis.fit.xmin, f"{analysis.fit.D:.4f}", "—", "—"],
-                ["Exponential", "—", "—", "—", f"{analysis.comparison.vs_exponential:.4f}", "Worse" if analysis.comparison.vs_exponential < 0.05 else "Comparable"],
-                ["Lognormal", "—", "—", "—", f"{analysis.comparison.vs_lognormal:.4f}", "Worse" if analysis.comparison.vs_lognormal < 0.05 else "Comparable"],
+                ["Exponential", "—", "—", "—", f"{analysis.comparison.vs_exponential:.4f}", 
+                 "Worse" if analysis.comparison.vs_exponential < 0.05 else "Comparable"],
+                ["Lognormal", "—", "—", "—", f"{analysis.comparison.vs_lognormal:.4f}", 
+                 "Worse" if analysis.comparison.vs_lognormal < 0.05 else "Comparable"],
             ]
 
+            # === Create table ===
             fig = go.Figure(data=[go.Table(
-                header=dict(values=["Model", "α", "xmin", "K-S D", "p-value (vs PL)", "Status"],
-                            fill_color='paleturquoise', font=dict(size=14)),
-                cells=dict(values=list(map(list, zip(*data))),
-                        fill_color='lavender', font=dict(size=12))
+                header=dict(
+                    values=["Model", "α", "xmin", "K-S D", "p-value (vs PL)", "Status"],
+                    fill_color='paleturquoise',
+                    font=dict(size=14)
+                ),
+                cells=dict(
+                    values=list(map(list, zip(*data))),
+                    fill_color='lavender',
+                    font=dict(size=12)
+                )
             )])
 
+            # === Layout ===
             fig.update_layout(
                 title="Power-Law Model Comparison (K-S + Likelihood Ratio)",
                 height=300,
@@ -929,7 +733,7 @@ class PlotManager:
         except Exception as e:
             logger.exception(f"build_visual_distribution_comparison failed: {e}")
             return None
-    
+
 
     # === 4. Relationships (Script4) ===
     def build_visual_relationships(
@@ -942,15 +746,15 @@ class PlotManager:
 
         Args:
             data: Validated RelationshipsPlotData
-            settings: Plot settings
+            settings: RelationshipsPlotSettings with styling
 
         Returns:
             matplotlib Figure or None
         """
         try:
-            # Figure setup aligned with Categories
-            fig, ax = plt.subplots(figsize=(14, 6.5))  # Shorter canvas
-            plt.subplots_adjust(top=0.85)  # Axes end earlier → more room above
+            # === Canvas & Layout ===
+            fig, ax = plt.subplots(figsize=settings.figsize)
+            plt.subplots_adjust(top=0.85)
 
             df = data.feature_df
             required = {
@@ -964,10 +768,12 @@ class PlotManager:
                 logger.error("Relationships plot missing required columns")
                 return None
 
+            # === Bubble sizing ===
             msg = df[Columns.MESSAGE_COUNT.value]
             size_scale = (msg - msg.min()) / (msg.max() - msg.min()) if msg.max() != msg.min() else 1.0
             bubble_sizes = (settings.min_bubble_size + (settings.max_bubble_size - settings.min_bubble_size) * size_scale) * 3
 
+            # === Plot each group ===
             for grp, col in settings.group_colors.items():
                 mask = df[Columns.WHATSAPP_GROUP.value] == grp
                 sub = df[mask]
@@ -979,80 +785,60 @@ class PlotManager:
                     s=bubble_sizes[mask],
                     alpha=settings.bubble_alpha,
                     color=col,
-                    label=grp.value,
+                    label=grp.value
                 )
 
-            x = df[Columns.AVG_WORDS.value].values  # Convert to numpy for sorting
+            # === Trendline ===
+            x = df[Columns.AVG_WORDS.value].values
             y = df[Columns.AVG_PUNCT.value].values
             coef = np.polyfit(x, y, 1)
             trend = np.poly1d(coef)
-
-            # Sort x for smooth straight line plot
             sort_idx = np.argsort(x)
-            x_sorted = x[sort_idx]
-            y_trend = trend(x_sorted)
-            ax.plot(
-                x_sorted, y_trend,
-                color=settings.trendline_color,
-                linestyle=settings.trendline_style,
-                linewidth=settings.trendline_width,
-                alpha=settings.trendline_alpha,
-                label="Linear Trend"  # Add label for legend
-            )
+            ax.plot(x[sort_idx], trend(x[sort_idx]), color=settings.trendline_color,
+                    linestyle=settings.trendline_style, linewidth=settings.trendline_width,
+                    alpha=settings.trendline_alpha, label="Linear Trend")
 
-            # Title and subtitle
+            # === Title & Subtitle ===
             ax.set_title(
                 settings.title,
                 fontsize=settings.title_fontsize,
                 fontweight=settings.title_fontweight,
                 pad=settings.title_pad,
-                ha=settings.title_ha,
+                ha=settings.title_ha
             )
-
             if settings.subtitle:
                 fig.text(
-                    x=0.5,
-                    y=0.92,
-                    s=settings.subtitle,
+                    0.5, settings.subtitle_y, settings.subtitle,
                     fontsize=settings.subtitle_fontsize,
                     fontweight=settings.subtitle_fontweight,
                     color=settings.subtitle_color,
-                    ha=settings.subtitle_ha,
-                    va="top",
+                    ha=settings.subtitle_ha, va="top",
                     transform=fig.transFigure
                 )
 
+            # === Axis labels ===
             ax.set_xlabel(settings.xlabel or Columns.AVG_WORDS.human, fontsize=12)
             ax.set_ylabel(settings.ylabel or Columns.AVG_PUNCT.human, fontsize=12)
 
-            # Legend handles for groups
+            # === Legend ===
             legend_handles = [
                 plt.scatter([], [], s=settings.min_bubble_size * settings.legend_scale_factor,
                             c=col, alpha=settings.bubble_alpha, label=grp.value)
                 for grp, col in settings.group_colors.items()
             ]
-
-            # Add trendline to legend (will be at bottom since appended last)
-            trend_patch = matplotlib.lines.Line2D(
-                [0], [0],
-                color=settings.trendline_color,
-                linestyle=settings.trendline_style,
-                linewidth=settings.trendline_width,
-                label="Linear Trend"
-            )
+            trend_patch = matplotlib.lines.Line2D([0], [0], color=settings.trendline_color,
+                                                 linestyle=settings.trendline_style, linewidth=settings.trendline_width,
+                                                 label="Linear Trend")
             legend_handles.append(trend_patch)
 
-            ax.legend(
-                handles=legend_handles,
-                title="WhatsApp Group",
-                title_fontsize=12,
-                bbox_to_anchor=(1.05, 1),
-                loc="upper left"
-            )
-            ax.grid(True, linestyle="--", alpha=0.7)
-            plt.tight_layout()
+            ax.legend(handles=legend_handles, title="WhatsApp Group", title_fontsize=12,
+                      bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=settings.legend_fontsize)
+
+            # === Grid & Finalize ===
+            ax.grid(True, linestyle=settings.grid_linestyle, alpha=settings.grid_alpha)
+            plt.tight_layout() if settings.tight_layout else None
             plt.show()
-            
+
             logger.success("Relationships plot built successfully")
             return fig
 
@@ -1072,12 +858,10 @@ class PlotManager:
 
         Args:
             data: Validated MultiDimPlotData with t-SNE coordinates and aggregated features
-            settings: Plot settings including group mode, ellipse mode, confidence level
+            settings: MultiDimPlotSettings with group mode, ellipse mode, confidence level
 
         Returns:
             Dict of Plotly figures: {"individual": ..., "group": ...} or None
-
-        # NEW: Restored per-author color nuance + subtitle high above + (Group) in legend (2025-11-07)
         """
         if data.agg_df.empty:
             logger.error("Empty agg_df in MultiDimPlotData")
@@ -1094,7 +878,7 @@ class PlotManager:
             def get_ellipse_points(mean_x, mean_y, width, height, angle):
                 t = np.linspace(0, 2 * np.pi, 100)
                 x = width / 2 * np.cos(t)
-                y = height / 2 * np.sin(t)
+                y = height / 2 * sin(t)
                 points = np.column_stack([x, y])
                 theta = np.radians(angle)
                 rot = np.array([[np.cos(theta), -np.sin(theta)],
@@ -1136,7 +920,7 @@ class PlotManager:
                     data.agg_df
                     .sort_values([Columns.WHATSAPP_GROUP_TEMP.value, Columns.AUTHOR.value])
                     ["author_group"]
-                    .unique()
+                    .ure.unique()
                     .tolist()
                 )
 
@@ -1169,23 +953,16 @@ class PlotManager:
                 fig.update_layout(
                     title={
                         'text': title_text,
-                        'y': 0.96,                    # High, centered in top area
+                        'y': 0.96,
                         'x': 0.5,
                         'xanchor': 'center',
                         'yanchor': 'top',
                         'font': dict(size=settings.title_fontsize, family="Arial Black, Arial, sans-serif", color="black"),
-                        'pad': dict(t=20)             # Extra padding above title
+                        'pad': dict(t=20)
                     },
                     margin=dict(t=120, b=80, l=80, r=180),
-                    xaxis=dict(
-                    title=dict(text="t-SNE X", font=dict(size=16)),  # Optional: set label text
-                    tickfont=dict(size=12)
-                    ),
-                    yaxis=dict(
-                        title=dict(text="t-SNE Y", font=dict(size=16)),
-                        tickfont=dict(size=12)
-                    ),
- 
+                    xaxis=dict(title="t-SNE X", title_font=dict(size=16), tickfont=dict(size=12)),
+                    yaxis=dict(title="t-SNE Y", title_font=dict(size=16), tickfont=dict(size=12)),
                     legend=dict(
                         title="Author (Group)",
                         font=dict(size=16),
@@ -1250,7 +1027,7 @@ class PlotManager:
 
                 figs["individual"] = fig
 
-            # === GROUP MODE (unchanged from current version) ===
+            # === GROUP MODE ===
             if settings.by_group:
                 data.agg_df["plot_group"] = data.agg_df.apply(
                     lambda row: Groups.AVT if row[Columns.AUTHOR.value] == Groups.AVT else row[Columns.WHATSAPP_GROUP_TEMP],
@@ -1266,7 +1043,6 @@ class PlotManager:
                     hover_data={"msg_count": True, Columns.AUTHOR.value: True},
                 )
 
-                # Title and subtitle (combined)
                 title_text = settings.title
                 if settings.subtitle:
                     title_text += f"<br><span style='font-size:{settings.subtitle_fontsize}px; color:{settings.subtitle_color};'>{settings.subtitle}</span>"
@@ -1274,31 +1050,18 @@ class PlotManager:
                 fig.update_layout(
                     title={
                         'text': title_text,
-                        'y': 0.96,                    # High, centered in top area
+                        'y': 0.96,
                         'x': 0.5,
                         'xanchor': 'center',
                         'yanchor': 'top',
                         'font': dict(size=settings.title_fontsize, family="Arial Black, Arial, sans-serif", color="black"),
-                        'pad': dict(t=20)             # Extra padding above title
+                        'pad': dict(t=20)
                     },
                     margin=dict(t=120, b=80, l=80, r=180),
-                    xaxis=dict(
-                    title=dict(text="t-SNE X", font=dict(size=16)),  # Optional: set label text
-                    tickfont=dict(size=12)
-                    ),
-                    yaxis=dict(
-                        title=dict(text="t-SNE Y", font=dict(size=16)),
-                        tickfont=dict(size=12)
-                    ),
-                    legend=dict(
-                        title="Author (Group)",
-                        font=dict(size=16),
-                        bgcolor="white",
-                        bordercolor="gray",
-                        borderwidth=1
-                    ),
-                    width=1400,
-                    height=750,
+                    xaxis=dict(title="t-SNE X", title_font=dict(size=16), tickfont=dict(size=12)),
+                    yaxis=dict(title="t-SNE Y", title_font=dict(size=16), tickfont=dict(size=12)),
+                    legend=dict(title="Author (Group)", font=dict(size=16), bgcolor="white", bordercolor="gray", borderwidth=1),
+                    width=1400, height=750,
                 )
 
                 if settings.ellipse_mode > 0:
@@ -1353,13 +1116,13 @@ class PlotManager:
 
                 figs["group"] = fig
 
-            logger.success(f"Multi-dimensional plot built: {len(figs)} figures (title 24pt, subtitle high, author nuance restored)")
+            logger.success(f"Multi-dimensional plot built: {len(figs)} figures")
             return figs
 
         except Exception as e:
             logger.exception(f"Multi-dimensional plot failed: {e}")
             return None
-
+        
 
 # === CODING STANDARD ===
 # - `# === Module Docstring ===` before """
@@ -1373,7 +1136,14 @@ class PlotManager:
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Full 1–6 plot support with strict settings (2025-11-03)
+# NEW: Full 1–5 plot support with strict settings (2025-11-03)
 # NEW: All hardcodes removed, uses constants.py
 # NEW: Complete docstrings, consistent spacing, InteractionType
 # NEW: Restored per-author color nuance + high subtitle + (Group) in legend (2025-11-07)
+# NEW: Two-size system (14,8) and (14,6.5) – 2025-11-10
+# NEW: Full integration of PlotSettings with zero visual regression (2025-11-10)
+# NEW: 1-emoji safe distribution plot with dynamic width (2025-11-10)
+# NEW: Thick orange cumulative line (linewidth=4.0) (2025-11-10)
+# NEW: Subtitle positioning: Categories=0.92, Time=0.96, Relationships=0.92 (2025-11-10)
+# NEW: build_visual_time preserves original tight layout (top=0.85) (2025-11-10)
+# NEW: Complete recovery of lost plot_manager.py with all fixes (2025-11-10)
