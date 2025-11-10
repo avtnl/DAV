@@ -3,14 +3,13 @@
 """
 Plot Manager Module
 
-Creates all 6 key visualizations using validated data from DataPreparation:
+Creates all 5 key visualizations using validated data from DataPreparation:
 
 1. Categories: Total messages by group/author (Script1)
 2. Time: DAC weekly heartbeat (Script2)
 3. Distribution: Emoji frequency + cumulative (Script3)
-4. Arc: Author interaction network (Script4)
-5. Bubble: Words vs punctuation per author (Script5)
-6. Multi-Dimensional: t-SNE style clusters (Script6)
+4. Relationships: Words vs punctuation per author (Script4)
+5. Multi-Dimensional: t-SNE style clusters (Script5)
 """
 
 # === Imports ===
@@ -29,14 +28,13 @@ from loguru import logger
 from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import Literal, Dict
 
-from .constants import Columns, Groups, InteractionType, Script6ConfigKeys
+from .constants import Columns, Groups, InteractionType, Script5ConfigKeys
 from .data_preparation import (
     CategoryPlotData,
     TimePlotData,
     SeasonalityEvidence,
     DistributionPlotData,
-    ArcPlotData,
-    BubblePlotData,
+    RelationshipsPlotData,
     MultiDimPlotData,
     MultiDimPlotSettings
 )
@@ -155,38 +153,8 @@ class PowerLawPlotSettings(PlotSettings):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-# === 4. Arc Plot Settings (Script4) ===
-class ArcPlotSettings(PlotSettings):
-    arc_color: str = "black"
-    arc_width: float = 1.5
-    node_size: int = 300
-    node_color: str = "skyblue"
-    node_edge_color: str = "black"
-    node_fontsize: int = 10
-    node_fontweight: str = "bold"
-    label_fontsize: int = 8
-    label_bbox: dict = Field(default_factory=lambda: {"boxstyle": "round", "facecolor": "white", "alpha": 0.8})
-    amplifier: float = 1.0
-    excluded_columns: list[str] = Field(default_factory=list)
-    married_couples: list[tuple[str, str]] = Field(default_factory=list)
-    total_colors: dict[str, str] = Field(
-        default_factory=lambda: {"married": "red", "other": "gray"}
-    )
-    special_x_offsets: dict[tuple[str, str, str], float] = Field(default_factory=dict)
-    special_label_y_offsets: dict[tuple[str, str], float] = Field(default_factory=dict)
-    arc_types: list[tuple[str, str, float, int]] = Field(
-        default_factory=lambda: [
-            ("pair", "blue", 0.3, 2),
-            ("triple", "purple", 0.2, 1),
-            ("total", "black", 0.4, 3),
-        ]
-    )
-    title_template: str = "Author Interactions in {group}"
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-# === 5. Bubble Plot Settings (Script5) ===
-class BubblePlotSettings(PlotSettings):
+# === 4. Relationships Plot Settings (Script4) ===
+class RelationshipsPlotSettings(PlotSettings):
     title: str = "Correlation between averages of Words and Punctuations"
     subtitle: str = "About 1 extra Punctuation per 10 Words"
     bubble_alpha: float = 0.6
@@ -217,10 +185,10 @@ class BubblePlotSettings(PlotSettings):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-# === 6. Milti Dimensions Plot Settings (Script6) ===
+# === 5. Multi Dimensions Plot Settings (Script5) ===
 class MultiDimPlotSettings(PlotSettings):
-    """Configuration for multi-dimensional t-SNE visualization (Script6)."""
-    title: str = "Revealing authors fingerprint by 'How they write', not 'What they say'"
+    """Configuration for multi-dimensional t-SNE visualization (Script5)."""
+    title: str = "Revealing authors Fingerprints by 'style', not by 'content'"
     subtitle: str = "TSNE plot combining 25 style features and style oriented Hugging Faces"
     by_group: bool = True
     ellipse_mode: int = Field(0, ge=0, le=2)        # 0=none, 1=single, 2=GMM pockets
@@ -250,7 +218,7 @@ class MultiDimPlotSettings(PlotSettings):
 
 # === Plot Manager Class ===
 class PlotManager:
-    """Manages all 6 visualizations."""
+    """Manages all 5 visualizations."""
 
     def __init__(self) -> None:
         self.data_preparation = None  # Injected
@@ -496,7 +464,7 @@ class PlotManager:
         - Red dashed period-average lines
         - Bold period labels at 80% height
         - Calendar dates on X-axis (March 15th, May 1st, Sep 1st)
-        - Y-label includes year range (2017–2025)
+        - Y-label includes year range (2017-2025)
         - **No global average line**
         - **Smooth line (no markers)**
 
@@ -976,146 +944,17 @@ class PlotManager:
             return None
     
 
-    # === 4. Arc (Script4) ===
-    def build_visual_relationships_arc(
+    # === 4. Relationships (Script4) ===
+    def build_visual_relationships(
         self,
-        data: ArcPlotData,
-        settings: ArcPlotSettings = ArcPlotSettings(),
-    ) -> plt.Figure | None:
-        """
-        Plot author interaction network as an arc diagram.
-        Raises: ValueError if authors != 4
-        Args:
-            data: Validated ArcPlotData
-            settings: Plot settings
-        Returns:
-            matplotlib Figure or None
-        """
-        try:
-            df = data.participation_df
-            participant_cols = [c for c in df.columns if c not in ["type", "author", "total_messages"]]
-            authors = sorted(participant_cols)
-            if len(authors) != 4:
-                logger.error(f"Expected 4 authors, got {len(authors)}")
-                return None
-
-            pos = {auth: (i, 0) for i, auth in enumerate(authors)}
-            pair_weights = {}
-            triple_weights = {}
-            total_weights = {}
-            combined_df = df
-
-            # === Pairs processing ===
-            pairs = combined_df[combined_df["type"] == InteractionType.PAIRS]
-            for _, row in pairs.iterrows():
-                pair_str = None
-                for col in row.index:
-                    val = str(row[col])
-                    if " & " in val and val not in ["Pairs", "Non-participant"]:
-                        pair_str = val
-                        break
-                if not pair_str:
-                    continue
-                a1, a2 = [a.strip() for a in pair_str.split(" & ", 1)]
-                key = frozenset([a1, a2])
-                pair_weights[key] = row["total_messages"]
-                total_weights[key] = total_weights.get(key, 0) + row["total_messages"]
-
-            # === Triples processing ===
-            triples = combined_df[combined_df["type"] == InteractionType.NON_PARTICIPANT]
-            for _, row in triples.iterrows():
-                participants = [c for c in participant_cols if row[c] != 0]
-                if len(participants) != len(authors) - 1:
-                    continue
-
-                total_msg = row["total_messages"]
-                pct = {}
-                for p in participants:
-                    val = row[p]
-                    if isinstance(val, str):
-                        try:
-                            pct[p] = int(val.split("%")[0]) / 100
-                        except Exception:
-                            continue
-
-                for i, j in itertools.combinations(participants, 2):
-                    if i in pct and j in pct:
-                        w = (pct[i] + pct[j]) * total_msg
-                        key = frozenset([i, j])
-                        triple_weights[key] = triple_weights.get(key, 0) + w
-                        total_weights[key] = total_weights.get(key, 0) + w
-
-            if not total_weights:
-                logger.error("No edges after processing")
-                return None
-
-            max_w = max(total_weights.values(), default=1)
-            weights_dict = {"pair": pair_weights, "triple": triple_weights, "total": total_weights}
-
-            fig, ax = plt.subplots(figsize=settings.figsize)
-            ax.set_aspect("equal")
-
-            for arc_type, color, h_off, z in settings.arc_types:
-                for key, w in weights_dict.get(arc_type, {}).items():
-                    a1, a2 = list(key)
-                    x1, y1 = pos[a1]
-                    x2, y2 = pos[a2]
-                    xm = (x1 + x2) / 2
-                    ym = (y1 + y2) / 2
-                    dist = np.hypot(x2 - x1, y2 - y1)
-                    height = dist * h_off
-
-                    if arc_type == "total":
-                        pair_t = (a1, a2) if a1 < a2 else (a2, a1)
-                        married = pair_t in settings.married_couples or (a2, a1) in settings.married_couples
-                        color = settings.total_colors["married"] if married else settings.total_colors["other"]
-
-                    sorted_pair = tuple(sorted([a1, a2]))
-                    x_off = settings.special_x_offsets.get((*sorted_pair, arc_type), 0)
-                    lw = (1 + 5 * (w / max_w)) * settings.amplifier
-
-                    t = np.linspace(0, 1, 100)
-                    x = (1 - t) ** 2 * x1 + 2 * (1 - t) * t * (xm + x_off) + t**2 * x2
-                    y = (1 - t) ** 2 * y1 + 2 * (1 - t) * t * (ym + height) + t**2 * y2
-                    ax.plot(x, y, color=color, linewidth=lw, zorder=z)
-
-                    if arc_type == "total":
-                        lbl_x = (x1 + x2) / 2
-                        lbl_y = (y1 + y2) / 2 + height * 0.5
-                        lbl_y += settings.special_label_y_offsets.get(tuple(sorted([a1, a2])), 0)
-                        ax.text(lbl_x, lbl_y, f"{round(w)}", ha="center", va="center",
-                                fontsize=settings.label_fontsize, bbox=settings.label_bbox, zorder=z + 1)
-
-            for auth, (x, y) in pos.items():
-                ax.scatter([x], [y], s=settings.node_size, color=settings.node_color,
-                        edgecolors=settings.node_edge_color, zorder=4)
-                ax.text(x, y, auth, ha="center", va="center",
-                        fontsize=settings.node_fontsize, fontweight=settings.node_fontweight, zorder=5)
-
-            group = df.iloc[0][Columns.WHATSAPP_GROUP.value] if Columns.WHATSAPP_GROUP.value in df.columns else "Unknown"
-            ax.set_title(settings.title_template.format(group=group))
-            ax.axis("off")
-            plt.tight_layout()
-
-            logger.success("Arc diagram built successfully")
-            return fig
-
-        except Exception as e:
-            logger.exception(f"Arc diagram failed: {e}")
-            return None
-
-
-    # === 5. Bubble (Script5) ===
-    def build_visual_relationships_bubble(
-        self,
-        data: BubblePlotData,
-        settings: BubblePlotSettings = BubblePlotSettings(),
+        data: RelationshipsPlotData,
+        settings: RelationshipsPlotSettings = RelationshipsPlotSettings(),
     ) -> plt.Figure | None:
         """
         Plot average words vs punctuation with bubble size by message count.
 
         Args:
-            data: Validated BubblePlotData
+            data: Validated RelationshipsPlotData
             settings: Plot settings
 
         Returns:
@@ -1135,7 +974,7 @@ class PlotManager:
                 Columns.MESSAGE_COUNT.value,
             }
             if not required.issubset(df.columns):
-                logger.error("Bubble plot missing required columns")
+                logger.error("Relationships plot missing required columns")
                 return None
 
             msg = df[Columns.MESSAGE_COUNT.value]
@@ -1227,15 +1066,15 @@ class PlotManager:
             plt.tight_layout()
             plt.show()
             
-            logger.success("Bubble plot built successfully")
+            logger.success("Relationships plot built successfully")
             return fig
 
         except Exception as e:
-            logger.exception(f"Bubble plot failed: {e}")
+            logger.exception(f"Relationships plot failed: {e}")
             return None
 
 
-    # === 6. Multi-Dimensional (Script6) ===
+    # === 5. Multi-Dimensional (Script5) ===
     def build_visual_multi_dimensions(
         self,
         data: MultiDimPlotData,
@@ -1243,7 +1082,6 @@ class PlotManager:
     ) -> dict[str, "go.Figure"] | None:
         """
         Create interactive t-SNE plots with optional group isolation and confidence ellipses.
-        Title 24pt bold centered, subtitle 18pt dimgray high above plot, extra top margin like Script1/2/5.
 
         Args:
             data: Validated MultiDimPlotData with t-SNE coordinates and aggregated features

@@ -1,173 +1,108 @@
 # === Module Docstring ===
 """
-Multi-dimensional plot: PCA/t-SNE clustering with embeddings (Script 6).
+Launch Streamlit dashboard (Script6).
 
-Aggregates yearly author style, applies embeddings, reduces dimensions,
-and renders interactive t-SNE plots (individual or group-level).
+Starts the interactive WhatsApp dashboard using subprocess.
+Runs `streamlit run src/dashboard/streamlit_app.py` with safe auto-open.
 
-=== SCRIPT_6_DETAILS README (UPDATED 2025-11-06) ===
-Configure Script6 via: SCRIPT_6_DETAILS = [PLOT_TYPE, BY_GROUP, ELLIPSE_MODE, CONFIDENCE_LEVEL, USE_EMBEDDINGS, HYBRID_FEATURES, EMBEDDING_MODEL]
-
-1. PLOT_TYPE (str): "pca" | "tsne" | "both"
-2. BY_GROUP (bool): True → group-level, False → per-author
-3. ELLIPSE_MODE (int): 0=no ellipses, 1=single ellipse, 2=GMM pockets (Streamlit-style)
-4. CONFIDENCE_LEVEL (int): 20–100 (%) → only used if ELLIPSE_MODE > 0
-5. USE_EMBEDDINGS (bool): True → load Hugging-Face embeddings
-6. HYBRID_FEATURES (bool): True → combine hand-crafted + embeddings
-7. EMBEDDING_MODEL (int): 1=Style-Embedding, 2=all-MiniLM, 3=all-mpnet
-
-Example (GMM pockets @ 75% confidence):
->>> SCRIPT_6_DETAILS = ["tsne", False, 2, 75, True, True, 1]
+Examples
+--------
+>>> script = Script6(file_manager, image_dir=Path("images"))
+>>> result = script.run()
+>>> print(result["url"])
+http://localhost:8501
 """
 
 # === Imports ===
+from __future__ import annotations
+
+import sys
+import time
+import webbrowser
 from pathlib import Path
+from subprocess import Popen
 from typing import Any
-import pandas as pd
 
 from loguru import logger
-import warnings
-
-warnings.filterwarnings("ignore", message="Could not find the number of physical cores")
-
-from src.constants import Script6ConfigKeys
-from src.plot_manager import MultiDimPlotSettings
 
 from .base import BaseScript
 
 
-# === Validation ===
-def _validate_script6_details(details: list) -> None:
-    if len(details) != 7:
-        raise ValueError("SCRIPT_6_DETAILS must have exactly 7 values (updated 2025-11-06)")
-
-    plot_type, by_group, ellipse_mode, conf_level, use_emb, hybrid, model_id = details
-
-    if plot_type not in {"pca", "tsne", "both"}:
-        raise ValueError("PLOT_TYPE must be 'pca', 'tsne', or 'both'")
-
-    if not isinstance(by_group, bool):
-        raise TypeError("BY_GROUP must be bool")
-
-    if ellipse_mode not in {0, 1, 2}:
-        raise ValueError("ELLIPSE_MODE must be 0 (none), 1 (single), or 2 (GMM pockets)")
-
-    if not (20 <= conf_level <= 100):
-        raise ValueError("CONFIDENCE_LEVEL must be 20–100 (%)")
-    if ellipse_mode == 0 and conf_level != 75:
-        logger.warning("CONFIDENCE_LEVEL ignored when ELLIPSE_MODE=0")
-
-    if not isinstance(use_emb, bool):
-        raise TypeError("USE_EMBEDDINGS must be bool")
-
-    if use_emb:
-        if not isinstance(hybrid, bool):
-            raise TypeError("HYBRID_FEATURES must be bool")
-        if model_id not in {1, 2, 3}:
-            raise ValueError("EMBEDDING_MODEL must be 1, 2, or 3")
-    else:
-        logger.info("USE_EMBEDDINGS=False → HYBRID_FEATURES and EMBEDDING_MODEL ignored")
-
-
 # === Script 6 ===
 class Script6(BaseScript):
-    """Multi-dimensional linguistic style analysis."""
+    """Launch the Streamlit dashboard interactively."""
 
     def __init__(
         self,
         file_manager,
-        data_preparation,
-        plot_manager,
         image_dir: Path,
-        df: pd.DataFrame,
-        settings: MultiDimPlotSettings | None = None,
-        script_details: list | None = None,
     ) -> None:
-        super().__init__(
-            file_manager=file_manager,
-            data_preparation=data_preparation,
-            plot_manager=plot_manager,
-            settings=settings or MultiDimPlotSettings(),
-            df=df,
-        )
+        """
+        Initialize Script6 with required file_manager and image directory.
+
+        Args:
+            file_manager: FileManager instance (required for BaseScript).
+            image_dir: Directory containing generated plots.
+        """
+        super().__init__(file_manager=file_manager)
         self.image_dir = image_dir
+        self.dashboard_path = Path("src/dashboard/streamlit_app.py").resolve()
+        self.port = 8501
+        self.url = f"http://localhost:{self.port}"
 
-        if script_details is not None:
-            _validate_script6_details(script_details)
-            self.script_details = script_details
-        else:
-            self.script_details = ["tsne", False, 0, 75, True, True, 3]
-            logger.info("No SCRIPT_6_DETAILS → using safe defaults (per-author)")
+    def run(self) -> dict[str, Any] | None:
+        """
+        Start Streamlit dashboard in a subprocess with smart browser auto-open.
 
-    def _get_config_code(self) -> str:
-        """Convert to: TT75T1_tsne"""
-        d = self.script_details
-        mapping = {True: "T", False: "F"}
-        bool_code = mapping[d[1]] + str(d[2]) + str(d[3])
-        emb_code = mapping[d[4]] + mapping[d[5]]
-        return f"_{bool_code}{emb_code}{d[6]}_{d[0]}"
-
-    def run(self) -> dict[str, Path] | None:
-        if self.df is None or self.df.empty:
-            self.log_error("No enriched DataFrame. Run Script0 first.")
+        Returns:
+            dict: Contains 'process', 'url', 'port'.
+            None: If dashboard file missing or launch fails.
+        """
+        if not self.dashboard_path.exists():
+            self.log_error(f"Dashboard file not found: {self.dashboard_path}")
             return None
 
-        details = self.script_details
-        settings_dict = {
-            Script6ConfigKeys.PLOT_TYPE: details[0],
-            Script6ConfigKeys.BY_GROUP: details[1],
-            Script6ConfigKeys.ELLIPSE_MODE: details[2],
-            Script6ConfigKeys.CONFIDENCE_LEVEL: details[3],
-            Script6ConfigKeys.USE_EMBEDDINGS: details[4],
-            Script6ConfigKeys.HYBRID_FEATURES: details[5],
-            Script6ConfigKeys.EMBEDDING_MODEL: details[6],
-        }
+        if not self.image_dir.exists():
+            logger.warning(f"Image directory not found: {self.image_dir}")
+            logger.info("Dashboard will run but plots may not appear.")
 
-        data = self.data_preparation.build_visual_multi_dimensions(self.df, settings_dict)
-        if not data:
-            self.log_error("Data preparation failed.")
+        cmd = [
+            "streamlit", "run", str(self.dashboard_path),
+            "--server.port", str(self.port),
+            "--server.headless", "true",
+            "--server.enableCORS", "false",
+            "--server.enableXsrfProtection", "false",
+        ]
+
+        logger.info(f"Launching Streamlit dashboard: {' '.join(cmd)}")
+
+        try:
+            process = Popen(cmd)
+            logger.info(f"Streamlit process started (PID: {process.pid})")
+
+            if sys.stdin and sys.stdin.isatty():
+                logger.info("Interactive terminal detected – opening browser in 2s...")
+                time.sleep(2)
+                success = webbrowser.open(self.url)
+                if success:
+                    logger.success(f"Browser opened: {self.url}")
+                else:
+                    logger.warning(f"Failed to open browser. Visit manually: {self.url}")
+            else:
+                logger.info(f"Non-interactive environment – visit manually: {self.url}")
+
+            logger.success(f"Streamlit dashboard running at: {self.url}")
+            return {"process": process, "url": self.url, "port": self.port}
+
+        except FileNotFoundError:
+            self.log_error("Streamlit CLI not found. Install with: pip install streamlit")
+            return None
+        except Exception as e:
+            self.log_error(f"Failed to start Streamlit dashboard: {e}")
             return None
 
-        # Override settings with new ellipse logic
-        self.settings.ellipse_mode = details[2]
-        self.settings.confidence_level = details[3]
-        self.settings.by_group = details[1]
 
-        figs = self.plot_manager.build_visual_multi_dimensions(data, self.settings)
-        if not figs:
-            self.log_error("Plot creation failed.")
-            return None
-
-        config_code = self._get_config_code()
-        logger.info(f"Script6 config: {details} → {config_code}")
-
-        results = {}
-        style_dir = self.image_dir / "style_output"
-        style_dir.mkdir(parents=True, exist_ok=True)
-
-        for name, fig in figs.items():
-            suffix = f"_{config_code}"
-            html_path = style_dir / f"style_{name}{suffix}.html"
-            fig.write_html(str(html_path))
-            logger.success(f"Saved HTML: {html_path}")
-
-            png_path = style_dir / f"style_{name}{suffix}.png"
-            try:
-                fig.write_image(str(png_path), width=1200, height=800)
-                logger.success(f"Saved PNG: {png_path}")
-            except Exception as e:
-                logger.warning(f"PNG export failed: {e}")
-
-            results[name] = png_path
-
-        csv_path = style_dir / f"style_summary{suffix}.csv"
-        data.agg_df.to_csv(csv_path, index=False)
-        logger.success(f"Saved summary: {csv_path}")
-
-        return results
-
-
-# === CODING STANDARD (APPLY TO ALL CODE) ===
+# === CODING STANDARD ===
 # - `# === Module Docstring ===` before """
 # - Google-style docstrings
 # - `# === Section Name ===` for all blocks
@@ -177,8 +112,7 @@ class Script6(BaseScript):
 # - Examples: with >>>
 # - No long ----- lines
 # - No mixed styles
-# - Add markers #NEW at the end of the module capturing the latest changes.
+# - Add markers #NEW at the end of the module
 
-# NEW: ELLIPSE_MODE (0/1/2) + CONFIDENCE_LEVEL (20–100) added (2025-11-06)
-# NEW: GMM pocket detection (Streamlit-style) for mode 2 (2025-11-06)
-# NEW: df passed to super(); no *args, **kwargs (2025-11-03)
+# NEW: Removed *args, **kwargs; use keyword args in super() (2025-11-03)
+# NEW: No df needed — not passed to BaseScript (2025-11-03)

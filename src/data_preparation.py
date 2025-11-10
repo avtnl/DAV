@@ -2,13 +2,12 @@
 """
 Data Preparation Module
 
-Prepares validated data for all 6 visualizations:
+Prepares validated data for all 5 visualizations:
 1. Categories: Total messages by group/author (Script1)
 2. Time: DAC weekly heartbeat (Script2)
 3. Distribution: Emoji frequency (Script3)
-4. Arc: Author interactions (Script4)
-5. Bubble: Words vs punctuation (Script5)
-6. Multi-Dimensional: t-SNE + clustering + embeddings (Script6)
+4. Relationship: Words vs punctuation (Script4)
+5. Multi-Dimensional: t-SNE + clustering + embeddings (Script5)
 
 **All Pydantic models are defined here** for clean data contracts.
 """
@@ -27,7 +26,7 @@ from loguru import logger
 from pydantic import BaseModel, Field, model_validator, validator
 from emoji import demojize
 
-from .constants import Columns, Groups, Script6ConfigKeys
+from .constants import Columns, Groups, Script5ConfigKeys
 
 if TYPE_CHECKING:
     from .data_editor import DataEditor
@@ -192,21 +191,9 @@ class PowerLawAnalysisResult(BaseModel):
         arbitrary_types_allowed = True
 
 
-# === 4. Arc Plot Data Contract (Script4) ===
-class ArcPlotData(BaseModel):
-    """Validated container for the participation table used by the arc diagram."""
-    participation_df: pd.DataFrame = Field(
-        ..., description="Columns: ['type', 'author', 'total_messages', +author_names]"
-    )
-
-    class Config:
-        arbitrary_types_allowed = True
-        extra = "forbid"
-
-
-# === 5. Bubble Plot Data Contract (Script5) ===
-class BubblePlotData(BaseModel):
-    """Validated container for the feature table used by the bubble plot."""
+# === 4. Relationships Plot Data Contract (Script4) ===
+class RelationshipsPlotData(BaseModel):
+    """Validated container for the feature table used by the relationships plot."""
     feature_df: pd.DataFrame = Field(
         ...,
         description="Columns: ['whatsapp_group', 'author', 'avg_words', 'avg_punct', 'message_count']"
@@ -231,7 +218,7 @@ class BubblePlotData(BaseModel):
         extra = "forbid"
 
 
-# === 6. Multi Dimensional Plot (Script6) ===
+# === 5. Multi Dimensional Plot (Script5) ===
 class EmbeddingModel(int):
     STYLE = 1
     MINILM = 2
@@ -257,7 +244,7 @@ class MultiDimPlotData(BaseModel):
 
 
 class MultiDimPlotSettings(BaseModel):
-    """Configuration for multi-dimensional t-SNE visualization (Script6)."""
+    """Configuration for multi-dimensional t-SNE visualization (Script5)."""
     by_group: bool = True
     draw_ellipses: bool = False
     use_embeddings: bool = True
@@ -493,6 +480,27 @@ class DataPreparation(BaseHandler):
             "resid": decomp.resid.values.tolist(),
         }
 
+        # === DIAGNOSTIC: Print residual stats ===
+        import numpy as np
+
+        # 1. Raw additive model
+        ts_raw = pd.Series(y, index=idx)
+        decomp_raw = seasonal_decompose(ts_raw, model="additive", period=52)
+        resid_std_raw = np.nanstd(decomp_raw.resid)
+
+        # 2. Log + additive model
+        y_log = np.log1p(y)
+        ts_log = pd.Series(y_log, index=idx)
+        decomp_log = seasonal_decompose(ts_log, model="additive", period=52)
+        resid_std_log = np.nanstd(decomp_log.resid)
+        resid_std_back = np.expm1(resid_std_log)  # approximate back-transform
+
+        # Print results
+        print(f"{'Model':<25} {'Residual σ':<15} {'Back to messages'}")
+        print(f"{'-'*50}")
+        print(f"{'Raw + additive':<25} {resid_std_raw:<15.2f} {'—'}")
+        print(f"{'Log + additive':<25} {resid_std_log:<15.3f} {resid_std_back:>8.1f}")
+
         yf = fft(y)
         freqs = fftfreq(n, d=1.0)[: n // 2]
         amps = 2.0 / n * np.abs(yf[: n // 2])
@@ -686,102 +694,21 @@ class DataPreparation(BaseHandler):
             return None
 
 
-    # === 4. Arc (Script4) ===
-    def build_visual_relationships_arc(self, df_group: pd.DataFrame) -> ArcPlotData | None:
+    # === 4. Relationships (Script4) ===
+    def build_visual_relationships(self, df_groups: pd.DataFrame) -> RelationshipsPlotData | None:
         """
-        Build the participation table for the MAAP arc diagram.
-
-        Uses ``x_number_of_unique_participants_that_day`` to identify 2- or 3-person days.
-        Authors are derived from the data (must be exactly 4).
-
-        Args:
-            df_group: DataFrame filtered to MAAP group.
-
-        Returns:
-            ArcPlotData or None.
-
-        Raises:
-            Exception: If processing fails.
-        """
-        df = self._handle_empty_df(df_group, "build_visual_relationships_arc")
-        if df.empty:
-            return None
-
-        try:
-            authors = sorted(df[Columns.AUTHOR].unique())
-            if len(authors) != MAAP_EXPECTED_AUTHORS:
-                logger.error(f"MAAP group must have exactly {MAAP_EXPECTED_AUTHORS} authors, found {len(authors)}")
-                return None
-
-            df = df.copy()
-            df["date"] = df[Columns.TIMESTAMP].dt.date
-
-            rows = []
-
-            for day, day_df in df.groupby("date"):
-                n_part = day_df[Columns.X_NUMBER_OF_UNIQUE_PARTICIPANTS_THAT_DAY].iloc[0]
-                if n_part not in (2, 3):
-                    continue
-
-                total_messages = len(day_df)
-                author_counts = day_df[Columns.AUTHOR].value_counts()
-                pct = {a: (author_counts.get(a, 0) / total_messages) * 100 for a in authors}
-
-                if n_part == 2:
-                    active = sorted([a for a in authors if pct[a] > 0])
-                    author_label = " & ".join(active)
-                    row = {
-                        "type": "Pairs",
-                        "author": author_label,
-                        "total_messages": total_messages,
-                    }
-                    for a in authors:
-                        row[a] = f"{pct[a]:.0f}%" if a in active else 0
-
-                else:  # n_part == 3
-                    missing = [a for a in authors if pct[a] == 0][0]
-                    author_label = f"Missing: {missing}"
-                    row = {
-                        "type": "Non-participant",
-                        "author": author_label,
-                        "total_messages": total_messages,
-                    }
-                    for a in authors:
-                        row[a] = f"{pct[a]:.0f}%" if pct[a] > 0 else 0
-
-                rows.append(row)
-
-            if not rows:
-                logger.error("No qualifying days found for arc diagram.")
-                return None
-
-            participation_df = pd.DataFrame(rows)
-            col_order = ["type", "author", "total_messages"] + authors
-            participation_df = participation_df[col_order]
-
-            logger.success(f"Arc table built: {len(participation_df)} rows")
-            return ArcPlotData(participation_df=participation_df)
-
-        except Exception as e:
-            logger.exception(f"build_visual_relationships_arc failed: {e}")
-            return None
-
-
-    # === 5. Bubble (Script5) ===
-    def build_visual_relationships_bubble(self, df_groups: pd.DataFrame) -> BubblePlotData | None:
-        """
-        Build bubble plot features: avg words, punctuation, message count per author-group.
+        Build relationships plot features: avg words, punctuation, message count per author-group.
 
         Args:
             df_groups: DataFrame with group, author, word/punct counts.
 
         Returns:
-            BubblePlotData or None.
+            RelationshipsPlotData or None.
 
         Raises:
             Exception: If aggregation fails.
         """
-        df = self._handle_empty_df(df_groups, "build_visual_relationships_bubble")
+        df = self._handle_empty_df(df_groups, "build_visual_relationships")
         if df.empty:
             return None
 
@@ -793,7 +720,7 @@ class DataPreparation(BaseHandler):
                 Columns.NUMBER_OF_PUNCTUATIONS.value,
             ]
             if not all(col in df.columns for col in required_cols):
-                logger.error(f"Bubble plot missing required input columns: {required_cols}")
+                logger.error(f"Relationships plot missing required input columns: {required_cols}")
                 return None
 
             agg_df = (
@@ -813,16 +740,16 @@ class DataPreparation(BaseHandler):
                 return None
 
             logger.success(
-                f"Bubble feature table built – {len(agg_df)} author-group rows"
+                f"Relationships feature table built – {len(agg_df)} author-group rows"
             )
-            return BubblePlotData(feature_df=agg_df)
+            return RelationshipsPlotData(feature_df=agg_df)
 
         except Exception as e:
-            logger.exception(f"build_visual_relationships_bubble failed: {e}")
+            logger.exception(f"build_visual_relationships failed: {e}")
             return None
 
 
-    # === 6. Multi-Dimensional Style (Script6) ===
+    # === 5. Multi-Dimensional Style (Script5) ===
     def build_visual_multi_dimensions(
         self,
         df: pd.DataFrame,
@@ -923,9 +850,9 @@ class DataPreparation(BaseHandler):
             X = agg[style_cols].copy()
 
             # Embedding settings
-            use_emb = settings.get(Script6ConfigKeys.USE_EMBEDDINGS, False)
-            hybrid = settings.get(Script6ConfigKeys.HYBRID_FEATURES, True)
-            model_id = settings.get(Script6ConfigKeys.EMBEDDING_MODEL, EmbeddingModel.MPNET)
+            use_emb = settings.get(Script5ConfigKeys.USE_EMBEDDINGS, False)
+            hybrid = settings.get(Script5ConfigKeys.HYBRID_FEATURES, True)
+            model_id = settings.get(Script5ConfigKeys.EMBEDDING_MODEL, EmbeddingModel.MPNET)
 
             model_name = MODEL_NAME_MAP.get(model_id, MODEL_NAME_MAP[EmbeddingModel.MPNET])
 
@@ -989,8 +916,7 @@ __all__ = [
     "CategoryPlotData",
     "TimePlotData",
     "DistributionPlotData",
-    "ArcPlotData",
-    "BubblePlotData",
+    "RelationshipsPlotData",
     "MultiDimPlotData",
     "MultiDimPlotSettings",
     "SeasonalityEvidence",

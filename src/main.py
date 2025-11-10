@@ -9,17 +9,17 @@ from src.scripts.pipeline import Pipeline
 
 # === Pipeline Configuration ===
 # Only include scripts you want to execute.
-# SCRIPT_6_DETAILS is only applicable if Script6 is included in SCRIPTS.
+# SCRIPT_5_DETAILS is only applicable if Script5 is included in SCRIPTS.
 # See script6.py for full configuration details.
-SCRIPTS = [1]
-SCRIPT_6_DETAILS = ["pca", False, 0, 25, True, True, 1] # Only used if 6 in SCRIPTS | by_group, draw_ellipses, conf_level, use_embeddings, hybrid, model_id
+SCRIPTS = [6]
+SCRIPT_5_DETAILS = ["tsne", False, 0, 25, True, True, 1] # Only used if 6 in SCRIPTS | by_group, draw_ellipses, conf_level, use_embeddings, hybrid, model_id
 
 
 # === Main Execution ===
 if __name__ == "__main__":
     result = Pipeline.run(
         scripts=SCRIPTS,
-        script_6_details=SCRIPT_6_DETAILS
+        script_5_details=SCRIPT_5_DETAILS
     )
 
     # === Graceful Dashboard Exit (Script7 only) ===
@@ -47,5 +47,5 @@ if __name__ == "__main__":
 # - Add markers #NEW at the end of the module capturing the latest changes. There can be a list of more #NEW lines.
 
 # NEW: Standardized main entry with Google docstring and SCRIPTS config (2025-10-31)
-# NEW: script_validation(scripts, SCRIPT_6_DETAILS)
+# NEW: script_validation(scripts, SCRIPT_5_DETAILS)
 # NEW: Added graceful exit for Script7 with ENTER prompt (2025-11-03)

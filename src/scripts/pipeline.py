@@ -29,22 +29,20 @@ from src.data_editor import DataEditor
 from src.data_preparation import DataPreparation
 from src.file_manager import FileManager
 from src.plot_manager import (
-    ArcPlotSettings,
-    BubblePlotSettings,
     CategoriesPlotSettings,
     TimePlotSettings,
     DistributionPlotSettings,
+    RelationshipsPlotSettings,
     MultiDimPlotSettings,
     PlotManager,
 )
-from .script0 import Script0
-from .script1 import Script1
-from .script2 import Script2
-from .script3 import Script3
-from .script4 import Script4
-from .script5 import Script5
-from .script6 import Script6
-from .script7 import Script7
+from .script0 import Script0  # PreProcess
+from .script1 import Script1  # Categories
+from .script2 import Script2  # Time
+from .script3 import Script3  # Distribution
+from .script4 import Script4  # Relationships
+from .script5 import Script5  # Multi Dimensions
+from .script6 import Script6  # Dashboards
 
 
 # === Pipeline Class ===
@@ -86,7 +84,7 @@ class Pipeline:
     @staticmethod
     def run(
         scripts: List[int] | None = None,
-        script_6_details: List[Any] | None = None,
+        script_5_details: List[Any] | None = None,
     ) -> None:
         """Execute scripts in order with preprocessing fallback."""
         try:
@@ -171,9 +169,8 @@ class Pipeline:
                     "data_preparation": data_preparation,
                     "plot_manager": plot_manager,
                     "image_dir": image_dir,
-                    "tables_dir": tables_dir,
                     "df": df,
-                    "settings": ArcPlotSettings(),
+                    "settings": RelationshipsPlotSettings(),
                 }),
                 5: (Script5, {
                     "file_manager": file_manager,
@@ -181,18 +178,10 @@ class Pipeline:
                     "plot_manager": plot_manager,
                     "image_dir": image_dir,
                     "df": df,
-                    "settings": BubblePlotSettings(),
-                }),
-                6: (Script6, {
-                    "file_manager": file_manager,
-                    "data_preparation": data_preparation,
-                    "plot_manager": plot_manager,
-                    "image_dir": image_dir,
-                    "df": df,
                     "settings": MultiDimPlotSettings(),
-                    "script_details": script_6_details or ["tsne", True, 0, 75, True, True, 3],
+                    "script_details": script_5_details or ["tsne", True, 0, 75, True, True, 3],
                 }),                
-                7: (Script7, {
+                6: (Script6, {
                     "file_manager": file_manager,
                     "image_dir": image_dir,
                 }),
@@ -281,7 +270,7 @@ class Pipeline:
 
 # NEW: Used **kwargs in registry for clarity and safety (2025-11-03)
 # NEW: Removed positional args entirely (2025-11-03)
-# NEW: Added fallback for script_6_details (2025-11-03)
+# NEW: Added fallback for script_5_details (2025-11-03)
 # NEW: (2025-11-04) – Adjusted Script0 forcing logic for new cache/reuse handling
 # NEW: (2025-11-04) – Added "df": df to Script2 to fix 'No DataFrame provided' error
 # NEW: (2025-11-04) – Run Script0 before registry to ensure df is available

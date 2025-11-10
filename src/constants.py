@@ -300,7 +300,7 @@ class DeleteAttributes(Enum):
 
 # === Embedding Models ===
 class EmbeddingModel(int, Enum):
-    """Mapping for Script6 embedding models."""
+    """Mapping for Script5 embedding models."""
 
     STYLE = 1
     MINILM = 2
@@ -313,12 +313,12 @@ class RunMode(StrEnum):
     COMBINED = "combined"
     BOTH = "both"
 
-# === Script6 Configuration Keys ===
-class Script6ConfigKeys(StrEnum):
+# === Script5 Configuration Keys ===
+class Script5ConfigKeys(StrEnum):
     """
-    Configuration keys for Script6 passed via SCRIPT_6_DETAILS.
+    Configuration keys for Script5 passed via SCRIPT_5_DETAILS.
 
-    Used in main.py, pipeline.py, script6.py, and data_preparation.py.
+    Used in main.py, pipeline.py, script5.py, and data_preparation.py.
     """
 
     PLOT_TYPE = "plot_type"
@@ -342,6 +342,6 @@ class Script6ConfigKeys(StrEnum):
 # - Add markers #NEW at the end of the module
 
 # NEW: Added missing columns and footer (2025-11-01)
-# NEW: Added EmbeddingModel, Script6 config keys (2025-11-03)
+# NEW: Added EmbeddingModel, Script5 config keys (2025-11-03)
 # NEW: (2025-11-03) – All hard-coded literals moved to constants
 # NEW: (2025-11-04) – Added REUSE_WHATSAPP_ALL to ConfigKeys; Renamed WHATSAPP_ALL to WHATSAPP_ALL_ENRICHED in FilePrefixes
