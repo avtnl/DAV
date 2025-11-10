@@ -3,7 +3,7 @@
 Multi-dimensional plot: PCA/t-SNE clustering with embeddings (Script 5).
 
 Aggregates yearly author style, applies embeddings, reduces dimensions,
-and renders interactive t-SNE plots (individual or group-level).
+and renders interactive t-SNE/PCA plots (individual or group-level).
 
 === SCRIPT_5_DETAILS README ===
 Configure Script6 via: SCRIPT_5_DETAILS = [PLOT_TYPE, BY_GROUP, ELLIPSE_MODE, CONFIDENCE_LEVEL, USE_EMBEDDINGS, HYBRID_FEATURES, EMBEDDING_MODEL]
@@ -90,7 +90,7 @@ class Script5(BaseScript):
             settings=settings or MultiDimPlotSettings(),
             df=df,
         )
-        self.image_dir = image_dir
+        self.image_dir = image_dir  # e.g. Path("img")
 
         if script_details is not None:
             _validate_script5_details(script_details)
@@ -142,16 +142,27 @@ class Script5(BaseScript):
         logger.info(f"Script5 config: {details} → {config_code}")
 
         results = {}
-        style_dir = self.image_dir / "style_output"
-        style_dir.mkdir(parents=True, exist_ok=True)
+
+        # === NEW: PNG & HTML → img/ (top-level) ===
+        plot_dir = self.image_dir  # e.g. Path("img")
+        plot_dir.mkdir(parents=True, exist_ok=True)
+
+        # === NEW: CSV summary → src/style_output/ ===
+        csv_dir = Path("src") / "style_output"
+        csv_dir.mkdir(parents=True, exist_ok=True)
+
+        suffix = f"_{config_code}"  # ← CORRECT: define suffix once
 
         for name, fig in figs.items():
-            suffix = f"_{config_code}"
-            html_path = style_dir / f"style_{name}{suffix}.html"
+            # ---- Define paths ----
+            png_path = plot_dir / f"style_{name}{suffix}.png"
+            html_path = plot_dir / f"style_{name}{suffix}.html"
+
+            # Save HTML
             fig.write_html(str(html_path))
             logger.success(f"Saved HTML: {html_path}")
 
-            png_path = style_dir / f"style_{name}{suffix}.png"
+            # Save PNG
             try:
                 fig.write_image(str(png_path), width=1200, height=800)
                 logger.success(f"Saved PNG: {png_path}")
@@ -160,7 +171,8 @@ class Script5(BaseScript):
 
             results[name] = png_path
 
-        csv_path = style_dir / f"style_summary{suffix}.csv"
+        # === Save CSV summary in src/style_output ===
+        csv_path = csv_dir / f"style_summary{suffix}.csv"
         data.agg_df.to_csv(csv_path, index=False)
         logger.success(f"Saved summary: {csv_path}")
 
@@ -182,3 +194,4 @@ class Script5(BaseScript):
 # NEW: ELLIPSE_MODE (0/1/2) + CONFIDENCE_LEVEL (20–100) added (2025-11-06)
 # NEW: GMM pocket detection (Streamlit-style) for mode 2 (2025-11-06)
 # NEW: df passed to super(); no *args, **kwargs (2025-11-03)
+# NEW: PNG/HTML saved in img/, CSV in src/style_output/ (2025-11-10)

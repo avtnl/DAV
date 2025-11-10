@@ -233,10 +233,11 @@ MODEL_NAME_MAP = {
 
 class MultiDimPlotData(BaseModel):
     """Validated container for t-SNE + clustering + embeddings."""
-    agg_df: pd.DataFrame = Field(..., description="Aggregated features with t-SNE coords and clusters")
+    agg_df: pd.DataFrame = Field(..., description="Aggregated features with t-SNE/PCA coords and clusters")
     style_cols: list[str] = Field(..., description="Hand-crafted style feature column names")
     model_used: str = Field(..., description="Embedding model identifier")
     by_year: bool = True
+    plot_type: str = Field(..., description="pca | tsne | both")   # NEW
 
     class Config:
         arbitrary_types_allowed = True
@@ -749,31 +750,36 @@ class DataPreparation(BaseHandler):
             return None
 
 
-    # === 5. Multi-Dimensional Style (Script5) ===
+    # === 5. Multi Dimensions (Script5) ===
     def build_visual_multi_dimensions(
         self,
         df: pd.DataFrame,
         settings: dict,
     ) -> MultiDimPlotData | None:
         """
-        Build aggregated style features, embeddings, t-SNE, and clustering.
+        Build aggregated style features, embeddings, PCA/t-SNE coordinates, and clustering.
 
         Args:
-            df: Enriched DataFrame
-            settings: Dict with by_group, use_embeddings, hybrid_features, embedding_model
+            df: Enriched DataFrame with message-level features.
+            settings: Dict with keys from Script5ConfigKeys (PLOT_TYPE, BY_GROUP, etc.).
 
         Returns:
-            MultiDimPlotData or None.
+            MultiDimPlotData with:
+                - agg_df containing PCA/t-SNE coords and cluster labels
+                - style_cols used for modeling
+                - model_used (embedding name)
+                - plot_type ("pca" | "tsne" | "both")
+            Returns None on failure.
 
         Raises:
-            Exception: If any step fails.
+            Exception: If any step fails (logged).
         """
         df = self._handle_empty_df(df, "build_visual_multi_dimensions")
         if df.empty:
             return None
 
         try:
-            # Rename columns to standard names
+            # === Rename columns to standard names ===
             df = df.copy()
             rename_map = {}
             for col in df.columns:
@@ -790,14 +796,15 @@ class DataPreparation(BaseHandler):
             if "message_cleaned" not in df.columns:
                 df["message_cleaned"] = ""
 
-            # Isolate AvT into temp group
+            # === Isolate AvT into temp group ===
             df[Columns.WHATSAPP_GROUP_TEMP] = df[Columns.WHATSAPP_GROUP.value]
             df.loc[df[Columns.AUTHOR.value] == Groups.AVT, Columns.WHATSAPP_GROUP_TEMP] = Groups.AVT
 
-            # Aggregation keys
+            # === Aggregation keys ===
             group_cols = [Columns.AUTHOR.value, Columns.YEAR.value]
             full_group_cols = [*group_cols, Columns.WHATSAPP_GROUP_TEMP]
 
+            # === Aggregation dictionary ===
             agg_dict = {
                 "msg_count": ("message_cleaned", "count"),
                 "words_total": (Columns.NUMBER_OF_WORDS.value, "sum"),
@@ -827,7 +834,7 @@ class DataPreparation(BaseHandler):
 
             agg = df.groupby(full_group_cols).agg(**agg_dict).reset_index()
 
-            # Compute pct_replies
+            # === Compute pct_replies ===
             prev = df[Columns.PREVIOUS_AUTHOR.value]
             curr = df[Columns.AUTHOR.value]
             reply_mask = prev.notna() & (prev != curr)
@@ -838,7 +845,7 @@ class DataPreparation(BaseHandler):
             reply_df = reply_df.drop(columns="index")
             agg = agg.merge(reply_df, on=full_group_cols, how="left").fillna(0)
 
-            # Style features
+            # === Style features for modeling ===
             style_cols = [
                 "msg_count", "words_total", "emojis_total", "punct_total", "caps_total",
                 "pics_total", "links_total", "attachments_total", "mean_response", "std_response",
@@ -849,7 +856,7 @@ class DataPreparation(BaseHandler):
             ]
             X = agg[style_cols].copy()
 
-            # Embedding settings
+            # === Embedding settings ===
             use_emb = settings.get(Script5ConfigKeys.USE_EMBEDDINGS, False)
             hybrid = settings.get(Script5ConfigKeys.HYBRID_FEATURES, True)
             model_id = settings.get(Script5ConfigKeys.EMBEDDING_MODEL, EmbeddingModel.MPNET)
@@ -873,37 +880,55 @@ class DataPreparation(BaseHandler):
                     X = agg[emb_cols].fillna(0)
                     style_cols = emb_cols
 
-            # Dimension reduction
+            # === Resolve plot_type ===
+            plot_type = settings.get(Script5ConfigKeys.PLOT_TYPE, "tsne").lower()
+            if plot_type not in {"pca", "tsne", "both"}:
+                logger.warning(f"Invalid PLOT_TYPE '{plot_type}', defaulting to 'tsne'")
+                plot_type = "tsne"
+
+            # === 1. PCA (always computed – needed for t-SNE and pure PCA mode) ===
             from sklearn.preprocessing import StandardScaler
             from sklearn.decomposition import PCA
             X_scaled = StandardScaler().fit_transform(X)
-            
+
             n_features = X.shape[1]
             n_components = min(50, n_features)
             logger.info(f"PCA using {n_components} components (max available: {n_features})")
-            
-            pca = PCA(n_components=n_components, random_state=42)
-            X_pca = pca.fit_transform(X_scaled)
-            
-            from sklearn.manifold import TSNE
-            perplexity = min(TSNE_PERPLEXITY_MAX, len(X) - 1)
-            tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
-            tsne_coords = tsne.fit_transform(X_pca)
-            agg["tsne_x"] = tsne_coords[:, 0]
-            agg["tsne_y"] = tsne_coords[:, 1]
 
-            # Clustering
+            pca = PCA(n_components=n_components, random_state=42)
+            X_pca = pca.fit_transform(X_scaled)                     # (n_samples, n_components)
+
+            # === 2. t-SNE (only when required) ===
+            tsne_coords = None
+            if plot_type in {"tsne", "both"}:
+                from sklearn.manifold import TSNE
+                perplexity = min(TSNE_PERPLEXITY_MAX, len(X) - 1)
+                tsne = TSNE(n_components=2, random_state=42, perplexity=perplexity)
+                tsne_coords = tsne.fit_transform(X_pca)             # (n_samples, 2)
+
+            # === 3. Write coordinates to agg ===
+            if plot_type in {"pca", "both"}:
+                agg["pca_1"] = X_pca[:, 0]
+                agg["pca_2"] = X_pca[:, 1]
+
+            if plot_type in {"tsne", "both"}:
+                agg["tsne_x"] = tsne_coords[:, 0]
+                agg["tsne_y"] = tsne_coords[:, 1]
+
+            # === Clustering (on scaled style features) ===
             import hdbscan
             clusterer = hdbscan.HDBSCAN(min_cluster_size=HDBSCAN_MIN_CLUSTER_SIZE, metric='euclidean')
             agg["cluster"] = clusterer.fit_predict(X_scaled)
 
+            # === Return enriched model ===
             result = MultiDimPlotData(
                 agg_df=agg,
                 style_cols=style_cols,
                 model_used=model_name,
                 by_year=True,
+                plot_type=plot_type,                               # NEW: (2025-11-10)
             )
-            logger.success(f"MultiDimPlotData built: {len(agg)} rows, {len(style_cols)} features")
+            logger.success(f"MultiDimPlotData built: {len(agg)} rows, {len(style_cols)} features, plot_type={plot_type}")
             return result
 
         except Exception as e:

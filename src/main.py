@@ -11,8 +11,8 @@ from src.scripts.pipeline import Pipeline
 # Only include scripts you want to execute.
 # SCRIPT_5_DETAILS is only applicable if Script5 is included in SCRIPTS.
 # See script6.py for full configuration details.
-SCRIPTS = [4]
-SCRIPT_5_DETAILS = ["tsne", False, 0, 25, True, True, 1] # Only used if 6 in SCRIPTS | by_group, draw_ellipses, conf_level, use_embeddings, hybrid, model_id
+SCRIPTS = [5]
+SCRIPT_5_DETAILS = ["both", True, 0, 25, False, True, 1] # Only used if 6 in SCRIPTS | by_group, draw_ellipses, conf_level, use_embeddings, hybrid, model_id
 
 
 # === Main Execution ===

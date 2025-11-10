@@ -81,7 +81,7 @@ class Script6(BaseScript):
             logger.info(f"Streamlit process started (PID: {process.pid})")
 
             if sys.stdin and sys.stdin.isatty():
-                logger.info("Interactive terminal detected – opening browser in 2s...")
+                logger.info("Interactive terminal detected - opening browser in 2s...")
                 time.sleep(2)
                 success = webbrowser.open(self.url)
                 if success:
@@ -89,7 +89,7 @@ class Script6(BaseScript):
                 else:
                     logger.warning(f"Failed to open browser. Visit manually: {self.url}")
             else:
-                logger.info(f"Non-interactive environment – visit manually: {self.url}")
+                logger.info(f"Non-interactive environment - visit manually: {self.url}")
 
             logger.success(f"Streamlit dashboard running at: {self.url}")
             return {"process": process, "url": self.url, "port": self.port}

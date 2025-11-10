@@ -860,24 +860,29 @@ class PlotManager:
             return None
 
 
-    # === 5. Multi-Dimensional (Script5) ===
+    # === 5. Multi Dimensions (Script5) ===
     def build_visual_multi_dimensions(
         self,
         data: MultiDimPlotData,
-        settings: MultiDimPlotSettings = MultiDimPlotSettings(),
-    ) -> dict[str, "go.Figure"] | None:
+        settings: MultiDimPlotSettings,
+    ) -> Dict[str, Figure] | None:
         """
-        Create interactive t-SNE plots with optional group isolation and confidence ellipses.
+        Build interactive PCA or t-SNE scatter plots with optional confidence ellipses.
 
         Args:
-            data: Validated MultiDimPlotData with t-SNE coordinates and aggregated features
-            settings: MultiDimPlotSettings with group mode, ellipse mode, confidence level
+            data: Validated MultiDimPlotData (must contain agg_df + plot_type).
+            settings: Plot configuration.
 
         Returns:
-            Dict of Plotly figures: {"individual": ..., "group": ...} or None
+            Dict of Plotly figures keyed by mode (individual / group).
+            For PLOT_TYPE="both" returns prefixed keys (pca_…, tsne_…).
         """
+        # === 1. Strict type guard ===
+        if not isinstance(data, MultiDimPlotData):
+            logger.error("Invalid input: expected MultiDimPlotData, received %s", type(data).__name__)
+            return None
         if data.agg_df.empty:
-            logger.error("Empty agg_df in MultiDimPlotData")
+            logger.error("agg_df is empty")
             return None
 
         try:
@@ -886,254 +891,241 @@ class PlotManager:
             from scipy.stats import chi2
             from sklearn.mixture import GaussianMixture
 
-            figs = {}
+            # === 2. Resolve plot_type ===
+            plot_type = data.plot_type.lower()
+            if plot_type not in {"pca", "tsne", "both"}:
+                logger.warning("Invalid plot_type '%s' – falling back to 'tsne'", plot_type)
+                plot_type = "tsne"
 
-            def get_ellipse_points(mean_x, mean_y, width, height, angle):
-                t = np.linspace(0, 2 * np.pi, 100)
-                x = width / 2 * np.cos(t)
-                y = height / 2 * sin(t)
-                points = np.column_stack([x, y])
-                theta = np.radians(angle)
-                rot = np.array([[np.cos(theta), -np.sin(theta)],
-                                [np.sin(theta),  np.cos(theta)]])
-                rotated = points @ rot.T
-                rotated[:, 0] += mean_x
-                rotated[:, 1] += mean_y
-                return rotated[:, 0], rotated[:, 1]
+            # === 3. "both" → recursive generation ===
+            if plot_type == "both":
+                pca_data = data.model_copy(update={"plot_type": "pca"})
+                tsne_data = data.model_copy(update={"plot_type": "tsne"})
+                pca_figs = self.build_visual_multi_dimensions(pca_data, settings)
+                tsne_figs = self.build_visual_multi_dimensions(tsne_data, settings)
+                if not pca_figs or not tsne_figs:
+                    logger.error("Failed to generate one half of 'both' mode")
+                    return None
+                return {f"pca_{k}": v for k, v in pca_figs.items()} | \
+                    {f"tsne_{k}": v for k, v in tsne_figs.items()}
 
-            def hex_to_rgba(hex_color, alpha):
-                hex_color = hex_color.lstrip('#')
-                return f"rgba({int(hex_color[0:2],16)}, {int(hex_color[2:4],16)}, {int(hex_color[4:6],16)}, {alpha})"
+            # === 4. Choose columns / titles ===
+            if plot_type == "pca":
+                prefix = "PCA"
+                x_col, y_col = "pca_1", "pca_2"
+                x_title, y_title = "PCA Component 1", "PCA Component 2"
+                required = {"pca_1", "pca_2"}
+            else:  # tsne
+                prefix = "TSNE"
+                x_col, y_col = "tsne_x", "tsne_y"
+                x_title, y_title = "t-SNE X", "t-SNE Y"
+                required = {"tsne_x", "tsne_y"}
 
-            # === AUTHOR-SPECIFIC COLOR SCHEME (restored from old version) ===
-            author_colors = {
-                "RH": "#FF7F0E", "MK": "#FF8C00", "HB": "#FFD580", "AB": "#00008B",
-                "PB": "#00BFFF", "M": "#ADD8E6", "LL": "#228B22", "HH": "#32CD32",
-                "HvH": "#66CDAA", "ND": "#9ACD32", "Bo": "#EE82EE", "Lars": "#9467BD",
-                "Mats": "#DDA0DD", "JC": "#A9A9A9", "EH": "#024A07", "FJ": "#D3D3D3",
-                "AvT": "#FF0000",
-            }
+            missing = required - set(data.agg_df.columns)
+            if missing:
+                logger.error("Missing %s coordinates in agg_df", missing)
+                return None
 
+            # === 5. Dynamic subtitle ===
+            base_subtitle = "plot combining 25 style features and style oriented Hugging Faces"
+            settings.subtitle = f"{prefix} {base_subtitle}"
+
+            # === 6. Confidence scaling ===
             chi_val = np.sqrt(chi2.ppf(settings.confidence_level / 100, df=2))
 
-            # === INDIVIDUAL MODE (Author + Group in legend) ===
+            # === 7. Helper utilities ===
+            def hex_to_rgba(hex_color: str, alpha: float) -> str:
+                h = hex_color.lstrip("#")
+                rgb = tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+                return f"rgba({rgb[0]},{rgb[1]},{rgb[2]},{alpha})"
+
+            def get_ellipse_points(cx, cy, w, h, angle_deg):
+                t = np.linspace(0, 2*np.pi, 100)
+                ex = cx + w/2*np.cos(t)
+                ey = cy + h/2*np.sin(t)
+                rot = np.array([[np.cos(np.radians(angle_deg)), -np.sin(np.radians(angle_deg))],
+                                [np.sin(np.radians(angle_deg)),  np.cos(np.radians(angle_deg))]])
+                pts = np.vstack([ex, ey])
+                return (rot @ pts).T[:, 0], (rot @ pts).T[:, 1]
+
+            figs: Dict[str, Figure] = {}
+
+            # === 8. Individual-author mode ===
             if not settings.by_group:
-                # Create combined label: "Author (Group)" except for AvT
-                data.agg_df["author_group"] = data.agg_df.apply(
-                    lambda row: (
-                        f"{row[Columns.AUTHOR.value]} ({row[Columns.WHATSAPP_GROUP_TEMP.value]})"
-                        if row[Columns.WHATSAPP_GROUP_TEMP.value] != Groups.AVT
-                        else row[Columns.AUTHOR.value]
+                df = data.agg_df.copy()
+                df["author_group"] = df.apply(
+                    lambda r: (
+                        f"{r[Columns.AUTHOR.value]} ({r[Columns.WHATSAPP_GROUP_TEMP.value]})"
+                        if r[Columns.WHATSAPP_GROUP_TEMP.value] != Groups.AVT
+                        else r[Columns.AUTHOR.value]
                     ),
-                    axis=1
+                    axis=1,
                 )
-
-                # Sort legend: Group first, then Author
                 sorted_labels = (
-                    data.agg_df
-                    .sort_values([Columns.WHATSAPP_GROUP_TEMP.value, Columns.AUTHOR.value])
-                    ["author_group"]
-                    .ure.unique()
-                    .tolist()
+                    df.sort_values([Columns.WHATSAPP_GROUP_TEMP.value, Columns.AUTHOR.value])
+                    ["author_group"].unique().tolist()
                 )
-
-                # Map colors using author name only (preserves nuance)
-                color_map = {}
-                for label in sorted_labels:
-                    author = label.split(" (")[0] if " (" in label else label
-                    color_map[label] = author_colors.get(author, "#333333")
+                author_colors = {
+                    "RH": "#FF7F0E","MK":"#FF8C00","HB":"#FFD580","AB":"#00008B",
+                    "PB":"#00BFFF","M":"#ADD8E6","LL":"#228B22","HH":"#32CD32",
+                    "HvH":"#66CDAA","ND":"#9ACD32","Bo":"#EE82EE","Lars":"#9467BD",
+                    "Mats":"#DDA0DD","JC":"#A9A9A9","EH":"#024A07","FJ":"#D3D3D3",
+                    "AvT":"#FF0000",
+                }
+                color_map = {lbl: author_colors.get(lbl.split(" (")[0], "#333333") for lbl in sorted_labels}
 
                 fig = px.scatter(
-                    data.agg_df,
-                    x="tsne_x", y="tsne_y",
-                    size="msg_count",
-                    color="author_group",
+                    df, x=x_col, y=y_col, size="msg_count", color="author_group",
                     color_discrete_map=color_map,
-                    hover_data={
-                        "msg_count": True,
-                        Columns.AUTHOR.value: True,
-                        Columns.WHATSAPP_GROUP_TEMP.value: True,
-                        "author_group": False
-                    },
+                    hover_data={"msg_count":True, Columns.AUTHOR.value:True,
+                                Columns.WHATSAPP_GROUP_TEMP.value:True,
+                                "author_group":False, x_col:False, y_col:False},
                     category_orders={"author_group": sorted_labels},
                 )
 
-                # Title and subtitle (combined)
-                title_text = settings.title
-                if settings.subtitle:
-                    title_text += f"<br><span style='font-size:{settings.subtitle_fontsize}px; color:{settings.subtitle_color};'>{settings.subtitle}</span>"
-
-                fig.update_layout(
-                    title={
-                        'text': title_text,
-                        'y': 0.96,
-                        'x': 0.5,
-                        'xanchor': 'center',
-                        'yanchor': 'top',
-                        'font': dict(size=settings.title_fontsize, family="Arial Black, Arial, sans-serif", color="black"),
-                        'pad': dict(t=20)
-                    },
-                    margin=dict(t=120, b=80, l=80, r=180),
-                    xaxis=dict(title="t-SNE X", title_font=dict(size=16), tickfont=dict(size=12)),
-                    yaxis=dict(title="t-SNE Y", title_font=dict(size=16), tickfont=dict(size=12)),
-                    legend=dict(
-                        title="Author (Group)",
-                        font=dict(size=16),
-                        bgcolor="white",
-                        bordercolor="gray",
-                        borderwidth=1
-                    ),
-                    width=1400,
-                    height=750,
-                )
-
-                # === ELLIPSES (using author-specific color) ===
+                # --- ellipses per author ---
                 if settings.ellipse_mode > 0:
-                    for author in data.agg_df[Columns.AUTHOR.value].unique():
-                        sub = data.agg_df[data.agg_df[Columns.AUTHOR.value] == author].copy()
-                        if len(sub) < 3:
-                            continue
-                        X = sub[["tsne_x", "tsne_y"]].values
-                        color = author_colors.get(author, "#333333")
+                    for author in df[Columns.AUTHOR.value].unique():
+                        sub = df[df[Columns.AUTHOR.value] == author]
+                        if len(sub) < 3: continue
+                        X = sub[[x_col, y_col]].values
+                        col = author_colors.get(author, "#333333")
 
-                        if settings.ellipse_mode == 1:
+                        if settings.ellipse_mode == 1:          # single ellipse
                             cov = np.cov(X.T)
-                            mean = X.mean(axis=0)
-                            lambda_, v = np.linalg.eig(cov)
-                            lambda_ = np.sqrt(lambda_)
-                            width, height = 2 * lambda_ * chi_val
-                            angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
-                            ell_x, ell_y = get_ellipse_points(mean[0], mean[1], width[0], height[1], angle)
-                            fig.add_trace(go.Scatter(x=ell_x, y=ell_y, mode="lines", fill="toself",
-                                fillcolor=hex_to_rgba(color, 0.2), line=dict(color=color, width=2),
-                                name=f"{author} confidence", showlegend=False))
+                            mu = X.mean(axis=0)
+                            lam, v = np.linalg.eig(cov)
+                            lam = np.sqrt(lam)
+                            w, h = 2*lam*chi_val
+                            ang = np.degrees(np.arctan2(v[1,0], v[0,0]))
+                            ex, ey = get_ellipse_points(mu[0], mu[1], w[0], h[1], ang)
+                            fig.add_trace(go.Scatter(x=ex, y=ey, mode="lines", fill="toself",
+                                                    fillcolor=hex_to_rgba(col, 0.2),
+                                                    line=dict(color=col, width=2),
+                                                    showlegend=False))
 
-                        else:
-                            best_gmm = None
-                            best_bic = np.inf
-                            best_n = 1
+                        else:                                   # GMM pockets
+                            best_gmm, best_bic, best_n = None, float('inf'), 1
                             for n in range(1, min(4, len(sub))):
-                                gmm = GaussianMixture(n_components=n, covariance_type="full", random_state=42)
-                                gmm.fit(X)
-                                bic = gmm.bic(X)
+                                g = GaussianMixture(n_components=n, covariance_type="full", random_state=42)
+                                g.fit(X)
+                                bic = g.bic(X)
                                 if bic < best_bic:
-                                    best_bic = bic
-                                    best_gmm = gmm
-                                    best_n = n
-
+                                    best_bic, best_gmm, best_n = bic, g, n
                             for i in range(best_n):
-                                weight = best_gmm.weights_[i]
-                                if weight < 0.1:
-                                    continue
-                                mean = best_gmm.means_[i]
+                                wgt = best_gmm.weights_[i]
+                                if wgt < 0.1: continue
+                                mu = best_gmm.means_[i]
                                 cov = best_gmm.covariances_[i]
-                                lambda_, v = np.linalg.eig(cov)
-                                lambda_ = np.sqrt(lambda_)
-                                width = 2 * lambda_[0] * chi_val
-                                height = 2 * lambda_[1] * chi_val
-                                angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
-                                ell_x, ell_y = get_ellipse_points(mean[0], mean[1], width, height, angle)
-                                opacity = 0.2 + 0.3 * weight
-                                fig.add_trace(go.Scatter(x=ell_x, y=ell_y, mode="lines", fill="toself",
-                                    fillcolor=hex_to_rgba(color, opacity), line=dict(color=color, width=2),
-                                    name=f"{author} pocket {i+1}", showlegend=False))
+                                lam, v = np.linalg.eig(cov)
+                                lam = np.sqrt(lam)
+                                w, h = 2*lam*chi_val
+                                ang = np.degrees(np.arctan2(v[1,0], v[0,0]))
+                                ex, ey = get_ellipse_points(mu[0], mu[1], w, h, ang)
+                                op = 0.2 + 0.3*wgt
+                                fig.add_trace(go.Scatter(x=ex, y=ey, mode="lines", fill="toself",
+                                                        fillcolor=hex_to_rgba(col, op),
+                                                        line=dict(color=col, width=2),
+                                                        showlegend=False))
 
                 figs["individual"] = fig
 
-            # === GROUP MODE ===
+            # === 9. Group-level mode ===
             if settings.by_group:
-                data.agg_df["plot_group"] = data.agg_df.apply(
-                    lambda row: Groups.AVT if row[Columns.AUTHOR.value] == Groups.AVT else row[Columns.WHATSAPP_GROUP_TEMP],
-                    axis=1
+                df = data.agg_df.copy()
+                df["plot_group"] = df.apply(
+                    lambda r: Groups.AVT if r[Columns.AUTHOR.value] == Groups.AVT else r[Columns.WHATSAPP_GROUP_TEMP],
+                    axis=1,
                 )
                 group_colors = {
-                    Groups.MAAP: "#1f77b4", Groups.DAC: "#ff7f0e", Groups.GOLFMATEN: "#2ca02c",
-                    Groups.TILLIES: "#808080", Groups.AVT: "#d62728"
+                    Groups.MAAP: "#1f77b4", Groups.DAC: "#ff7f0e",
+                    Groups.GOLFMATEN: "#2ca02c", Groups.TILLIES: "#808080",
+                    Groups.AVT: "#d62728",
                 }
                 fig = px.scatter(
-                    data.agg_df, x="tsne_x", y="tsne_y", color="plot_group", size="msg_count",
+                    df, x=x_col, y=y_col, size="msg_count", color="plot_group",
                     color_discrete_map=group_colors,
-                    hover_data={"msg_count": True, Columns.AUTHOR.value: True},
+                    hover_data={"msg_count":True, Columns.AUTHOR.value:True,
+                                x_col:False, y_col:False},
                 )
 
-                title_text = settings.title
-                if settings.subtitle:
-                    title_text += f"<br><span style='font-size:{settings.subtitle_fontsize}px; color:{settings.subtitle_color};'>{settings.subtitle}</span>"
-
-                fig.update_layout(
-                    title={
-                        'text': title_text,
-                        'y': 0.96,
-                        'x': 0.5,
-                        'xanchor': 'center',
-                        'yanchor': 'top',
-                        'font': dict(size=settings.title_fontsize, family="Arial Black, Arial, sans-serif", color="black"),
-                        'pad': dict(t=20)
-                    },
-                    margin=dict(t=120, b=80, l=80, r=180),
-                    xaxis=dict(title="t-SNE X", title_font=dict(size=16), tickfont=dict(size=12)),
-                    yaxis=dict(title="t-SNE Y", title_font=dict(size=16), tickfont=dict(size=12)),
-                    legend=dict(title="Author (Group)", font=dict(size=16), bgcolor="white", bordercolor="gray", borderwidth=1),
-                    width=1400, height=750,
-                )
-
+                # --- ellipses per group ---
                 if settings.ellipse_mode > 0:
-                    for grp in data.agg_df["plot_group"].unique():
-                        sub = data.agg_df[data.agg_df["plot_group"] == grp].copy()
-                        if len(sub) < 3:
-                            continue
-                        X = sub[["tsne_x", "tsne_y"]].values
-                        color = group_colors.get(grp, "#333333")
+                    for grp in df["plot_group"].unique():
+                        sub = df[df["plot_group"] == grp]
+                        if len(sub) < 3: continue
+                        X = sub[[x_col, y_col]].values
+                        col = group_colors.get(grp, "#333333")
 
                         if settings.ellipse_mode == 1:
                             cov = np.cov(X.T)
-                            mean = X.mean(axis=0)
-                            lambda_, v = np.linalg.eig(cov)
-                            lambda_ = np.sqrt(lambda_)
-                            width, height = 2 * lambda_ * chi_val
-                            angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
-                            ell_x, ell_y = get_ellipse_points(mean[0], mean[1], width[0], height[1], angle)
-                            fig.add_trace(go.Scatter(x=ell_x, y=ell_y, mode="lines", fill="toself",
-                                fillcolor=hex_to_rgba(color, 0.25), line=dict(color=color, width=2),
-                                showlegend=False))
+                            mu = X.mean(axis=0)
+                            lam, v = np.linalg.eig(cov)
+                            lam = np.sqrt(lam)
+                            w, h = 2*lam*chi_val
+                            ang = np.degrees(np.arctan2(v[1,0], v[0,0]))
+                            ex, ey = get_ellipse_points(mu[0], mu[1], w[0], h[1], ang)
+                            fig.add_trace(go.Scatter(x=ex, y=ey, mode="lines", fill="toself",
+                                                    fillcolor=hex_to_rgba(col, 0.25),
+                                                    line=dict(color=col, width=2),
+                                                    showlegend=False))
 
-                        else:
-                            best_gmm = None
-                            best_bic = np.inf
-                            best_n = 1
+                        else:  # GMM
+                            best_gmm, best_bic, best_n = None, float('inf'), 1
                             for n in range(1, min(4, len(sub))):
-                                gmm = GaussianMixture(n_components=n, covariance_type="full", random_state=42)
-                                gmm.fit(X)
-                                bic = gmm.bic(X)
+                                g = GaussianMixture(n_components=n, covariance_type="full", random_state=42)
+                                g.fit(X)
+                                bic = g.bic(X)
                                 if bic < best_bic:
-                                    best_bic = bic
-                                    best_gmm = gmm
-                                    best_n = n
-
+                                    best_bic, best_gmm, best_n = bic, g, n
                             for i in range(best_n):
-                                weight = best_gmm.weights_[i]
-                                if weight < 0.1:
-                                    continue
-                                mean = best_gmm.means_[i]
+                                wgt = best_gmm.weights_[i]
+                                if wgt < 0.1: continue
+                                mu = best_gmm.means_[i]
                                 cov = best_gmm.covariances_[i]
-                                lambda_, v = np.linalg.eig(cov)
-                                lambda_ = np.sqrt(lambda_)
-                                width = 2 * lambda_[0] * chi_val
-                                height = 2 * lambda_[1] * chi_val
-                                angle = np.degrees(np.arctan2(v[1,0], v[0,0]))
-                                ell_x, ell_y = get_ellipse_points(mean[0], mean[1], width, height, angle)
-                                opacity = 0.2 + 0.3 * weight
-                                fig.add_trace(go.Scatter(x=ell_x, y=ell_y, mode="lines", fill="toself",
-                                    fillcolor=hex_to_rgba(color, opacity), line=dict(color=color, width=2),
-                                    showlegend=False))
+                                lam, v = np.linalg.eig(cov)
+                                lam = np.sqrt(lam)
+                                w, h = 2*lam*chi_val
+                                ang = np.degrees(np.arctan2(v[1,0], v[0,0]))
+                                ex, ey = get_ellipse_points(mu[0], mu[1], w, h, ang)
+                                op = 0.2 + 0.3*wgt
+                                fig.add_trace(go.Scatter(x=ex, y=ey, mode="lines", fill="toself",
+                                                        fillcolor=hex_to_rgba(col, op),
+                                                        line=dict(color=col, width=2),
+                                                        showlegend=False))
 
                 figs["group"] = fig
 
-            logger.success(f"Multi-dimensional plot built: {len(figs)} figures")
+            # === 10. Shared layout ===
+            for name, fig in figs.items():
+                title_text = settings.title
+                if settings.subtitle:
+                    title_text += (
+                        f"<br><span style='font-size:{settings.subtitle_fontsize}px; "
+                        f"color:{settings.subtitle_color};'>{settings.subtitle}</span>"
+                    )
+                fig.update_layout(
+                    title=dict(text=title_text, y=0.96, x=0.5, xanchor='center',
+                            yanchor='top',
+                            font=dict(size=settings.title_fontsize,
+                                        family="Arial Black, Arial, sans-serif",
+                                        color="black"),
+                            pad=dict(t=20)),
+                    margin=dict(t=120, b=80, l=80, r=180),
+                    xaxis=dict(title=x_title, title_font=dict(size=16), tickfont=dict(size=12)),
+                    yaxis=dict(title=y_title, title_font=dict(size=16), tickfont=dict(size=12)),
+                    legend=dict(
+                        title="Author (Group)" if "individual" in name else "Group",
+                        font=dict(size=16), bgcolor="white",
+                        bordercolor="gray", borderwidth=1),
+                    width=1400, height=750,
+                )
+
+            logger.success(f"Multi-dimensional plot built – {len(figs)} figure(s) [{plot_type}]")
             return figs
 
         except Exception as e:
-            logger.exception(f"Multi-dimensional plot failed: {e}")
+            logger.exception(f"build_visual_multi_dimensions failed: {e}")
             return None
         
 
