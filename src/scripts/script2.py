@@ -101,7 +101,7 @@ class Script2(BaseScript):
             self.log_error(f"Failed to build plots: {e}")
             return self._error_path(), None
 
-        main_path = self.save_figure(figs["category"], self.image_dir, "time_plot_dac")
+        main_path = self.save_figure(figs["category"], self.image_dir, "time_plot")
         season_path = None
         if "seasonality" in figs and figs["seasonality"]:
             season_path = self.save_figure(
@@ -113,7 +113,7 @@ class Script2(BaseScript):
 
     def _error_path(self) -> Path:
         """Return a dummy path on error."""
-        return self.image_dir / "error_time_plot_dac.png"
+        return self.image_dir / "error_time_plot.png"
 
 
 # === CODING STANDARD ===

@@ -169,13 +169,6 @@ class Script3(BaseScript):
                 loglog_path = self.save_figure(loglog_fig, self.image_dir, f"logmodel_evidence_distribution_plot{suffix}")
                 logger.success(f"Log-log plot saved: {loglog_path}")
 
-            # Model comparison
-            comp_fig = self.plot_manager.build_visual_distribution_comparison(analysis)
-            if comp_fig:
-                html_path = self.image_dir / f"emoji_model_comparison{suffix}.html"
-                comp_fig.write_html(str(html_path))
-                logger.success(f"Comparison table saved: {html_path}")
-
         except Exception as e:
             logger.exception(f"Power-law analysis failed{suffix}: {e}")
 

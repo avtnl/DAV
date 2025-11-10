@@ -72,7 +72,7 @@ class PlotSettings(BaseModel):
     subtitle_fontsize: int = 18
     subtitle_fontweight: str = "bold"
     subtitle_color: str = "dimgray"
-    subtitle_y: float = 0.85
+    subtitle_y: float = 0.92
     subtitle_ha: str = "center"
 
     legend: bool = True
@@ -84,26 +84,29 @@ class PlotSettings(BaseModel):
 
 # === 1. Categories ===
 class CategoriesPlotSettings(PlotSettings):
+    title: str = "AvT's participation is much lower for the 3rd whatsapp group!"
+    subtitle: str = ""
     ylabel: str = Columns.MESSAGE_COUNT.human
     group_spacing: float = Field(2.5, ge=0.5, le=5.0)
     bar_width: float = Field(0.8, ge=0.1, le=1.0)
     trendline_color: str = "red"
     trendline_style: str = "--"
     trendline_width: float = 2.5
+    tight_layout: bool = False
     figsize: Tuple[float, float] = WIDE_COMPACT
-    subtitle_y: float = 0.92
+    subtitle_y: float = 0.88
 
 # === 2. Time ===
 class TimePlotSettings(PlotSettings):
     title: str = "Golf season, decoded by WhatsApp heartbeat"
-    subtitle: str = "Number of messages/week within whatsapp group 'dac'"
+    subtitle: str = "Whatsapp group = 'dac'"
     rest_label: str = "---------Rest---------"
     prep_label: str = "---Prep---"
     play_label: str = "---------Play---------"
     line_color: str = "green"
     linewidth: float = 2.5
     figsize: Tuple[float, float] = WIDE_COMPACT
-    subtitle_y: float = 0.96
+    subtitle_y: float = 0.89
 
 class SeasonalityPlotSettings(PlotSettings):
     figsize: Tuple[float, float] = (16, 10)
@@ -138,17 +141,16 @@ class PowerLawPlotSettings(PlotSettings):
     alpha: float = 0.8
     show_fit_line: bool = True
     annotate_alpha: bool = True
-    font_size_title: int = 24
-    font_size_subtitle: int = 18
+    tight_layout: bool = False
     subtitle_y: float = 0.96
-    font_size_title: int = 24
-    font_size_subtitle: int = 18
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 # === 4. Relationships ===
 class RelationshipsPlotSettings(PlotSettings):
+    title: str = "Words vs Punctuation per Author (Bubble Size = Message Count)"
+    subtitle: str = "~1 extra punctuation per 10 words"
     figsize: Tuple[float, float] = WIDE_COMPACT
     title: str = "Correlation between averages of Words and Punctuations"
     subtitle: str = "About 1 extra Punctuation per 10 Words"
@@ -168,7 +170,7 @@ class RelationshipsPlotSettings(PlotSettings):
             Groups.TILLIES: "gray",
         }
     )
-    subtitle_y: float = 0.92
+    subtitle_y: float = 0.88
 
 # === 5. Multi Dimensions ===
 class MultiDimPlotSettings(PlotSettings):
@@ -219,7 +221,7 @@ class PlotManager:
 
         try:
             fig, ax = plt.subplots(figsize=settings.figsize)
-            plt.subplots_adjust(top=0.65)  # ← PRESERVED
+            plt.subplots_adjust(top=0.85)
 
             group_colors = {
                 Groups.DAC: "green",
@@ -305,7 +307,7 @@ class PlotManager:
             if settings.subtitle:
                 fig.text(0.5, settings.subtitle_y, settings.subtitle,
                          fontsize=settings.subtitle_fontsize, fontweight=settings.subtitle_fontweight,
-                         color=settings.subtitle_color, ha=settings.subtitle_ha, va="top",
+                         color=settings.subtitle_color, ha=settings.subtitle_ha, va="center",
                          transform=fig.transFigure)
 
             ax.set_ylabel(settings.ylabel, fontsize=12)
@@ -323,12 +325,16 @@ class PlotManager:
                 legend_patches.append(avg_line_patch)
 
             ax.legend(handles=legend_patches, title="Group", loc=settings.legend_loc,
-                      bbox_to_anchor=settings.legend_bbox_to_anchor or (1.15, 0.9),
+                      # bbox_to_anchor=settings.legend_bbox_to_anchor or (1.15, 0.9),
+                      bbox_to_anchor=None,
                       frameon=settings.legend_frameon, fontsize=settings.legend_fontsize)
+
+            # Manually adjust margins to extend axes right border
+            fig.subplots_adjust(left=0.1, bottom=0.2, right=0.95, top=0.85)  # right=0.95 pushes border right; adjust as needed
 
             ax.grid(True, axis="y", linestyle=settings.grid_linestyle, alpha=settings.grid_alpha, zorder=0)
             ax.set_axisbelow(True)
-            plt.tight_layout() if settings.tight_layout else None
+            # plt.tight_layout()
             plt.show()
 
             logger.success("Category bar chart built successfully")
@@ -493,7 +499,6 @@ class PlotManager:
             fig.suptitle(caption, fontsize=12, y=0.02, va='bottom', ha='center')
 
             plt.tight_layout()
-            plt.show()
 
             logger.success("Seasonality evidence suite built")
             return fig
@@ -573,12 +578,12 @@ class PlotManager:
                 ax2.scatter(x_pos, df["cum_percent"], color=settings.cumulative_color,
                             s=120, zorder=5, label=settings.cum_label)
                 ax2.text(x_pos[0], df["cum_percent"].iloc[0], "100%", 
-                         ha='center', va='bottom', fontsize=11, color=settings.cumulative_color,
-                         fontweight='bold')
+                        ha='center', va='bottom', fontsize=11, color=settings.cumulative_color,
+                        fontweight='bold')
             else:
                 # 2+ emojis → full line
                 ax2.plot(x_pos, df["cum_percent"], color=settings.cumulative_color,
-                         linewidth=settings.line_width, label=settings.cum_label, zorder=4)
+                        linewidth=settings.line_width, label=settings.cum_label, zorder=4)
 
             # === Right axis (cumulative %) ===
             ax2.set_ylim(0, 100)
@@ -587,29 +592,35 @@ class PlotManager:
             ax2.tick_params(axis="y", labelsize=10, colors="orange")
             ax2.spines["right"].set_color("orange")
 
-            # === TOP 25 TABLE ===
-            top_25 = df.head(settings.top_table).copy()
-            top_25["cum_percent"] = top_25["percent_once"].cumsum()
+            # === TOP N TABLE (DYNAMIC: fix for small len(df)) ===
+            n_top = min(settings.top_table, n_emojis)
+            top_n = df.head(n_top).copy()
+            top_n["cum_percent"] = top_n["percent_once"].cumsum()
             table_data = [
-                [str(i + 1) for i in range(25)],
-                top_25["emoji"].tolist(),
-                [f"{c:.0f}" for c in top_25["count_once"]],
-                [f"{p:.1f}%" for p in top_25["cum_percent"]],
+                [str(i + 1) for i in range(n_top)],
+                top_n["emoji"].tolist(),
+                [f"{c:.0f}" for c in top_n["count_once"]],
+                [f"{p:.1f}%" for p in top_n["cum_percent"]],
             ]
+            # Adjust bbox width to fit small tables (add padding)
+            table_width = min(0.8, n_top * 0.05 + 0.1)
             table = ax.table(
                 cellText=table_data,
                 rowLabels=["Rank", "Emoji", "Count", "Cum"],
-                colWidths=[0.05] * 25,
+                colWidths=[0.05] * n_top,
                 loc="bottom",
-                bbox=[0.1, -0.45, 0.8, 0.3],
+                bbox=[0.1, -0.45, table_width, 0.3],
             )
+
             table.auto_set_font_size(False)
-            table.set_fontsize(10)
+            table.set_fontsize(12)
             table.scale(1, 1.5)
 
+            # Dynamic label
+            fig.text(0.5, 0.27, f"Top {n_top}:", ha="center", fontsize=12)
+
             # === Final layout ===
-            fig.text(0.5, 0.27, "Top 25:", ha="center", fontsize=12)
-            ax2.legend(loc="upper left", fontsize=8)
+            ax2.legend(loc="upper right", fontsize=8)
             plt.tight_layout()
             plt.subplots_adjust(left=0.1, right=0.9, bottom=0.35)
             plt.show()
@@ -635,7 +646,7 @@ class PlotManager:
 
         try:
             fig, ax = plt.subplots(figsize=(12, 8))
-            plt.subplots_adjust(top=0.82)
+            plt.subplots_adjust(top=0.85)
 
             ranks = np.arange(1, analysis.n_observations + 1)
             alpha = analysis.fit.alpha
@@ -671,67 +682,12 @@ class PlotManager:
                             fontsize=12)
 
             plt.tight_layout()
-            plt.show()
+
             logger.success("Power-law log-log plot built")
             return fig
 
         except Exception as e:
             logger.exception(f"build_visual_distribution_powerlaw failed: {e}")
-            return None
-
-
-    # === Model Comparison Table (Interactive) ===
-    def build_visual_distribution_comparison(
-        self,
-        analysis: PowerLawAnalysisResult,
-    ) -> "go.Figure" | None:
-        """
-        Interactive Plotly table comparing power-law to alternatives.
-
-        Args:
-            analysis: PowerLawAnalysisResult with comparison p-values
-
-        Returns:
-            Plotly Figure or None
-        """
-        try:
-            import plotly.graph_objects as go
-
-            # === Build comparison data ===
-            data = [
-                ["Power-Law", f"{analysis.fit.alpha:.3f}", analysis.fit.xmin, f"{analysis.fit.D:.4f}", "—", "—"],
-                ["Exponential", "—", "—", "—", f"{analysis.comparison.vs_exponential:.4f}", 
-                 "Worse" if analysis.comparison.vs_exponential < 0.05 else "Comparable"],
-                ["Lognormal", "—", "—", "—", f"{analysis.comparison.vs_lognormal:.4f}", 
-                 "Worse" if analysis.comparison.vs_lognormal < 0.05 else "Comparable"],
-            ]
-
-            # === Create table ===
-            fig = go.Figure(data=[go.Table(
-                header=dict(
-                    values=["Model", "α", "xmin", "K-S D", "p-value (vs PL)", "Status"],
-                    fill_color='paleturquoise',
-                    font=dict(size=14)
-                ),
-                cells=dict(
-                    values=list(map(list, zip(*data))),
-                    fill_color='lavender',
-                    font=dict(size=12)
-                )
-            )])
-
-            # === Layout ===
-            fig.update_layout(
-                title="Power-Law Model Comparison (K-S + Likelihood Ratio)",
-                height=300,
-                margin=dict(t=80, b=20, l=20, r=20)
-            )
-
-            logger.success("Model comparison table built")
-            return fig
-
-        except Exception as e:
-            logger.exception(f"build_visual_distribution_comparison failed: {e}")
             return None
 
 
@@ -812,7 +768,7 @@ class PlotManager:
                     fontsize=settings.subtitle_fontsize,
                     fontweight=settings.subtitle_fontweight,
                     color=settings.subtitle_color,
-                    ha=settings.subtitle_ha, va="top",
+                    ha=settings.subtitle_ha, va="center",
                     transform=fig.transFigure
                 )
 
@@ -820,7 +776,7 @@ class PlotManager:
             ax.set_xlabel(settings.xlabel or Columns.AVG_WORDS.human, fontsize=12)
             ax.set_ylabel(settings.ylabel or Columns.AVG_PUNCT.human, fontsize=12)
 
-            # === Legend ===
+            # === Legend with Bubble Size Explanation ===
             legend_handles = [
                 plt.scatter([], [], s=settings.min_bubble_size * settings.legend_scale_factor,
                             c=col, alpha=settings.bubble_alpha, label=grp.value)
@@ -831,12 +787,69 @@ class PlotManager:
                                                  label="Linear Trend")
             legend_handles.append(trend_patch)
 
-            ax.legend(handles=legend_handles, title="WhatsApp Group", title_fontsize=12,
-                      bbox_to_anchor=(1.05, 1), loc="upper left", fontsize=settings.legend_fontsize)
+            # Add bubble size explanation (3 sizes)
+            min_size = settings.min_bubble_size
+            max_size = settings.max_bubble_size
+            mid_size = (min_size + max_size) // 2
+
+            legend_handles.append(
+                plt.scatter([], [], s=min_size, c="gray", alpha=0.7, label="Few messages")
+            )
+            legend_handles.append(
+                plt.scatter([], [], s=mid_size, c="gray", alpha=0.7, label="Medium")
+            )
+            legend_handles.append(
+                plt.scatter([], [], s=max_size, c="gray", alpha=0.7, label="Many messages")
+            )
+
+            ax.legend(
+                handles=legend_handles,
+                title="WhatsApp Group & Bubble Size",
+                title_fontsize=12,
+                loc="lower right",
+                bbox_to_anchor=(1.0, 0.0),
+                bbox_transform=ax.transAxes,
+                fontsize=settings.legend_fontsize,
+                frameon=True,
+                borderaxespad=0.5,
+                ncol=1  # Keep single column
+            )
+
+            # === Layout ===
+            fig.subplots_adjust(left=0.1, bottom=0.2, right=0.95, top=0.85)
+
+            # # === Legend ===
+            # legend_handles = [
+            #     plt.scatter([], [], s=settings.min_bubble_size * settings.legend_scale_factor,
+            #                 c=col, alpha=settings.bubble_alpha, label=grp.value)
+            #     for grp, col in settings.group_colors.items()
+            # ]
+            # trend_patch = matplotlib.lines.Line2D([0], [0], color=settings.trendline_color,
+            #                                      linestyle=settings.trendline_style, linewidth=settings.trendline_width,
+            #                                      label="Linear Trend")
+            # legend_handles.append(trend_patch)
+
+            # # ax.legend(handles=legend_handles, title="WhatsApp Group", title_fontsize=12,
+            # #     bbox_to_anchor=(1.05, 1), loc="lower right", fontsize=settings.legend_fontsize)
+
+            # ax.legend(
+            #                 handles=legend_handles,
+            #                 title="WhatsApp Group",
+            #                 title_fontsize=12,
+            #                 loc="lower right",
+            #                 bbox_to_anchor=(1.0, 0.0),
+            #                 bbox_transform=ax.transAxes,
+            #                 fontsize=settings.legend_fontsize,
+            #                 frameon=True,
+            #                 borderaxespad=0.5
+            #             )
+
+            # # Manually adjust margins to extend axes right border
+            # fig.subplots_adjust(left=0.1, bottom=0.2, right=0.95, top=0.85)  # right=0.95 pushes border right; adjust as needed
 
             # === Grid & Finalize ===
             ax.grid(True, linestyle=settings.grid_linestyle, alpha=settings.grid_alpha)
-            plt.tight_layout() if settings.tight_layout else None
+            # plt.tight_layout()
             plt.show()
 
             logger.success("Relationships plot built successfully")
