@@ -1,4 +1,3 @@
-# === plot_manager.py ===
 # === Module Docstring ===
 """
 Plot Manager Module
@@ -22,6 +21,7 @@ import matplotlib.pyplot as plt
 import matplotlib.lines
 import matplotlib.patches as patches
 from matplotlib.figure import Figure
+from matplotlib.gridspec import GridSpec
 import seaborn as sns
 import pandas as pd
 from loguru import logger
@@ -222,7 +222,6 @@ class PlotManager:
 
     def __init__(self) -> None:
         self.data_preparation = None  # Injected
-
 
     # === 1. Categories (Script1) ===
     def build_visual_categories(
@@ -452,37 +451,13 @@ class PlotManager:
         self,
         data: TimePlotData,
         settings: TimePlotSettings,
-        include_seasonality: bool = False,
+        include_seasonality: bool = True,
         season_settings: SeasonalityPlotSettings | None = None,
     ) -> Dict[str, Figure]:
-        """
-        Build the old-style DAC weekly heartbeat (Rest/Prep/Play/Rest bands)
-        and the optional 4-panel seasonality evidence suite.
-
-        The main plot is pixel-identical to the original version:
-        - 4 colored background bands (Rest/Prep/Play/Rest)
-        - Red dashed period-average lines
-        - Bold period labels at 80% height
-        - Calendar dates on X-axis (March 15th, May 1st, Sep 1st)
-        - Y-label includes year range (2017-2025)
-        - **No global average line**
-        - **Smooth line (no markers)**
-
-        Args:
-            data: Validated TimePlotData with weekly averages and seasonality.
-            settings: TimePlotSettings (line color, labels, etc.).
-            include_seasonality: If True, generate the 4-panel suite.
-            season_settings: Optional styling for the seasonality suite.
-
-        Returns:
-            Dict with 'main' (old-style heartbeat) and optionally 'seasonality'.
-
-        # NEW: Full old-style restoration + seasonality suite (2025-11-07)
-        """
         figs: Dict[str, Figure] = {}
 
         # === Main Plot Setup ===
-        fig_main, ax = plt.subplots(figsize=(14, 6.5))
+        fig_category, ax = plt.subplots(figsize=(14, 6.5))
         plt.subplots_adjust(top=0.85)
 
         weeks = sorted(data.weekly_avg.keys())
@@ -578,7 +553,7 @@ class PlotManager:
             pad=settings.title_pad,
             ha=settings.title_ha,
         )
-        fig_main.text(
+        fig_category.text(
             x=0.5,
             y=0.92,
             s=settings.subtitle,
@@ -587,7 +562,7 @@ class PlotManager:
             color=settings.subtitle_color,
             ha=settings.subtitle_ha,
             va="top",
-            transform=fig_main.transFigure,
+            transform=fig_category.transFigure,
         )
 
         # === Legend ===
@@ -602,8 +577,8 @@ class PlotManager:
         plt.tight_layout()
         plt.show()
 
-        figs["main"] = fig_main
-        logger.success("Time plot built – old-style DAC heartbeat restored")
+        figs["category"] = fig_category
+        logger.success("Time plot built")
 
         # === Optional Seasonality Suite ===
         if include_seasonality and data.seasonality is not None:
@@ -619,12 +594,15 @@ class PlotManager:
         settings: SeasonalityPlotSettings,
     ) -> Figure | None:
         """Render 4-panel seasonality evidence."""
+        if time_data.seasonality is None:
+            logger.warning("No seasonality evidence available.")
+            return None
+    
         ev = time_data.seasonality
-
         fig = plt.figure(figsize=(settings.fig_width, settings.fig_height))
-        gs = fig.add_gridspec(2, 2, hspace=0.35, wspace=0.30)
-
-        # 1. ACF
+        gs = GridSpec(2, 2, figure=fig, hspace=0.4, wspace=0.3)
+        
+         # 1. ACF
         ax0 = fig.add_subplot(gs[0, 0])
         lags = range(len(ev.acf))
         ax0.stem(lags, ev.acf, basefmt=" ", linefmt=settings.acf_color)
@@ -667,15 +645,24 @@ class PlotManager:
         ax3.grid(True, alpha=0.3)
 
         # Caption
-        fig.suptitle(
-            "Statistical Evidence of Weekly Seasonality (low noise)",
-            fontsize=20, fontweight="bold", y=0.98
-        )
+        # fig.suptitle(
+        #     "Statistical Evidence of Weekly Seasonality (low noise)",
+        #     fontsize=20, fontweight="bold", y=0.98
+        # )
+        # caption = (
+        #     f"Dominant period approximately {ev.dominant_period_weeks} weeks | "
+        #     f"Residual sigma = {ev.residual_std:.2f}"
+        # )
+        # fig.text(0.5, 0.02, caption, ha="center", fontsize=12, style="italic")
+
+        # return fig
+
         caption = (
-            f"Dominant period approximately {ev.dominant_period_weeks} weeks | "
-            f"Residual sigma = {ev.residual_std:.2f}"
+                f"Dominant period ~{ev.dominant_period_weeks} weeks | "
+                f"Residual σ = {ev.residual_std:.2f} | "
+                f"n = {len(ev.raw_series)} weeks"
         )
-        fig.text(0.5, 0.02, caption, ha="center", fontsize=12, style="italic")
+        fig.suptitle(caption, fontsize=12, y=0.02, va='bottom', ha='center')
 
         return fig
 

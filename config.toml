@@ -5,7 +5,7 @@ image = "img"
 input = "_chat.txt"
 
 # === Preprocessing & Caching ===
-preprocess = true
+preprocess = false
 reuse_whatsapp_all = true
 
 # === Raw Files (TXT) ===

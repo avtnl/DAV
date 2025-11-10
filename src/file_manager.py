@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 import pytz
+import matplotlib.pyplot as plt
 from wa_analyzer.preprocess import main as preprocess_main
 from loguru import logger
 
@@ -417,25 +418,30 @@ class FileManager:
 
     # === Save PNG ===
     def save_png(
-        self, fig: Any, image_dir: Path, filename: str = ImageFilenames.YEARLY_BAR_CHART
+        self, fig: Any, image_dir: Path, filename: str = ImageFilenames.YEARLY_BAR_CHART, add_timestamp: bool = True
     ) -> Path | None:
         """
-        Save a matplotlib figure as PNG with timestamp.
+        Save a matplotlib figure as PNG, optionally with timestamp.
 
         Args:
             fig: Matplotlib figure.
             image_dir: Output directory.
             filename: Base filename.
+            add_timestamp: Whether to add timestamp to filename (default: True).
 
         Returns:
             Path to saved image or None.
         """
         try:
-            now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
-            output = image_dir / f"{filename}-{now}.png"
+            if add_timestamp:
+                now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
+                output = image_dir / f"{filename}-{now}.png"
+            else:
+                output = image_dir / f"{filename}.png"
             image_dir.mkdir(parents=True, exist_ok=True)
             fig.savefig(output, dpi=300, bbox_inches="tight")
-            logger.info(f"Saved bar chart: {output}")
+            logger.info(f"Saved figure: {output}")
+            plt.close(fig)  # Close to free memory and prevent double-save issues
             return output
         except Exception as e:
             logger.exception(f"Failed to save PNG to {output}: {e}")

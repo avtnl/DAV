@@ -86,7 +86,7 @@ class Script4(BaseScript):
             self.log_error("Failed to create relationships plot.")
             return None
 
-        return self.save_figure(fig, self.image_dir, "relationships_words_vs_punct")
+        return self.save_figure(fig, self.image_dir, "relationships_plot")
 
 
 # === CODING STANDARD (APPLY TO ALL CODE) ===

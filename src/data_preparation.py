@@ -407,7 +407,7 @@ class DataPreparation(BaseHandler):
     def build_visual_time(
         self,
         df: pd.DataFrame,
-        compute_seasonality: bool = False,
+        compute_seasonality: bool = True,
     ) -> TimePlotData:
         """Build TimePlotData for DAC weekly averages, optionally with seasonality evidence."""
         df_dac = df[df[Columns.WHATSAPP_GROUP.value] == Groups.DAC.value]

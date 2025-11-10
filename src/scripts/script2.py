@@ -101,11 +101,11 @@ class Script2(BaseScript):
             self.log_error(f"Failed to build plots: {e}")
             return self._error_path(), None
 
-        main_path = self.save_figure(figs.get("main"), self.image_dir, "time_plot_dac")
+        main_path = self.save_figure(figs["category"], self.image_dir, "time_plot_dac")
         season_path = None
         if "seasonality" in figs and figs["seasonality"]:
             season_path = self.save_figure(
-                figs["seasonality"], self.image_dir, "seasonality_evidence_dac"
+                figs["seasonality"], self.image_dir, "seasonality_evidence_time_plot"
             )
 
         logger.success(f"Script2 completed: main={main_path}, season={season_path}")

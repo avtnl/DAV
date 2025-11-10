@@ -65,39 +65,20 @@ class BaseScript(ABC):
         """Log an error message using loguru."""
         logger.error(msg)
 
-    def save_figure(self, fig, image_dir: Path, name: str) -> Path:
-        """
-        Save a matplotlib figure to disk with emoji support.
-
-        Args:
-            fig: Matplotlib Figure object.
-            image_dir: Directory to save image.
-            name: Base filename (without extension).
-
-        Returns:
-            Path: Full path to saved PNG file.
-
-        Note:
-            Uses 'Segoe UI Emoji' font and suppresses missing glyph warnings.
-        """
+    def save_figure(self, fig, image_dir: Path, name: str, add_timestamp: bool = True) -> Path:
+        """Delegate figure saving to FileManager with emoji support."""
         plt.rcParams['font.family'] = 'Segoe UI Emoji'
         warnings.filterwarnings(
             "ignore",
             category=UserWarning,
             message="Glyph .* missing from font"
         )
+        return self.file_manager.save_png(fig, image_dir, filename=name, add_timestamp=add_timestamp)
 
-        image_dir.mkdir(parents=True, exist_ok=True)
-        path = image_dir / f"{name}.png"
-        fig.savefig(path, bbox_inches="tight", dpi=300)
-        logger.success(f"Plot saved: {path}")
-        plt.close(fig)
-        return path
-
-    @abstractmethod
-    def run(self) -> Any | None:
-        """Execute the script's main logic. Must be implemented by subclasses."""
-        pass
+        @abstractmethod
+        def run(self) -> Any | None:
+            """Execute the script's main logic. Must be implemented by subclasses."""
+            pass
 
 
 # === CODING STANDARD (APPLY TO ALL CODE) ===

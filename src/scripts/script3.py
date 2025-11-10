@@ -8,21 +8,11 @@ DataFrame via :meth:`src.data_preparation.DataPreparation.build_visual_distribut
 and generates the bar + cumulative line chart via
 :meth:`src.plot_manager.PlotManager.build_visual_distribution`.
 
-**New features added:**
 - Saves **full emoji table** (all emojis + counts + Unicode) to `data/tables/`
 - Passes **top 20** to `plot_manager` for consistent visualization
-- **Optional power-law (Zipf) analysis** – runs K-S test, saves log-log plot and model-comparison table
-- **Flexible run modes**: individual groups, combined, or both
+- Optional power-law (Zipf) analysis - runs K-S test, saves log-log plot and model-comparison table
+- Flexible run modes: individual groups, combined, or both
 - Robust error handling and logging
-
-Examples
---------
->>> script = Script3(file_manager, data_editor, data_preparation, plot_manager, image_dir, df)
->>> script.run()
-PosixPath('images/emoji_counts_once.png')
-
->>> script = Script3(..., run_mode=RunMode.COMBINED)
->>> script.run()  # Only combined analysis
 """
 
 # === Imports ===
@@ -176,7 +166,7 @@ class Script3(BaseScript):
             # Log-log plot
             loglog_fig = self.plot_manager.build_visual_distribution_powerlaw(analysis)
             if loglog_fig:
-                loglog_path = self.save_figure(loglog_fig, self.image_dir, f"emoji_powerlaw_loglog{suffix}")
+                loglog_path = self.save_figure(loglog_fig, self.image_dir, f"logmodel_evidence_distribution_plot{suffix}")
                 logger.success(f"Log-log plot saved: {loglog_path}")
 
             # Model comparison
@@ -206,13 +196,13 @@ class Script3(BaseScript):
         full_df = distribution_data.emoji_counts_df
         logger.info(f"Unique emojis (ALL): {len(full_df)}")
 
-        table_path = self.file_manager.save_table(full_df, tables_dir, "emoji_counts_full_ALL")
+        table_path = self.file_manager.save_table(full_df, tables_dir, "emojies (highest to lowest)")
         logger.success(f"Saved: {table_path}")
 
         top_20_data = DistributionPlotData(emoji_counts_df=full_df.head(20))
         fig = self.plot_manager.build_visual_distribution(distribution_data, self.settings)
         if fig:
-            bar_path = self.save_figure(fig, self.image_dir, "emoji_counts_once_ALL")
+            bar_path = self.save_figure(fig, self.image_dir, "distribution_plot")
             logger.success(f"Bar plot (ALL): {bar_path}")
 
         if self.run_powerlaw:
