@@ -3,8 +3,8 @@
 File Management Module
 
 Handles file discovery, preprocessing coordination, loading, saving, and
-enrichment of WhatsApp chat data. Integrates with ``DataEditor`` and
-``preprocessor`` to maintain consistent data pipelines.
+enrichment of WhatsApp chat data. Integrates with `DataEditor` and
+`preprocessor` to maintain consistent data pipelines.
 
 Key responsibilities:
     * Discover and load raw/preprocessed CSV/Parquet files
@@ -242,11 +242,11 @@ class FileManager:
                     logger.warning(f"Raw file does not exist: {raw_file}")
                     continue
 
-                # === GENERATE TIMESTAMP BEFORE PREPROCESSING ===
+                # === Generate Timestamp Before Pre-processing ===
                 now = datetime.now(tz=pytz.timezone("Europe/Amsterdam")).strftime("%Y%m%d-%H%M%S")
                 logger.info(f"Preprocessing {raw_file.name} → {now}")
 
-                # === COPY TO TEMP LOCATION ===
+                # === Copy To Temp Location ===
                 temp_chat = raw_dir / TEMP_CHAT_FILE
                 try:
                     shutil.copy(raw_file, temp_chat)
@@ -255,7 +255,7 @@ class FileManager:
                     logger.error(f"Failed to copy {raw_file} to {temp_chat}: {e}")
                     continue
 
-                # === RUN PREPROCESSOR ===
+                # === Run Pre-processor ===
                 try:
                     preprocess_main([PreprocessorArgs.DEVICE, PreprocessorArgs.IOS])
                 except Exception as e:
@@ -263,15 +263,15 @@ class FileManager:
                     temp_chat.unlink(missing_ok=True)
                     continue
 
-                # === EXPECTED OUTPUT PATH ===
+                # === Expect4 Output path ===
                 expected_csv = processed_dir / f"whatsapp-{now}{FileExtensions.CSV}"
 
-                # === CASE 1: Expected file exists → use it ===
+                # === 1. Expected file exists → use it ===
                 if expected_csv.exists():
                     csv_file = expected_csv
                     logger.info(f"Found expected output: {csv_file.name}")
 
-                # === CASE 2: Fallback to latest file if <5 seconds old ===
+                # === 2. Fallback to latest file if <5 seconds old ===
                 else:
                     candidates = list(processed_dir.glob("whatsapp-*.csv"))
                     if not candidates:
@@ -296,7 +296,7 @@ class FileManager:
                         temp_chat.unlink(missing_ok=True)
                         continue
 
-                # === RENAME TO UNIQUE FILENAME ===
+                # === Rename To Unique Filename ===
                 file_id = raw_key.replace("raw_", "")  # raw_1 → "1", raw_2b → "2b"
                 unique_csv = processed_dir / f"whatsapp-{now}-{file_id}{FileExtensions.CSV}"
 
@@ -310,11 +310,11 @@ class FileManager:
                         temp_chat.unlink(missing_ok=True)
                         continue
 
-                # === STORE RESULT ===
+                # === Store Result ===
                 paths_with_groups.append((csv_file, group))
                 logger.info(f"Generated: {csv_file.name} for group {group}")
 
-                # === CLEAN UP TEMP FILE ===
+                # === Clean Up Temp File ===
                 temp_chat.unlink(missing_ok=True)
 
             return paths_with_groups
@@ -529,6 +529,3 @@ class FileManager:
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Full refactor with constants.py integration, docstrings, blank lines, and GROUP_MAP_FROM_CLEANED retained (2025-11-03)
-# NEW: (2025-11-04) – Refactored get_preprocessed_data for reuse_whatsapp_all; Implemented merge-first-then-enrich; Removed per-group emoji/group addition; Added helpers for parquets; Unified saving with enriched prefix
-# NEW: (2025-11-04) – Fixed reuse logic to honor reuse_whatsapp_all = false when preprocess = false

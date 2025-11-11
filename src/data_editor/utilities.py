@@ -5,11 +5,9 @@ Utilities module within data_editor.
 Focusses on functions for text and message analysis.
 
 Pure, stateless functions used across:
-- ``cleaners.py``
-- ``features.py``
-- ``core.py``
+- cleaners.py
 
-All functions accept inputs and return outputs — **no side effects**.
+All functions accept inputs and return outputs — 'no side effects'.
 """
 
 from __future__ import annotations
@@ -55,7 +53,3 @@ def has_link(text: str, url_pattern: re.Pattern) -> bool:
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Created utilities.py with pure functions (2025-11-03)
-# NEW: All functions accept shared patterns/stopwords as args (2025-11-03)
-# NEW: Strict 1-blank-line rule enforced (2025-11-03)
-# NEW: Full Google-style docstrings with examples (2025-11-03)

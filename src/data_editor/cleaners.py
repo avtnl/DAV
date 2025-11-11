@@ -10,7 +10,7 @@ Handles:
 - System messages (deleted, group picture changes)
 - Fallback cleanup
 
-Uses pre-compiled regex patterns from ``core.DataEditor``.
+Uses pre-compiled regex patterns from DataEditor.core.
 """
 
 from __future__ import annotations
@@ -176,12 +176,11 @@ class MessageCleaner:
                 # Final fallback cleanup
                 cleaned = re.sub(self.fallback_pattern, "", cleaned, flags=re.IGNORECASE)
 
-                # === KEEP SHORT REPLIES INTACT (e.g., "Yes." → "Yes") ===
                 # Strip trailing punctuation only if message has words
                 if re.search(r'\w', cleaned):  # if has letters/numbers
                     cleaned = re.sub(r'[.!?]+$', '', cleaned)  # remove trailing . ! ?
 
-                # === BULLETPROOF CLEANUP: Kill all Unicode ghosts ===
+                # Kill all unreal emojis
                 cleaned = re.sub(r'[\u200B-\u200F\u2028-\u202F\u205F\u2060-\u206F\uFEFF\s]+', ' ', cleaned)
                 cleaned = re.sub(r'\s+', ' ', cleaned).strip()
 
@@ -216,8 +215,3 @@ class MessageCleaner:
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Preserves short replies by stripping trailing punctuation (2025-11-06)
-# NEW: No more length=1 punctuation-only ghosts (2025-11-06)
-# NEW: Unicode cleanup now replaces with space for safety (2025-11-06)
-# NEW: Forces [media] if len < 2 (catches all empties) (2025-11-06)
-# NEW: Clean and mean — all anomalies fixed (2025-11-06)

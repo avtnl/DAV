@@ -818,35 +818,6 @@ class PlotManager:
             # === Layout ===
             fig.subplots_adjust(left=0.1, bottom=0.2, right=0.95, top=0.85)
 
-            # # === Legend ===
-            # legend_handles = [
-            #     plt.scatter([], [], s=settings.min_bubble_size * settings.legend_scale_factor,
-            #                 c=col, alpha=settings.bubble_alpha, label=grp.value)
-            #     for grp, col in settings.group_colors.items()
-            # ]
-            # trend_patch = matplotlib.lines.Line2D([0], [0], color=settings.trendline_color,
-            #                                      linestyle=settings.trendline_style, linewidth=settings.trendline_width,
-            #                                      label="Linear Trend")
-            # legend_handles.append(trend_patch)
-
-            # # ax.legend(handles=legend_handles, title="WhatsApp Group", title_fontsize=12,
-            # #     bbox_to_anchor=(1.05, 1), loc="lower right", fontsize=settings.legend_fontsize)
-
-            # ax.legend(
-            #                 handles=legend_handles,
-            #                 title="WhatsApp Group",
-            #                 title_fontsize=12,
-            #                 loc="lower right",
-            #                 bbox_to_anchor=(1.0, 0.0),
-            #                 bbox_transform=ax.transAxes,
-            #                 fontsize=settings.legend_fontsize,
-            #                 frameon=True,
-            #                 borderaxespad=0.5
-            #             )
-
-            # # Manually adjust margins to extend axes right border
-            # fig.subplots_adjust(left=0.1, bottom=0.2, right=0.95, top=0.85)  # right=0.95 pushes border right; adjust as needed
-
             # === Grid & Finalize ===
             ax.grid(True, linestyle=settings.grid_linestyle, alpha=settings.grid_alpha)
             # plt.tight_layout()
@@ -983,7 +954,7 @@ class PlotManager:
                     category_orders={"author_group": sorted_labels},
                 )
 
-                # --- ellipses per author ---
+                # === Ellipses Per Author ===
                 if settings.ellipse_mode > 0:
                     for author in df[Columns.AUTHOR.value].unique():
                         sub = df[df[Columns.AUTHOR.value] == author]
@@ -1030,7 +1001,7 @@ class PlotManager:
 
                 figs["individual"] = fig
 
-            # === 9. Group-level mode ===
+            # === 9. Group-level Mode ===
             if settings.by_group:
                 df = data.agg_df.copy()
                 df["plot_group"] = df.apply(
@@ -1049,7 +1020,7 @@ class PlotManager:
                                 x_col:False, y_col:False},
                 )
 
-                # --- ellipses per group ---
+                # === Ellipses Per Group ===
                 if settings.ellipse_mode > 0:
                     for grp in df["plot_group"].unique():
                         sub = df[df["plot_group"] == grp]
@@ -1070,7 +1041,7 @@ class PlotManager:
                                                     line=dict(color=col, width=2),
                                                     showlegend=False))
 
-                        else:  # GMM
+                        else:  # GMM (Max 3 ellipses to identify one and the asme author/ group)
                             best_gmm, best_bic, best_n = None, float('inf'), 1
                             for n in range(1, min(4, len(sub))):
                                 g = GaussianMixture(n_components=n, covariance_type="full", random_state=42)
@@ -1096,7 +1067,7 @@ class PlotManager:
 
                 figs["group"] = fig
 
-            # === 10. Shared layout ===
+            # === 10. Shared Layout ===
             for name, fig in figs.items():
                 title_text = settings.title
                 if settings.subtitle:
@@ -1141,14 +1112,3 @@ class PlotManager:
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Full 1–5 plot support with strict settings (2025-11-03)
-# NEW: All hardcodes removed, uses constants.py
-# NEW: Complete docstrings, consistent spacing, InteractionType
-# NEW: Restored per-author color nuance + high subtitle + (Group) in legend (2025-11-07)
-# NEW: Two-size system (14,8) and (14,6.5) – 2025-11-10
-# NEW: Full integration of PlotSettings with zero visual regression (2025-11-10)
-# NEW: 1-emoji safe distribution plot with dynamic width (2025-11-10)
-# NEW: Thick orange cumulative line (linewidth=4.0) (2025-11-10)
-# NEW: Subtitle positioning: Categories=0.92, Time=0.96, Relationships=0.92 (2025-11-10)
-# NEW: build_visual_time preserves original tight layout (top=0.85) (2025-11-10)
-# NEW: Complete recovery of lost plot_manager.py with all fixes (2025-11-10)

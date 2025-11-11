@@ -1,12 +1,10 @@
-# === base.py ===
 # === Module Docstring ===
 """
 Base module for all analysis scripts.
 
 Provides shared utilities:
-- ``file_manager``, ``data_editor``, ``data_preparation``, ``plot_manager``
-- Optional ``df`` (enriched DataFrame)
-- ``log_error`` and ``save_figure`` helpers
+- file_manager, data_editor, data_preparation and plot_manager
+- log_error and save_figure helpers
 
 All scripts inherit from :class:`BaseScript` to ensure consistency.
 """
@@ -26,7 +24,7 @@ import warnings
 class BaseScript(ABC):
     """Abstract base class for all analysis scripts.
 
-    Ensures consistent access to shared components and enforces ``run()`` method.
+    Ensures consistent access to shared components and enforces 'run()' method.
     """
 
     def __init__(
@@ -93,6 +91,3 @@ class BaseScript(ABC):
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Made BaseScript abstract with @abstractmethod (2025-11-03)
-# NEW: Added file_manager validation and class docstring (2025-11-03)
-# NEW: Removed *args, **kwargs from __init__ (2025-11-03)

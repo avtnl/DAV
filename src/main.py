@@ -10,9 +10,9 @@ from src.scripts.pipeline import Pipeline
 # === Pipeline Configuration ===
 # Only include scripts you want to execute.
 # SCRIPT_5_DETAILS is only applicable if Script5 is included in SCRIPTS.
-# See script6.py for full configuration details.
-SCRIPTS = [5]
-SCRIPT_5_DETAILS = ["both", True, 0, 25, False, True, 1] # Only used if 6 in SCRIPTS | by_group, draw_ellipses, conf_level, use_embeddings, hybrid, model_id
+# See script5.py for full configuration details.
+SCRIPTS = [6]
+SCRIPT_5_DETAILS = ["both", False, 0, 25, False, True, 1] # Only used if 6 in SCRIPTS | by_group, draw_ellipses, conf_level, use_embeddings, hybrid, model_id
 
 
 # === Main Execution ===
@@ -46,6 +46,3 @@ if __name__ == "__main__":
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes. There can be a list of more #NEW lines.
 
-# NEW: Standardized main entry with Google docstring and SCRIPTS config (2025-10-31)
-# NEW: script_validation(scripts, SCRIPT_5_DETAILS)
-# NEW: Added graceful exit for Script7 with ENTER prompt (2025-11-03)

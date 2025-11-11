@@ -1,17 +1,9 @@
-# === script0.py ===
 # === Module Docstring ===
 """
 Preprocess raw WhatsApp chat exports (Script0).
 
-Reads, cleans, combines, and saves data as Parquet + CSV.
-Runs automatically if no cache exists.
-
-Examples
---------
->>> script = Script0(file_manager, data_editor, data_preparation, processed_dir, config, image_dir)
->>> df = script.run()
->>> df.shape
-(11302, 62)
+- Reads, cleans, combines, and saves data as Parquet + CSV.
+- Runs automatically if no cache exists.
 """
 
 # === Imports ===
@@ -107,7 +99,3 @@ class Script0(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Fixed typo: processed_processed_dir → processed_dir (2025-11-03)
-# NEW: Removed *args, **kwargs; df not passed (not needed) (2025-11-03)
-# NEW: (2025-11-04) – Simplified run to wrapper around get_preprocessed_data; Removed duplicate saving
-# NEW: Changed run() to return DataFrame (2025-11-07)

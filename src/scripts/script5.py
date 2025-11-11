@@ -10,7 +10,7 @@ Configure Script6 via: SCRIPT_5_DETAILS = [PLOT_TYPE, BY_GROUP, ELLIPSE_MODE, CO
 
 1. PLOT_TYPE (str): "pca" | "tsne" | "both"
 2. BY_GROUP (bool): True → group-level, False → per-author
-3. ELLIPSE_MODE (int): 0=no ellipses, 1=single ellipse, 2=GMM pockets (Streamlit-style)
+3. ELLIPSE_MODE (int): 0=no ellipses, 1=single ellipse, 2=more elipses for max 3 pockets (GMM pockets)
 4. CONFIDENCE_LEVEL (int): 20-100 (%) → only used if ELLIPSE_MODE > 0
 5. USE_EMBEDDINGS (bool): True → load Hugging-Face embeddings
 6. HYBRID_FEATURES (bool): True → combine hand-crafted + embeddings
@@ -128,7 +128,7 @@ class Script5(BaseScript):
             self.log_error("Data preparation failed.")
             return None
 
-        # Override settings with new ellipse logic
+        # Override settings regarding ellipse logic
         self.settings.ellipse_mode = details[2]
         self.settings.confidence_level = details[3]
         self.settings.by_group = details[1]
@@ -138,25 +138,44 @@ class Script5(BaseScript):
             self.log_error("Plot creation failed.")
             return None
 
-        config_code = self._get_config_code()
+        config_code = self._get_config_code()  # e.g. _T025FT1_both
         logger.info(f"Script5 config: {details} → {config_code}")
 
         results = {}
 
-        # === NEW: PNG & HTML → img/ (top-level) ===
-        plot_dir = self.image_dir  # e.g. Path("img")
+        # PNG & HTML → img/ (top-level)
+        plot_dir = self.image_dir
         plot_dir.mkdir(parents=True, exist_ok=True)
 
-        # === NEW: CSV summary → src/style_output/ ===
+        # CSV summary → src/style_output/
         csv_dir = Path("src") / "style_output"
         csv_dir.mkdir(parents=True, exist_ok=True)
 
-        suffix = f"_{config_code}"  # ← CORRECT: define suffix once
+        # === Pre-extract values to avoid repeated indexing ===
+        d = self.script_details
+        mapping = {True: "T", False: "F"}
+        bool_code = mapping[d[1]] + str(d[2]) + str(d[3])
+        emb_code = mapping[d[4]] + mapping[d[5]]
+        model_id = d[6]
 
         for name, fig in figs.items():
-            # ---- Define paths ----
-            png_path = plot_dir / f"style_{name}{suffix}.png"
-            html_path = plot_dir / f"style_{name}{suffix}.html"
+            # === Determine inner plot_type from figure key ===
+            if name.startswith("pca_"):
+                inner_plot_type = "pca"
+            elif name.startswith("tsne_"):
+                inner_plot_type = "tsne"
+            else:
+                inner_plot_type = d[0]  # fallback
+
+            #  Rebuild suffix with correct plot_type 
+            suffix = f"_{bool_code}{emb_code}{model_id}_{inner_plot_type}"
+
+            # Clean name (remove pca_/tsne_ prefix)
+            clean_name = name.replace("pca_", "").replace("tsne_", "")
+
+            # File paths
+            png_path = plot_dir / f"style_{clean_name}{suffix}.png"
+            html_path = plot_dir / f"style_{clean_name}{suffix}.html"
 
             # Save HTML
             fig.write_html(str(html_path))
@@ -171,8 +190,9 @@ class Script5(BaseScript):
 
             results[name] = png_path
 
-        # === Save CSV summary in src/style_output ===
-        csv_path = csv_dir / f"style_summary{suffix}.csv"
+        # Save CSV summary (uses original config_code or last inner type)
+        final_suffix = f"_{bool_code}{emb_code}{model_id}_{d[0]}"
+        csv_path = csv_dir / f"style_summary{final_suffix}.csv"
         data.agg_df.to_csv(csv_path, index=False)
         logger.success(f"Saved summary: {csv_path}")
 
@@ -191,7 +211,3 @@ class Script5(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: ELLIPSE_MODE (0/1/2) + CONFIDENCE_LEVEL (20–100) added (2025-11-06)
-# NEW: GMM pocket detection (Streamlit-style) for mode 2 (2025-11-06)
-# NEW: df passed to super(); no *args, **kwargs (2025-11-03)
-# NEW: PNG/HTML saved in img/, CSV in src/style_output/ (2025-11-10)

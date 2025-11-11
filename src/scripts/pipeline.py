@@ -1,10 +1,10 @@
-# === pipeline.py ===
 # === Module Docstring ===
 """
 Central pipeline orchestrator.
 
-Loads config, manages caching, initializes components, and runs selected scripts
-in order. Automatically runs Script0 (preprocessing) if needed.
+- Loads config, manages caching, initializes components
+  and runs selected scripts in order.
+- Automatically runs Script0 (preprocessing) if needed.
 
 Uses flexible script registry with keyword arguments for clean, safe execution.
 """
@@ -21,10 +21,10 @@ from typing import Any, Dict, List
 import pandas as pd
 import pytz
 from loguru import logger
-import numpy as np  # NEW: For diagnostic calculations
+import numpy as np
 from statsmodels.tsa.seasonal import seasonal_decompose
 
-from src.constants import Columns, Groups  # NEW: For diagnostic access
+from src.constants import Columns, Groups
 from src.data_editor import DataEditor
 from src.data_preparation import DataPreparation
 from src.file_manager import FileManager
@@ -268,10 +268,3 @@ class Pipeline:
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Used **kwargs in registry for clarity and safety (2025-11-03)
-# NEW: Removed positional args entirely (2025-11-03)
-# NEW: Added fallback for script_5_details (2025-11-03)
-# NEW: (2025-11-04) – Adjusted Script0 forcing logic for new cache/reuse handling
-# NEW: (2025-11-04) – Added "df": df to Script2 to fix 'No DataFrame provided' error
-# NEW: (2025-11-04) – Run Script0 before registry to ensure df is available
-# NEW: Added full diagnostic table for Script 2 residual comparison (2025-11-07)

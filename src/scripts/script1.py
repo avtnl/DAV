@@ -1,16 +1,9 @@
-# === script1.py ===
 # === Module Docstring ===
 """
 Category plot: Messages per author per group (Script 1).
 
 Uses enriched DataFrame, builds validated CategoryPlotData,
-and generates grouped bar chart with AvT highlight.
-
-Examples
---------
->>> script = Script1(file_manager, data_preparation, plot_manager, image_dir, tables_dir, df)
->>> script.run()
-PosixPath('images/category_plot.png')
+and generates grouped bar chart with author 'AvT' highlight.
 """
 
 # === Imports ===
@@ -99,5 +92,3 @@ class Script1(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Removed *args, **kwargs; df passed to super() (2025-11-03)
-# NEW: Removed local self.df = df (2025-11-03)

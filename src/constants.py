@@ -1,4 +1,3 @@
-# === constants.py ===
 # === Module Docstring ===
 """
 Constants Module
@@ -16,11 +15,14 @@ from enum import Enum, StrEnum
 from typing import Any, Dict, Tuple
 from pathlib import Path
 
+CONFIG_FILE: Path = Path("config.toml")
+TEMP_CHAT_FILE: Path = Path("_chat.txt")
+
 # === Column Definitions ===
 class Columns(StrEnum):
     """Standardized column names for DataFrame consistency.
 
-    Use directly as strings: ``Columns.MESSAGE`` → ``"message"``.
+    Use directly as strings: `Columns.MESSAGE` → 'message'.
     """
 
     TIMESTAMP = "timestamp"
@@ -213,9 +215,6 @@ class ConfigKeys(StrEnum):
     PREPROCESS = "preprocess"
     REUSE_WHATSAPP_ALL = "reuse_whatsapp_all"
 
-CONFIG_FILE: Path = Path("config.toml")
-TEMP_CHAT_FILE: Path = Path("_chat.txt")
-
 # === Pre-processor CLI arguments ===
 class PreprocessorArgs(StrEnum):
     """Arguments passed to ``preprocessor.main()``."""
@@ -341,7 +340,3 @@ class Script5ConfigKeys(StrEnum):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Added missing columns and footer (2025-11-01)
-# NEW: Added EmbeddingModel, Script5 config keys (2025-11-03)
-# NEW: (2025-11-03) – All hard-coded literals moved to constants
-# NEW: (2025-11-04) – Added REUSE_WHATSAPP_ALL to ConfigKeys; Renamed WHATSAPP_ALL to WHATSAPP_ALL_ENRICHED in FilePrefixes

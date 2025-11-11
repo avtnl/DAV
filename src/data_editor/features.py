@@ -514,8 +514,3 @@ class FeatureEngineer:
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: Removed all stopword filtering from count_words and avg_word_length (2025-11-06)
-# NEW: Stopwords param now unused and optional (2025-11-06)
-# NEW: Counts all words including fillers like "ik", "het", "the", "and" (2025-11-06)
-# NEW: No NLTK dependency in core functions (2025-11-06)
-# NEW: Full consistency with no zeros for short messages (2025-11-06)

@@ -1,15 +1,13 @@
-# === script3.py ===
 # === Module Docstring ===
 """
-Distribution plot: Emoji distribution for the MAAP group (Script 3).
+Distribution plot: Emoji distribution for all 4 whatsapp group (Script 3).
 
-Filters the enriched DataFrame for the MAAP group, prepares the emoji-frequency
-DataFrame via :meth:`src.data_preparation.DataPreparation.build_visual_distribution`,
-and generates the bar + cumulative line chart via
-:meth:`src.plot_manager.PlotManager.build_visual_distribution`.
+- Prepares the emoji-frequency
+- DataFrame via DataPreparation.build_visual_distribution and generates the bar
+  + cumulative line chart via PlotManager.build_visual_distribution.
 
-- Saves **full emoji table** (all emojis + counts + Unicode) to `data/tables/`
-- Passes **top 20** to `plot_manager` for consistent visualization
+- Saves 'full emoji table' (all emojis + counts + Unicode) to `data/tables/`
+- Passes 'top 25 to `plot_manager` for consistent visualization
 - Optional power-law (Zipf) analysis - runs K-S test, saves log-log plot and model-comparison table
 - Flexible run modes: individual groups, combined, or both
 - Robust error handling and logging
@@ -20,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 
 from loguru import logger
-from src.constants import Columns, Groups, RunMode  # NEW: RunMode
+from src.constants import Columns, Groups, RunMode
 from src.plot_manager import DistributionPlotSettings
 from src.data_preparation import DistributionPlotData
 
@@ -84,7 +82,7 @@ class Script3(BaseScript):
         tables_dir = self.image_dir.parent / "tables"
         tables_dir.mkdir(exist_ok=True)
 
-        # === INDIVIDUAL GROUPS ===
+        # === 1. Individual Groups ===
         if self.run_mode in (RunMode.INDIVIDUAL, RunMode.BOTH):
             all_groups = [Groups.MAAP.value, Groups.DAC.value, Groups.GOLFMATEN.value, Groups.TILLIES.value]
             for group_name in all_groups:
@@ -124,7 +122,7 @@ class Script3(BaseScript):
 
             logger.success("Individual group analysis complete.")
 
-        # === COMBINED ANALYSIS ===
+        # === 2. Combined Analysis ===
         if self.run_mode in (RunMode.COMBINED, RunMode.BOTH):
             logger.info("Running COMBINED analysis on ALL groups...")
             self.run_combined_analysis(tables_dir)
@@ -214,10 +212,3 @@ class Script3(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Added RunMode support (individual/combined/both) (2025-11-07)
-# NEW: Full per-group + combined analysis with suffix handling (2025-11-07)
-# NEW: Clean run_mode logic with StrEnum (2025-11-07)
-# NEW: Full table export to data/tables/ (2025-11-05)
-# NEW: Pass top 20 to plot_manager for consistent visualization (2025-11-05)
-# NEW: Robust directory creation and logging (2025-11-05)
-# NEW: Clear step-by-step run() docstring (2025-11-05)

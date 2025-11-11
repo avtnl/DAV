@@ -1,15 +1,9 @@
-# === script2.py ===
 # === Module Docstring ===
 """
 Time plot: DAC weekly heartbeat (Script 2).
 
 Uses enriched DataFrame, builds TimePlotData,
 and generates weekly average line chart + optional seasonality suite.
-
-Examples
---------
->>> script = Script2(file_manager, data_preparation, plot_manager, image_dir, df)
->>> main_path, season_path = script.run()
 """
 
 # === Imports ===
@@ -128,4 +122,3 @@ class Script2(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Final Script2 with dual output, include_seasonality, no duplicate calls (2025-11-07)

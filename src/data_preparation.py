@@ -91,7 +91,7 @@ class TimePlotData(BaseModel):
     weekly_avg: Dict[int, float]
     global_avg: float
     date_range: tuple[datetime, datetime]
-    seasonality: Optional["SeasonalityEvidence"] = None  # Forward ref
+    seasonality: Optional["SeasonalityEvidence"] = None  # Forward reference
 
     @validator("weekly_avg")
     def validate_week_keys(cls, v):
@@ -237,7 +237,7 @@ class MultiDimPlotData(BaseModel):
     style_cols: list[str] = Field(..., description="Hand-crafted style feature column names")
     model_used: str = Field(..., description="Embedding model identifier")
     by_year: bool = True
-    plot_type: str = Field(..., description="pca | tsne | both")   # NEW
+    plot_type: str = Field(..., description="pca | tsne | both")
 
     class Config:
         arbitrary_types_allowed = True
@@ -481,7 +481,7 @@ class DataPreparation(BaseHandler):
             "resid": decomp.resid.values.tolist(),
         }
 
-        # === DIAGNOSTIC: Print residual stats ===
+        # === Print residual stats ===
         import numpy as np
 
         # 1. Raw additive model
@@ -926,7 +926,7 @@ class DataPreparation(BaseHandler):
                 style_cols=style_cols,
                 model_used=model_name,
                 by_year=True,
-                plot_type=plot_type,                               # NEW: (2025-11-10)
+                plot_type=plot_type,
             )
             logger.success(f"MultiDimPlotData built: {len(agg)} rows, {len(style_cols)} features, plot_type={plot_type}")
             return result
@@ -950,8 +950,6 @@ __all__ = [
     "RunMode",
 ]
 
-# TimePlotData.model_rebuild()
-
 
 # === CODING STANDARD ===
 # - `# === Module Docstring ===` before """
@@ -965,5 +963,3 @@ __all__ = [
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Migrated @root_validator → @model_validator (Pydantic v2) (2025-11-03)
-# NEW: All previous improvements preserved: constants, column checks, strict models

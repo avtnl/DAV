@@ -2,15 +2,8 @@
 """
 Launch Streamlit dashboard (Script6).
 
-Starts the interactive WhatsApp dashboard using subprocess.
-Runs `streamlit run src/dashboard/streamlit_app.py` with safe auto-open.
-
-Examples
---------
->>> script = Script6(file_manager, image_dir=Path("images"))
->>> result = script.run()
->>> print(result["url"])
-http://localhost:8501
+- Starts the interactive WhatsApp dashboard using subprocess.
+- Runs `streamlit run src/dashboard/streamlit_app.py` with safe auto-open.
 """
 
 # === Imports ===
@@ -114,5 +107,3 @@ class Script6(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Removed *args, **kwargs; use keyword args in super() (2025-11-03)
-# NEW: No df needed — not passed to BaseScript (2025-11-03)

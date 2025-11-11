@@ -2,7 +2,7 @@
 """
 Core orchestration within data_editor.
 
-Contains the main ``DataEditor`` class that coordinates:
+Contains the main DataEditor class that coordinates:
 - Message cleaning via ``MessageCleaner``
 - Feature engineering via ``FeatureEngineer``
 - Author initials mapping
@@ -43,7 +43,7 @@ class DataEditor:
             r'\U0001F900-\U0001FAFF'    # supplemental
             r'\U00002600-\U000026FF'    # misc symbols
             r'\U00002700-\U000027BF'    # dingbats
-            r'\u200D\uFE0F]',            # ZWJ + VS16
+            r'\u200D\uFE0F]',           # ZWJ + VS16
             re.UNICODE
         )
         self.ignore_emojis = {
@@ -123,7 +123,7 @@ class DataEditor:
             )
 
         def safe_parse(x):
-            if x is None:  # ← FIXED: was pd.isna(x)
+            if x is None:
                 return []
             if isinstance(x, list):
                 return x
@@ -281,6 +281,3 @@ class DataEditor:
 # - No mixed styles
 # - Add markers #NEW at the end of the module
 
-# NEW: Added parse_emojis() method with full CSV string handling and fallback (2025-11-05)
-# NEW: Robust ast.literal_eval with debug logging and type checking
-# NEW: Clear documentation explaining why this method is REQUIRED for CSV data

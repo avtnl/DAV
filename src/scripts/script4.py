@@ -1,16 +1,9 @@
-# === script5.py ===
 # === Module Docstring ===
 """
-Relationships plot: Bubble plot of words vs punctuation across multiple groups (Script 5).
+Relationships plot: Bubble plot of words vs punctuation across multiple groups (Script 4).
 
 Filters specified groups, computes averages, and renders relationship plot via
-:meth:`src.plot_manager.PlotManager.build_visual_relationships`.
-
-Examples
---------
->>> script = Script4(file_manager, data_preparation, plot_manager, image_dir, df)
->>> script.run()
-PosixPath('images/relationships_words_vs_punct.png')
+PlotManager.build_visual_relationships.
 """
 
 # === Imports ===
@@ -101,4 +94,3 @@ class Script4(BaseScript):
 # - No mixed styles
 # - Add markers #NEW at the end of the module capturing the latest changes.
 
-# NEW: df passed to super(); no *args, **kwargs (2025-11-03)
