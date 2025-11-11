@@ -2,7 +2,6 @@
 #  YOUR ORIGINAL ENTRIES (kept exactly as you wrote them)
 # ------------------------------------------------------------------
 logs/
-*.txt
 *.xlsx
 
 .python-version
