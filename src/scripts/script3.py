@@ -162,7 +162,7 @@ class Script3(BaseScript):
                 logger.info("Power-law fit is acceptable but not definitively superior.")
 
             # Log-log plot
-            loglog_fig = self.plot_manager.build_visual_distribution_powerlaw(analysis)
+            loglog_fig = self.plot_manager.build_visual_distribution_evidences(analysis)
             if loglog_fig:
                 loglog_path = self.save_figure(loglog_fig, self.image_dir, f"logmodel_evidence_distribution_plot{suffix}")
                 logger.success(f"Log-log plot saved: {loglog_path}")

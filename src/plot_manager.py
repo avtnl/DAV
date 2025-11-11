@@ -127,7 +127,6 @@ class DistributionPlotSettings(PlotSettings):
     cum_label: str = "Cumulative %"
     cum_threshold: float = 75.0
     top_table: int = 25  # For table, not bars
-    subtitle_y: float = 0.96
 
 # Power-Law Plot Settings
 class PowerLawPlotSettings(PlotSettings):
@@ -142,7 +141,7 @@ class PowerLawPlotSettings(PlotSettings):
     show_fit_line: bool = True
     annotate_alpha: bool = True
     tight_layout: bool = False
-    subtitle_y: float = 0.96
+    #subtitle_y: float = 0.92
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -310,8 +309,8 @@ class PlotManager:
                          color=settings.subtitle_color, ha=settings.subtitle_ha, va="center",
                          transform=fig.transFigure)
 
-            ax.set_ylabel(settings.ylabel, fontsize=12)
             ax.set_xlabel("WhatsApp Groups and participating Authors", fontsize=12)
+            ax.set_ylabel(settings.ylabel, fontsize=12)
             ax.set_xticks(x_pos)
             ax.set_xticklabels(author_labels, rotation=45, ha="right", fontsize=12)
 
@@ -416,13 +415,13 @@ class PlotManager:
         logger.success("Time plot built")
 
         if include_seasonality and data.seasonality is not None:
-            fig_season = self._build_seasonality_suite(data, season_settings or SeasonalityPlotSettings())
+            fig_season = self._build_seasonality_evidences(data, season_settings or SeasonalityPlotSettings())
             if fig_season:
                 figs["seasonality"] = fig_season
 
         return figs
 
-    def _build_seasonality_suite(
+    def _build_seasonality_evidences(
         self,
         time_data: TimePlotData,
         settings: SeasonalityPlotSettings,
@@ -504,7 +503,7 @@ class PlotManager:
             return fig
 
         except Exception as e:
-            logger.exception(f"_build_seasonality_suite failed: {e}")
+            logger.exception(f"_build_seasonality_evidences failed: {e}")
             return None
 
 
@@ -634,7 +633,7 @@ class PlotManager:
 
 
     # === Power-Law (Script3) ===
-    def build_visual_distribution_powerlaw(
+    def build_visual_distribution_evidences(
         self,
         analysis: PowerLawAnalysisResult,
         settings: PowerLawPlotSettings = PowerLawPlotSettings(),
@@ -665,15 +664,20 @@ class PlotManager:
                 ax.plot(x_fit, y_fit, color=settings.line_color, linewidth=settings.line_width,
                         label=f'Fit: α = {alpha:.2f}, $x_{{min}}$ = {xmin}')
 
-            ax.set_xlabel("Rank", fontsize=14)
-            ax.set_ylabel("Frequency", fontsize=14)
             ax.grid(True, which="both", ls="--", alpha=0.5)
             ax.legend(fontsize=12)
 
-            # Title + subtitle
-            ax.set_title(settings.title, fontsize=settings.font_size_title, fontweight='bold', pad=20)
-            fig.text(0.5, 0.92, settings.subtitle, ha='center', fontsize=settings.font_size_subtitle,
-                    color='dimgray', transform=fig.transFigure)
+            # Title and subtitle
+            ax.set_title(settings.title, fontsize=settings.title_fontsize, fontweight=settings.title_fontweight,
+                         pad=settings.title_pad, ha=settings.title_ha)
+            if settings.subtitle:
+                fig.text(0.5, settings.subtitle_y, settings.subtitle,
+                         fontsize=settings.subtitle_fontsize, fontweight=settings.subtitle_fontweight,
+                         color=settings.subtitle_color, ha=settings.subtitle_ha, va="center",
+                         transform=fig.transFigure)
+
+            ax.set_xlabel("Rank", fontsize=14)
+            ax.set_ylabel("Frequency", fontsize=14)
 
             if settings.annotate_alpha:
                 ax.annotate(f"α = {alpha:.2f}\nD = {analysis.fit.D:.3f}",
@@ -687,7 +691,7 @@ class PlotManager:
             return fig
 
         except Exception as e:
-            logger.exception(f"build_visual_distribution_powerlaw failed: {e}")
+            logger.exception(f"build_visual_distribution_evidences failed: {e}")
             return None
 
 
