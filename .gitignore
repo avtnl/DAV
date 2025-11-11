@@ -2,11 +2,9 @@
 #  YOUR ORIGINAL ENTRIES (kept exactly as you wrote them)
 # ------------------------------------------------------------------
 logs/
-data/
-*.csv
 *.txt
 *.xlsx
-*.parq
+
 .python-version
 hello.py
 

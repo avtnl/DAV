@@ -148,7 +148,7 @@ class Script5(BaseScript):
         plot_dir.mkdir(parents=True, exist_ok=True)
 
         # CSV summary → src/style_output/
-        csv_dir = Path("src") / "style_output"
+        csv_dir = Path("style_output")
         csv_dir.mkdir(parents=True, exist_ok=True)
 
         # === Pre-extract values to avoid repeated indexing ===

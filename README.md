@@ -11,6 +11,7 @@ PyPI version CI
 
 - Name: Anthony van Tilburg 
 - Student Number: 1905780
+- git: https://github.com/avtnl/DAV
 - Institution: Hogeschool Utrecht (Netherlands) 
 - Course: Master of Informatics | Applied Data Science | Data Analysis & Visualisation (DAV)
 

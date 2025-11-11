@@ -178,7 +178,11 @@ class FileManager:
         dfs = []
         for path, group in cleaned_paths_with_groups:
             try:
-                df = pd.read_csv(path, parse_dates=[Columns.TIMESTAMP])
+                if path.suffix.lower() == ".parq":
+                    df = pd.read_parquet(path)
+                else:
+                    df = pd.read_csv(path, parse_dates=[Columns.TIMESTAMP])
+
                 # Ensure minimal required columns
                 required_cols = [Columns.TIMESTAMP, Columns.AUTHOR, Columns.MESSAGE]
                 missing = [col for col in required_cols if col not in df.columns]

@@ -140,12 +140,7 @@ class Pipeline:
                     "image_dir": image_dir,
                     "tables_dir": tables_dir,
                     "df": df,
-                    "settings": CategoriesPlotSettings(
-                        figsize=(16, 9),
-                        group_spacing=3.0,
-                        title="Anthony's participation is significantly lower for the 3rd group",
-                        subtitle="Too much to handle or too much crap?",
-                    ),
+                    "settings": CategoriesPlotSettings()
                 }),
                 2: (Script2, {
                     "file_manager": file_manager,
